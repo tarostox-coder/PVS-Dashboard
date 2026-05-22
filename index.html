@@ -13,6 +13,819 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
+<!-- ============================================================
+     UNIVERSAL EXCEL DATA ENGINE (V8) — embedded, modular         
+     parser / mapper / normalizer / classifier / kpi engine.      
+     Loaded before the app so window.DataEngine is always ready.  
+     ============================================================ -->
+<script id="universal-data-engine">
+/* =============================================================================
+ * POWERVAULT — UNIVERSAL EXCEL DATA ENGINE  (V8)
+ * -----------------------------------------------------------------------------
+ * Enterprise-grade, schema-agnostic ingestion layer for the Powervault
+ * Service Dashboard. It reads ANY Excel structure (any sheet names, any column
+ * order, any header-row position, Thai/English headers, merged cells, decorative
+ * rows, missing/extra columns) and produces the canonical DATA model the UI
+ * already consumes — WITHOUT hardcoding sheet names, column letters, or row
+ * indexes.
+ *
+ * Pipeline (each stage is an isolated, replaceable module):
+ *   readWorkbook  ->  excelParser     (workbook -> { sheetName: 2D-grid })
+ *   detectHeader  ->  schemaDetector  (locate the real header row + columns)
+ *   mapColumns    ->  dynamicMapper   (header text -> canonical field, fuzzy)
+ *   classify      ->  datasetClassifier (which sheet is which dataset)
+ *   extractRows   ->  validationEngine  (typed, null-safe row extraction)
+ *   normalize*    ->  normalizeEngine   (currency/date/percent/bool parsing)
+ *   derive*       ->  kpiEngine         (compute derived fields for the contract)
+ *
+ * Design rules honoured:
+ *   - No `sheet["A1"]` style access. All scanning is dynamic.
+ *   - Every layer is wrapped in try/catch. A bad row/sheet is skipped, never fatal.
+ *   - Self-healing: missing columns fall back to nearest match or safe defaults.
+ *   - Returns a rich `report` for debug mode (window.dashboardDebug).
+ *
+ * The only browser-coupled function is `readWorkbook` (needs global XLSX).
+ * Everything else is pure and unit-testable via `buildFromSheets(sheetMap, ctx)`.
+ * ===========================================================================*/
+(function (root) {
+  'use strict';
+
+  /* ===========================================================================
+   * 0. DEBUG
+   * =========================================================================*/
+  const Debug = {
+    on() { return !!(root.dashboardDebug); },
+    group(label) { if (this.on() && console.groupCollapsed) console.groupCollapsed('🛠 ' + label); },
+    end() { if (this.on() && console.groupEnd) console.groupEnd(); },
+    log(...a) { if (this.on()) console.log(...a); },
+    table(x) { if (this.on() && console.table) try { console.table(x); } catch (e) { console.log(x); } },
+    warn(...a) { if (this.on()) console.warn(...a); },
+  };
+
+  /* ===========================================================================
+   * 1. NORMALIZE ENGINE  — text + value normalization & type detection
+   * =========================================================================*/
+  const HIDDEN = /[\u200B-\u200D\uFEFF\u00A0\u2060\u180E]/g; // zero-width / nbsp / hidden
+  const DECOR = /[#*✓✔✗×•·◦▪►▶★☆⭐📋📌🔴🟡🟢🟠🔵⚠️➡️→↗↘]/g;
+
+  const Normalize = {
+    /** Clean a header/string for HUMAN display (keep case, trim). */
+    text(v) {
+      if (v === null || v === undefined) return '';
+      if (v instanceof Date) return v.toISOString();
+      return String(v).replace(HIDDEN, '').trim();
+    },
+
+    /** Aggressively normalize a header for MATCHING (lowercase latin, strip noise). */
+    header(v) {
+      let s = this.text(v);
+      if (!s) return '';
+      s = s.replace(/\([^)]*\)/g, ' ');          // drop units like (บาท) (%) (ชม.)
+      s = s.replace(/\[[^\]]*\]/g, ' ');
+      s = s.replace(DECOR, ' ');
+      s = s.replace(/[%$฿]/g, ' ');
+      s = s.replace(/[_/\\\-–—.,:;|]+/g, ' ');
+      s = s.toLowerCase();
+      s = s.replace(/\s+/g, ' ').trim();
+      return s;
+    },
+
+    /** Parse a number from currency / formatted / plain text. NaN -> null. */
+    toNumber(v) {
+      if (v === null || v === undefined || v === '') return null;
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      if (v instanceof Date) return null;
+      let s = String(v).replace(HIDDEN, '').trim();
+      if (!s) return null;
+      let neg = false;
+      if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }     // (1,000) => -1000
+      s = s.replace(/[%]/g, '');
+      s = s.replace(/(฿|\$|€|£|thb|usd|บาท)/gi, '');
+      s = s.replace(/,/g, '').replace(/\s+/g, '');
+      if (s === '-' || s === '') return null;
+      if (/-$/.test(s)) { neg = true; s = s.replace(/-$/, ''); }
+      const n = parseFloat(s);
+      if (!isFinite(n)) return null;
+      return neg ? -n : n;
+    },
+
+    toPercent(v) {
+      const n = this.toNumber(v);
+      return n === null ? null : n;            // kept as-is (40 => 40, 0.4 => 0.4)
+    },
+
+    /** Boolean-ish: ✓ / yes / true / 1 -> true ; - / x / no / 0 -> false. */
+    toBool(v) {
+      const s = this.text(v).toLowerCase();
+      if (!s) return null;
+      if (/^(✓|✔|y|yes|true|1|มี|ใช่|active)$/.test(s)) return true;
+      if (/^(-|x|✗|n|no|false|0|ไม่|none)$/.test(s)) return false;
+      return null;
+    },
+
+    /** Robust date parser. Returns a Date or null. Timezone-safe (local). */
+    toDate(v) {
+      if (v === null || v === undefined || v === '') return null;
+      if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+      if (typeof v === 'number') {
+        // Excel serial fallback (only hit if cellDates was off)
+        if (v > 20000 && v < 80000) {
+          const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+          return isNaN(d.getTime()) ? null : d;
+        }
+        return null;
+      }
+      let s = String(v).replace(HIDDEN, '').trim();
+      if (!s) return null;
+
+      let m;
+      // ISO date / datetime: YYYY-MM-DD [HH:MM[:SS]]
+      m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+      if (m) {
+        return this._mk(+m[1], +m[2], +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+      }
+      // Year-month only: YYYY-MM
+      m = s.match(/^(\d{4})-(\d{1,2})$/);
+      if (m) return this._mk(+m[1], +m[2], 1);
+      // DD/MM/YYYY or MM/DD/YYYY (assume DD/MM for Thai context; auto-swap if invalid)
+      m = s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})/);
+      if (m) {
+        let a = +m[1], b = +m[2], y = +m[3];
+        if (y < 100) y += 2000;
+        if (a > 12 && b <= 12) return this._mk(y, b, a);   // clearly DD/MM
+        return this._mk(y, b, a);                          // default DD/MM
+      }
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    },
+    _mk(y, mo, d, hh, mm, ss) {
+      const dt = new Date(y, (mo || 1) - 1, d || 1, hh || 0, mm || 0, ss || 0);
+      return isNaN(dt.getTime()) ? null : dt;
+    },
+
+    /** Infer a column's dominant type from sample cells (for diagnostics). */
+    detectType(samples) {
+      let dt = 0, num = 0, pct = 0, txt = 0, tot = 0;
+      for (const v of samples) {
+        if (v === null || v === undefined || v === '') continue;
+        tot++;
+        if (v instanceof Date) { dt++; continue; }
+        const s = String(v);
+        if (/%/.test(s)) { pct++; continue; }
+        if (this.toDate(s) && /[-\/]/.test(s) && /\d{4}/.test(s)) { dt++; continue; }
+        if (this.toNumber(s) !== null && /\d/.test(s)) { num++; continue; }
+        txt++;
+      }
+      if (!tot) return 'empty';
+      if (dt / tot > 0.5) return 'date';
+      if (pct / tot > 0.4) return 'percent';
+      if (num / tot > 0.6) return 'number';
+      return 'text';
+    },
+  };
+
+  /* ===========================================================================
+   * 2. SIMILARITY — fuzzy header matching helpers
+   * =========================================================================*/
+  function bigrams(s) {
+    const out = [];
+    for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
+    return out;
+  }
+  /** Sørensen–Dice coefficient on character bigrams (0..1). */
+  function dice(a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    if (a.length < 2 || b.length < 2) return a === b ? 1 : 0;
+    const A = bigrams(a), B = bigrams(b);
+    const map = new Map();
+    for (const g of A) map.set(g, (map.get(g) || 0) + 1);
+    let inter = 0;
+    for (const g of B) { const c = map.get(g); if (c > 0) { inter++; map.set(g, c - 1); } }
+    return (2 * inter) / (A.length + B.length);
+  }
+  function levRatio(a, b) {
+    if (!a || !b) return 0;
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++)
+      for (let j = 1; j <= n; j++)
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1,
+          dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return 1 - dp[m][n] / Math.max(m, n);
+  }
+
+  /** Score a header against a field's synonym list (0..1, higher = better). */
+  function headerScore(headerNorm, synonymsNorm) {
+    if (!headerNorm) return 0;
+    let best = 0;
+    for (const syn of synonymsNorm) {
+      if (!syn) continue;
+      let sc = 0;
+      if (headerNorm === syn) sc = 1;
+      else if (headerNorm.includes(syn) || syn.includes(headerNorm)) {
+        const r = Math.min(headerNorm.length, syn.length) / Math.max(headerNorm.length, syn.length);
+        sc = 0.78 + 0.17 * r;                 // strong containment
+      } else {
+        sc = Math.max(dice(headerNorm, syn), 0.85 * levRatio(headerNorm, syn));
+      }
+      if (sc > best) best = sc;
+      if (best >= 0.999) break;
+    }
+    return best;
+  }
+
+  /* ===========================================================================
+   * 3. SCHEMA REGISTRY — canonical datasets, synonyms, types, signatures
+   *    (the ONLY domain knowledge; UI/render layer is untouched)
+   * =========================================================================*/
+  const T = Normalize;
+  function S(arr) { return arr.map(x => T.header(x)); } // pre-normalize synonyms
+
+  const DATASETS = [
+    {
+      key: 'revenue_actual', label: 'Revenue (Actual)',
+      nameHints: S(['revenue actual', 'revenue', 'รายได้', 'รายได้จริง', 'actual', 'sales', 'billing', 'invoice', 'ยอดขาย']),
+      signature: ['customer', 'revenue'],
+      strong: ['paymentStatus', 'cost', 'jobStatus', 'daysOverdue', 'date'],
+      fields: {
+        date:          { type: 'date',     syn: S(['วันที่', 'date', 'invoice date', 'billing date', 'วันที่ออกบิล', 'transaction date', 'created date', 'วันที่บิล']) },
+        customer:      { type: 'text',     syn: S(['ลูกค้า', 'customer', 'customer name', 'ชื่อลูกค้า', 'client', 'ลูกค้า customer']) },
+        project:       { type: 'text',     syn: S(['ชื่อโครงการ', 'project', 'project name', 'โครงการ', 'งาน']) },
+        service:       { type: 'text',     syn: S(['ประเภทบริการ', 'service', 'service type', 'บริการ']) },
+        category:      { type: 'text',     syn: S(['หมวดหมู่รายได้', 'category', 'revenue category', 'หมวดหมู่', 'ประเภทรายได้']) },
+        revenue:       { type: 'currency', syn: S(['รายได้', 'revenue', 'sales', 'ยอดขาย', 'รายได้รวม', 'ยอดรวม', 'total revenue', 'รายได้ บาท', 'amount', 'มูลค่า']) },
+        cost:          { type: 'currency', syn: S(['ต้นทุน', 'cost', 'cogs', 'ต้นทุนรวม']) },
+        profit:        { type: 'currency', syn: S(['กำไรขั้นต้น', 'gross profit', 'profit', 'กำไร', 'margin']) },
+        jobStatus:     { type: 'text',     syn: S(['สถานะงาน', 'job status', 'สถานะงานปัจจุบัน']) },
+        responsible:   { type: 'text',     syn: S(['ผู้รับผิดชอบ', 'responsible', 'owner', 'ผู้ดูแล', 'engineer', 'assignee', 'ทีม']) },
+        paymentStatus: { type: 'text',     syn: S(['สถานะการชำระเงิน', 'payment status', 'สถานะชำระ', 'การชำระเงิน', 'invoice status']) },
+        receivedDate:  { type: 'date',     syn: S(['วันที่รับเงิน', 'received date', 'payment date', 'วันรับเงิน', 'paid date']) },
+        daysOverdue:   { type: 'number',   syn: S(['จำนวนวันค้างชำระ', 'days overdue', 'overdue days', 'วันค้างชำระ', 'aging']) },
+        kW:            { type: 'number',   syn: S(['kw', 'kwp', 'กำลังการผลิต', 'capacity', 'kw เฉลี่ย']) },
+        province:      { type: 'text',     syn: S(['จังหวัด', 'province']) },
+        site:          { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'หน้างาน']) },
+      },
+    },
+    {
+      key: 'revenue_forecast', label: 'Revenue (Forecast)',
+      nameHints: S(['forecast', 'คาดการณ์', 'pipeline', 'forecast pipeline', 'รายได้คาดการณ์']),
+      signature: ['revenue', 'probability'],
+      strong: ['forecastMonth', 'closeDate', 'ptype'],
+      fields: {
+        forecastMonth: { type: 'monthish', syn: S(['เดือน forecast', 'forecast month', 'เดือน', 'month', 'เดือนคาดการณ์']) },
+        project:       { type: 'text',     syn: S(['ชื่อโครงการ', 'project', 'project name', 'โครงการ', 'deal']) },
+        ptype:         { type: 'text',     syn: S(['ประเภทโครงการ', 'project type', 'ประเภทงาน', 'type']) },
+        probability:   { type: 'percent',  syn: S(['probability', 'probability %', 'ความน่าจะเป็น', 'โอกาส', 'win rate', 'win %']) },
+        revenue:       { type: 'currency', syn: S(['รายได้คาดการณ์', 'forecast revenue', 'expected revenue', 'รายได้', 'มูลค่า', 'value', 'amount']) },
+        closeDate:     { type: 'date',     syn: S(['วันที่คาดว่าจะปิดงาน', 'close date', 'expected close', 'วันปิดงาน', 'closing date']) },
+        status:        { type: 'text',     syn: S(['สถานะ', 'status', 'stage', 'deal status']) },
+      },
+    },
+    {
+      key: 'customer_master', label: 'Customer Master',
+      nameHints: S(['customer master', 'customer', 'ลูกค้า', 'master', 'client', 'รายชื่อลูกค้า']),
+      signature: ['name', 'grade'],
+      strong: ['group', 'businessType', 'warrantyEnd'],
+      fields: {
+        name:         { type: 'text',     syn: S(['ชื่อลูกค้า', 'customer', 'customer name', 'ลูกค้า', 'client', 'name', 'บริษัท']) },
+        group:        { type: 'text',     syn: S(['กลุ่มลูกค้า', 'customer group', 'group', 'กลุ่ม']) },
+        businessType: { type: 'text',     syn: S(['ประเภทธุรกิจ', 'business type', 'industry', 'ประเภท']) },
+        warrantyEnd:  { type: 'date',     syn: S(['วันหมด warranty', 'warranty end', 'warranty', 'วันหมดประกัน', 'หมดประกัน']) },
+        status:       { type: 'text',     syn: S(['สถานะสัญญา', 'status', 'contract status', 'สถานะ']) },
+        contact:      { type: 'text',     syn: S(['ผู้ติดต่อ', 'contact', 'contact person', 'ผู้ประสานงาน']) },
+        totalRevenue: { type: 'currency', syn: S(['รายได้รวม 12 เดือน', 'total revenue', 'รายได้รวม', 'รายได้ 12 เดือน', 'lifetime revenue']) },
+        grade:        { type: 'text',     syn: S(['grade', 'เกรด', 'grade ลูกค้า', 'tier', 'ระดับลูกค้า']) },
+      },
+    },
+    {
+      key: 'alarm_status', label: 'Alarm Status',
+      nameHints: S(['alarm', 'alarm status', 'สถานะ alarm', 'fault', 'event', 'แจ้งเตือน']),
+      signature: ['level', 'site'],
+      strong: ['inverterId', 'downtimeHrs', 'type'],
+      fields: {
+        time:         { type: 'date',     syn: S(['เวลาแจ้งเตือน', 'alarm time', 'timestamp', 'เวลา', 'time', 'วันที่เวลา']) },
+        site:         { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'หน้างาน', 'plant']) },
+        customer:     { type: 'text',     syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
+        level:        { type: 'text',     syn: S(['ระดับ alarm', 'severity', 'ระดับ', 'level', 'alarm level']) },
+        type:         { type: 'text',     syn: S(['ประเภท alarm', 'alarm type', 'ประเภท', 'fault type']) },
+        inverterId:   { type: 'text',     syn: S(['inverter id', 'inverter', 'อินเวอร์เตอร์', 'device id']) },
+        status:       { type: 'text',     syn: S(['สถานะ', 'status']) },
+        responsible:  { type: 'text',     syn: S(['ผู้รับผิดชอบ', 'responsible', 'owner', 'engineer', 'ทีม']) },
+        kW:           { type: 'number',   syn: S(['kw', 'kwp', 'capacity', 'กำลังการผลิต']) },
+        downtimeHrs:  { type: 'number',   syn: S(['downtime', 'downtime ชม', 'downtime hrs', 'ชั่วโมง downtime', 'เวลาหยุด']) },
+      },
+    },
+    {
+      key: 'permit_jobs', label: 'Permit Jobs',
+      nameHints: S(['permit', 'permit jobs', 'เอกสาร', 'license', 'ขออนุญาต', 'งานเอกสาร']),
+      signature: ['docType', 'dueDate'],
+      strong: ['customer', 'revenue', 'status'],
+      fields: {
+        customer:  { type: 'text',     syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า', 'client']) },
+        docType:   { type: 'text',     syn: S(['ประเภทเอกสาร', 'document type', 'doc type', 'permit type', 'ประเภทงาน']) },
+        startDate: { type: 'date',     syn: S(['วันที่เริ่มงาน', 'start date', 'วันเริ่ม', 'เริ่มงาน']) },
+        dueDate:   { type: 'date',     syn: S(['due date', 'กำหนดเสร็จ', 'วันครบกำหนด', 'deadline', 'วันกำหนดส่ง']) },
+        revenue:   { type: 'currency', syn: S(['รายได้', 'revenue', 'มูลค่า', 'value', 'amount', 'เงินจม']) },
+        status:    { type: 'text',     syn: S(['สถานะ', 'status', 'permit status']) },
+      },
+    },
+    {
+      key: 'cleaning', label: 'Cleaning Plan',
+      nameHints: S(['cleaning', 'cleaning masterplan', 'ทำความสะอาด', 'ล้างแผง', 'clean']),
+      signature: ['planDate', 'team'],
+      strong: ['customer', 'site', 'status'],
+      fields: {
+        customer:   { type: 'text', syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
+        site:       { type: 'text', syn: S(['site', 'ไซต์', 'สถานที่']) },
+        planDate:   { type: 'date', syn: S(['วันที่ตามแผน', 'plan date', 'planned date', 'แผน', 'scheduled date']) },
+        actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
+        status:     { type: 'text', syn: S(['สถานะ', 'status']) },
+        team:       { type: 'text', syn: S(['ทีมงาน', 'team', 'crew', 'ทีม']) },
+        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity']) },
+      },
+    },
+    {
+      key: 'inspection', label: 'Inspection Plan',
+      nameHints: S(['inspection', 'inspection masterplan', 'ตรวจสอบ', 'ตรวจเช็ค', 'inspect']),
+      signature: ['planDate', 'team'],
+      strong: ['customer', 'site', 'status'],
+      fields: {
+        customer:   { type: 'text', syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
+        site:       { type: 'text', syn: S(['site', 'ไซต์', 'สถานที่']) },
+        planDate:   { type: 'date', syn: S(['วันที่ตามแผน', 'plan date', 'planned date', 'แผน', 'scheduled date']) },
+        actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
+        status:     { type: 'text', syn: S(['สถานะ', 'status']) },
+        team:       { type: 'text', syn: S(['ทีมงาน', 'team', 'engineer', 'ทีม']) },
+        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity']) },
+      },
+    },
+    {
+      key: 'om_contracts', label: 'O&M Contracts',
+      nameHints: S(['o m contracts', 'om', 'contract', 'สัญญา', 'maintenance', 'o m']),
+      signature: ['customer', 'sla'],
+      strong: ['startDate', 'endDate', 'fee', 'site'],
+      fields: {
+        customer:  { type: 'text',     syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
+        site:      { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่']) },
+        startDate: { type: 'date',     syn: S(['วันเริ่มสัญญา', 'start date', 'contract start', 'วันเริ่ม']) },
+        endDate:   { type: 'date',     syn: S(['วันหมดสัญญา', 'end date', 'contract end', 'วันสิ้นสุด', 'expiry']) },
+        sla:       { type: 'number',   syn: S(['sla', 'sla %', 'service level']) },
+        fee:       { type: 'currency', syn: S(['ค่าบริการ เดือน', 'monthly fee', 'ค่าบริการ', 'fee', 'service fee']) },
+        status:    { type: 'text',     syn: S(['สถานะสัญญา', 'status', 'contract status', 'สถานะ']) },
+      },
+    },
+    {
+      key: 'scada_summary', label: 'SCADA Summary',
+      nameHints: S(['scada', 'scada summary', 'monitoring summary']),
+      signature: ['month', 'alarms'],
+      strong: ['critical', 'totalDowntime', 'revenueLoss'],
+      fields: {
+        month:         { type: 'monthish', syn: S(['เดือน', 'month']) },
+        customer:      { type: 'text',     syn: S(['ลูกค้า', 'customer']) },
+        alarms:        { type: 'number',   syn: S(['จำนวน alarm รวม', 'total alarms', 'alarms', 'จำนวน alarm']) },
+        critical:      { type: 'number',   syn: S(['critical']) },
+        major:         { type: 'number',   syn: S(['major']) },
+        minor:         { type: 'number',   syn: S(['minor']) },
+        totalDowntime: { type: 'number',   syn: S(['downtime รวม', 'total downtime', 'downtime']) },
+        avgPR:         { type: 'number',   syn: S(['avg pr', 'pr', 'performance ratio']) },
+        revenueLoss:   { type: 'currency', syn: S(['revenue loss', 'รายได้สูญเสีย', 'loss']) },
+      },
+    },
+  ];
+
+  /* ===========================================================================
+   * 4. EXCEL PARSER  (browser-only; needs global XLSX) -> { name: 2D grid }
+   *    Dynamic, merge-aware, no fixed cell addresses.
+   * =========================================================================*/
+  function sheetToGrid(XLSX, ws) {
+    if (!ws || !ws['!ref']) return [];
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const grid = [];
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      const row = [];
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        row.push(cell ? (cell.v !== undefined ? cell.v : (cell.w !== undefined ? cell.w : null)) : null);
+      }
+      grid.push(row);
+    }
+    // Fill merged regions so headers/labels propagate across the merge.
+    const merges = ws['!merges'] || [];
+    for (const m of merges) {
+      const v = grid[m.s.r] ? grid[m.s.r][m.s.c] : null;
+      if (v === null || v === undefined) continue;
+      for (let r = m.s.r; r <= m.e.r; r++)
+        for (let c = m.s.c; c <= m.e.c; c++)
+          if (grid[r] && (grid[r][c] === null || grid[r][c] === undefined)) grid[r][c] = v;
+    }
+    return grid;
+  }
+
+  function readWorkbook(arrayBuffer) {
+    const XLSX = root.XLSX;
+    if (!XLSX) throw new Error('XLSX library not loaded');
+    const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, cellNF: false, cellText: false });
+    const out = {};
+    for (const name of wb.SheetNames) {
+      try { out[name] = sheetToGrid(XLSX, wb.Sheets[name]); }
+      catch (e) { Debug.warn('sheet read failed', name, e); out[name] = []; }
+    }
+    return out;
+  }
+
+  /* ===========================================================================
+   * 5. SCHEMA DETECTOR — locate the real header row + usable columns
+   * =========================================================================*/
+  const ALL_SYNS = (function () {
+    const set = new Set();
+    for (const ds of DATASETS) for (const k in ds.fields) for (const s of ds.fields[k].syn) if (s) set.add(s);
+    return [...set];
+  })();
+
+  function rowHeaderScore(row) {
+    let nonEmpty = 0, strings = 0, longCount = 0, knownHits = 0, dateLike = 0, numLike = 0;
+    for (const cell of row) {
+      if (cell === null || cell === undefined || cell === '') continue;
+      nonEmpty++;
+      if (cell instanceof Date) { dateLike++; continue; }
+      const s = T.text(cell);
+      if (typeof cell === 'number') { numLike++; continue; }
+      strings++;
+      if (s.length > 45) longCount++;
+      const hn = T.header(s);
+      if (hn) for (const syn of ALL_SYNS) { if (hn === syn || (hn.length > 2 && (hn.includes(syn) || syn.includes(hn)))) { knownHits++; break; } }
+    }
+    if (nonEmpty < 2) return -1;
+    // Header rows are mostly short strings, few numbers/dates, many known terms.
+    let score = strings * 1.0 + knownHits * 3.0 - longCount * 2.0 - dateLike * 2.5 - numLike * 1.5;
+    score += Math.min(nonEmpty, 12) * 0.3;
+    return score;
+  }
+
+  /** Returns { row, dataStart, cols:[{idx,raw,norm}] } or null. */
+  function detectHeader(grid, scanRows) {
+    if (!grid || !grid.length) return null;
+    const limit = Math.min(grid.length, scanRows || 15);
+    let bestRow = -1, bestScore = -Infinity;
+    for (let r = 0; r < limit; r++) {
+      const sc = rowHeaderScore(grid[r] || []);
+      if (sc > bestScore) { bestScore = sc; bestRow = r; }
+    }
+    if (bestRow < 0 || bestScore <= 0) return null;
+    const raw = grid[bestRow];
+    const cols = [];
+    for (let c = 0; c < raw.length; c++) {
+      const v = raw[c];
+      if (v === null || v === undefined || v === '') continue;
+      const rawTxt = T.text(v), norm = T.header(v);
+      if (!norm) continue;
+      cols.push({ idx: c, raw: rawTxt, norm });
+    }
+    if (cols.length < 2) return null;
+    return { row: bestRow, dataStart: bestRow + 1, cols, score: bestScore };
+  }
+
+  /* ===========================================================================
+   * 6. DYNAMIC MAPPER — header columns -> canonical fields (greedy, fuzzy)
+   * =========================================================================*/
+  const MAP_THRESHOLD = 0.5;
+
+  function mapColumns(headerCols, dataset) {
+    const pairs = []; // {field, idx, score}
+    for (const field in dataset.fields) {
+      const syns = dataset.fields[field].syn;
+      for (const col of headerCols) {
+        const sc = headerScore(col.norm, syns);
+        if (sc >= MAP_THRESHOLD) pairs.push({ field, idx: col.idx, score: sc, col });
+      }
+    }
+    pairs.sort((a, b) => b.score - a.score);
+    const map = {}, usedCol = new Set(), usedField = new Set(), matched = [];
+    for (const p of pairs) {
+      if (usedField.has(p.field) || usedCol.has(p.idx)) continue;
+      map[p.field] = p.idx; usedField.add(p.field); usedCol.add(p.idx);
+      matched.push({ field: p.field, header: p.col.raw, score: +p.score.toFixed(2) });
+    }
+    return { map, matched };
+  }
+
+  /** Coverage score of a dataset against a sheet's header (0..1+). */
+  function datasetScore(headerCols, dataset, sheetName) {
+    const { map, matched } = mapColumns(headerCols, dataset);
+    const sig = dataset.signature || [];
+    let sigHit = 0;
+    for (const f of sig) if (map[f] !== undefined) sigHit++;
+    const sigCov = sig.length ? sigHit / sig.length : 0;
+
+    let strongHit = 0;
+    for (const f of (dataset.strong || [])) if (map[f] !== undefined) strongHit++;
+    const strongCov = (dataset.strong && dataset.strong.length) ? strongHit / dataset.strong.length : 0;
+
+    // sheet-name hint (secondary, tie-breaker for structurally identical sheets)
+    const sn = T.header(sheetName || '');
+    let nameHit = 0;
+    for (const h of dataset.nameHints) {
+      if (!h) continue;
+      if (sn === h || sn.includes(h) || h.includes(sn)) { nameHit = 1; break; }
+      nameHit = Math.max(nameHit, dice(sn, h));
+    }
+    const total = sigCov * 1.0 + strongCov * 0.35 + nameHit * 0.5;
+    return { total, sigCov, strongCov, nameHit, map, matched };
+  }
+
+  /* ===========================================================================
+   * 7. DATASET CLASSIFIER — assign each sheet to its best dataset (greedy)
+   * =========================================================================*/
+  const ASSIGN_THRESHOLD = 0.6;  // require decent signature coverage + signal
+
+  function classify(detectedSheets) {
+    const candidates = []; // {sheet, dsKey, ...score}
+    for (const sh of detectedSheets) {
+      for (const ds of DATASETS) {
+        const s = datasetScore(sh.header.cols, ds, sh.name);
+        if (s.sigCov >= 0.5 && s.total >= ASSIGN_THRESHOLD) {
+          candidates.push({ sheet: sh.name, dsKey: ds.key, dataset: ds, ...s });
+        }
+      }
+    }
+    candidates.sort((a, b) => b.total - a.total);
+    const assignedDs = new Set(), assignedSheet = new Set(), result = [];
+    for (const c of candidates) {
+      if (assignedDs.has(c.dsKey) || assignedSheet.has(c.sheet)) continue;
+      assignedDs.add(c.dsKey); assignedSheet.add(c.sheet);
+      result.push(c);
+    }
+    return result;
+  }
+
+  /* ===========================================================================
+   * 8. ROW EXTRACTION + VALIDATION — typed, null-safe (skip bad rows)
+   * =========================================================================*/
+  function parseByType(type, v) {
+    switch (type) {
+      case 'date': return T.toDate(v);
+      case 'currency':
+      case 'number': return T.toNumber(v);
+      case 'percent': return T.toPercent(v);
+      case 'bool': return T.toBool(v);
+      case 'monthish': return v;       // keep raw, derive converts
+      default: return T.text(v);
+    }
+  }
+
+  function extractRows(grid, header, dataset, colMap, report) {
+    const out = [];
+    const fieldEntries = Object.keys(colMap);
+    for (let r = header.dataStart; r < grid.length; r++) {
+      const raw = grid[r]; if (!raw) continue;
+      try {
+        // skip fully-empty (within mapped columns) rows
+        let any = false;
+        for (const f of fieldEntries) {
+          const cv = raw[colMap[f]];
+          if (cv !== null && cv !== undefined && cv !== '') { any = true; break; }
+        }
+        if (!any) continue;
+        const obj = {};
+        for (const f of fieldEntries) {
+          obj[f] = parseByType(dataset.fields[f].type, raw[colMap[f]]);
+        }
+        out.push(obj);
+      } catch (e) {
+        report.invalidRows.push({ dataset: dataset.key, row: r, error: String(e) });
+      }
+    }
+    return out;
+  }
+
+  /* ===========================================================================
+   * 9. KPI / DERIVE ENGINE — map typed rows -> the exact UI DATA contract
+   * =========================================================================*/
+  function firstToken(s) { const t = T.text(s); return t ? t.split(/\s+/)[0] : ''; }
+  function monthString(v, ctx) {
+    if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}`;
+    const s = T.text(v);
+    let m = s.match(/^(\d{4})-(\d{1,2})/);
+    if (m) return `${m[1]}-${String(+m[2]).padStart(2, '0')}`;
+    const d = T.toDate(s);
+    if (d) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return s.slice(0, 7);
+  }
+
+  const DERIVE = {
+    revenue_actual(rows, ctx) {
+      return rows.map(r => {
+        const billingDate = ctx.toLocalISO(r.date) || (r.date ? String(r.date).slice(0, 10) : '');
+        const receivedDate = r.receivedDate ? (ctx.toLocalISO(r.receivedDate) || '') : '';
+        const revenue = r.revenue || 0, cost = r.cost || 0;
+        return {
+          date: billingDate, billingDate, receivedDate,
+          daysOverdue: r.daysOverdue || 0,
+          customer: T.text(r.customer), project: T.text(r.project), service: T.text(r.service),
+          category: T.text(r.category), revenue, cost,
+          profit: r.profit != null ? r.profit : (revenue - cost),
+          jobStatus: T.text(r.jobStatus), responsible: T.text(r.responsible),
+          paymentStatus: T.text(r.paymentStatus) || 'Pending',
+          kW: r.kW || 0, province: T.text(r.province) || 'กรุงเทพฯ', site: T.text(r.site),
+        };
+      }).filter(r => r.customer && (r.billingDate || r.revenue));
+    },
+    revenue_forecast(rows, ctx) {
+      return rows.map(r => ({
+        forecastMonth: monthString(r.forecastMonth, ctx),
+        project: T.text(r.project),
+        customer: T.text(r.customer) || firstToken(r.project),
+        ptype: T.text(r.ptype),
+        probability: r.probability || 0,
+        revenue: r.revenue || 0,
+        closeDate: ctx.toLocalISO(r.closeDate) || '',
+        status: T.text(r.status),
+      })).filter(r => (r.project || r.customer) && r.revenue);
+    },
+    customer_master(rows, ctx, DATA) {
+      const list = rows.map(r => ({
+        name: T.text(r.name), group: T.text(r.group), businessType: T.text(r.businessType),
+        warrantyEnd: ctx.toLocalISO(r.warrantyEnd) || '', status: T.text(r.status) || 'Active',
+        contact: T.text(r.contact), grade: T.text(r.grade) || 'C', totalRevenue: r.totalRevenue || 0,
+      })).filter(r => r.name);
+      list.forEach(c => {
+        if (!c.totalRevenue) c.totalRevenue = (DATA.revenue_actual || []).filter(r => r.customer === c.name).reduce((s, r) => s + r.revenue, 0);
+        if (!['A', 'B', 'C'].includes(c.grade)) {
+          c.grade = c.totalRevenue >= ctx.CONFIG.GRADE_A_THRESHOLD ? 'A'
+                  : c.totalRevenue >= ctx.CONFIG.GRADE_B_THRESHOLD ? 'B' : 'C';
+        }
+      });
+      return list;
+    },
+    alarm_status(rows, ctx) {
+      return rows.map(r => {
+        const ts = r.time instanceof Date ? r.time.getTime() : Date.now();
+        const startHour = new Date(ts).getHours();
+        const level = T.text(r.level) || 'Minor';
+        const dt = (r.downtimeHrs && r.downtimeHrs > 0) ? r.downtimeHrs
+          : (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : 0.25);
+        const kW = (r.kW && r.kW > 0) ? r.kW : 100;
+        return {
+          time: ctx.toLocalDateTime(r.time) || T.text(r.time), timestamp: ts, hourOfDay: startHour,
+          customer: T.text(r.customer) || firstToken(r.site), site: T.text(r.site),
+          level, type: T.text(r.type), inverterId: T.text(r.inverterId), status: T.text(r.status),
+          kW, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
+          downtimeHrs: dt, revenueLoss: ctx.computeTimeSpecificLoss(kW, startHour, dt),
+          responsible: T.text(r.responsible),
+        };
+      }).filter(r => r.site || r.customer);
+    },
+    permit_jobs(rows, ctx) {
+      return rows.map(r => {
+        const due = r.dueDate instanceof Date ? r.dueDate : T.toDate(r.dueDate);
+        const dueOffset = due ? Math.floor((due - ctx.today) / 86400000) : 0;
+        return {
+          customer: T.text(r.customer), docType: T.text(r.docType),
+          startDate: ctx.toLocalISO(r.startDate) || '', dueDate: ctx.toLocalISO(due) || '',
+          dueOffset, revenue: r.revenue || 0, status: T.text(r.status),
+        };
+      }).filter(r => r.customer || r.docType);
+    },
+    cleaning(rows, ctx) {
+      return rows.map(r => ({
+        customer: T.text(r.customer), site: T.text(r.site),
+        planDate: ctx.toLocalISO(r.planDate) || '', actualDate: ctx.toLocalISO(r.actualDate) || '',
+        status: T.text(r.status), team: T.text(r.team), kW: r.kW || 0,
+      })).filter(r => r.customer || r.site);
+    },
+    inspection(rows, ctx) { return DERIVE.cleaning(rows, ctx); },
+    om_contracts(rows, ctx) {
+      return rows.map(r => ({
+        customer: T.text(r.customer), site: T.text(r.site),
+        startDate: ctx.toLocalISO(r.startDate) || '', endDate: ctx.toLocalISO(r.endDate) || '',
+        sla: r.sla != null ? r.sla : 95, fee: r.fee || 0, status: T.text(r.status) || 'Active',
+      })).filter(r => r.customer);
+    },
+    scada_summary(rows, ctx) {
+      return rows.map(r => ({
+        month: monthString(r.month, ctx), customer: T.text(r.customer),
+        alarms: r.alarms || 0, critical: r.critical || 0, major: r.major || 0, minor: r.minor || 0,
+        totalDowntime: r.totalDowntime || 0, avgPR: r.avgPR || 0, revenueLoss: r.revenueLoss || 0,
+      })).filter(r => r.month);
+    },
+  };
+
+  /* ===========================================================================
+   * 10. ORCHESTRATOR
+   * =========================================================================*/
+  function defaultCtx(ctx) {
+    ctx = ctx || {};
+    return {
+      today: ctx.today || new Date(),
+      CONFIG: ctx.CONFIG || { GRADE_A_THRESHOLD: 500000, GRADE_B_THRESHOLD: 150000 },
+      toLocalISO: ctx.toLocalISO || (d => d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 10) : (typeof d === 'string' ? d.slice(0, 10) : '')),
+      toLocalDateTime: ctx.toLocalDateTime || (d => d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 16).replace('T', ' ') : (typeof d === 'string' ? d : '')),
+      efficiencyAtHour: ctx.efficiencyAtHour || (h => (h >= 10 && h < 14) ? 0.85 : ((h >= 8 && h < 17) ? 0.35 : 0)),
+      computeTimeSpecificLoss: ctx.computeTimeSpecificLoss || (() => 0),
+    };
+  }
+
+  /** Pure core: { sheetName: 2D-grid } -> { data, report }. Fully testable. */
+  function buildFromSheets(sheetMap, rawCtx, onStage) {
+    const ctx = defaultCtx(rawCtx);
+    const report = {
+      sheetsScanned: 0, sheetsAssigned: 0, datasets: {}, skippedSheets: [],
+      invalidRows: [], warnings: [], assignments: [],
+    };
+    const data = {
+      revenue_actual: [], revenue_forecast: [], om_contracts: [], alarm_status: [],
+      cleaning: [], inspection: [], permit_jobs: [], customer_master: [], scada_summary: [],
+    };
+
+    Debug.group('Universal Data Engine');
+
+    // --- Stage A: detect headers per sheet -------------------------------
+    if (onStage) onStage('parsing', 'กำลังสแกนตาราง...');
+    const detected = [];
+    for (const name in sheetMap) {
+      report.sheetsScanned++;
+      try {
+        const grid = sheetMap[name];
+        const header = detectHeader(grid, 16);
+        if (!header) { report.skippedSheets.push({ name, reason: 'no header detected' }); continue; }
+        detected.push({ name, grid, header });
+        Debug.log(`Header "${name}" @row ${header.row}:`, header.cols.map(c => c.raw));
+      } catch (e) {
+        report.skippedSheets.push({ name, reason: String(e) });
+      }
+    }
+
+    // --- Stage B: classify sheets -> datasets ----------------------------
+    if (onStage) onStage('mapping', 'กำลังจับคู่คอลัมน์...');
+    let assignments = [];
+    try { assignments = classify(detected); }
+    catch (e) { report.warnings.push('classify failed: ' + e); }
+
+    // --- Stage C: map + extract + derive ---------------------------------
+    for (const a of assignments) {
+      try {
+        const sh = detected.find(d => d.name === a.sheet);
+        if (!sh) continue;
+        const ds = a.dataset;
+        const colMap = a.map;
+        const typedRows = extractRows(sh.grid, sh.header, ds, colMap, report);
+        const derived = DERIVE[ds.key] ? DERIVE[ds.key](typedRows, ctx, data) : typedRows;
+        data[ds.key] = derived;
+        report.sheetsAssigned++;
+        report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2) };
+        report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2) });
+        Debug.log(`✔ ${a.sheet} → ${ds.key} (${derived.length} rows, score ${a.total.toFixed(2)})`);
+      } catch (e) {
+        report.warnings.push(`extract ${a.sheet}->${a.dsKey} failed: ${e}`);
+      }
+    }
+
+    // Recompute customer grades once revenue is known (self-heal ordering)
+    try {
+      if (data.customer_master.length) {
+        data.customer_master.forEach(c => {
+          if (!c.totalRevenue) c.totalRevenue = data.revenue_actual.filter(r => r.customer === c.name).reduce((s, r) => s + r.revenue, 0);
+          if (!['A', 'B', 'C'].includes(c.grade)) {
+            c.grade = c.totalRevenue >= ctx.CONFIG.GRADE_A_THRESHOLD ? 'A'
+                    : c.totalRevenue >= ctx.CONFIG.GRADE_B_THRESHOLD ? 'B' : 'C';
+          }
+        });
+      }
+    } catch (e) { report.warnings.push('grade recompute failed: ' + e); }
+
+    Debug.log('Report:', report);
+    Debug.end();
+    return { data, report };
+  }
+
+  /** Browser entry: arrayBuffer -> { data, report }. Never throws. */
+  function run(arrayBuffer, ctx, onStage) {
+    try {
+      if (onStage) onStage('reading', 'กำลังอ่านไฟล์ Excel...');
+      const sheets = readWorkbook(arrayBuffer);
+      return buildFromSheets(sheets, ctx, onStage);
+    } catch (e) {
+      Debug.warn('engine.run fatal:', e);
+      return {
+        data: { revenue_actual: [], revenue_forecast: [], om_contracts: [], alarm_status: [], cleaning: [], inspection: [], permit_jobs: [], customer_master: [], scada_summary: [] },
+        report: { fatal: String(e), datasets: {}, assignments: [], invalidRows: [], warnings: [String(e)], sheetsScanned: 0, sheetsAssigned: 0, skippedSheets: [] },
+      };
+    }
+  }
+
+  const API = {
+    run, buildFromSheets, readWorkbook,
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid },
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.DataEngine = API;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+
 <style>
 :root {
   --bg: #0A1124;
@@ -1547,6 +2360,88 @@ input[type="file"] { display: none; }
   margin-top: 2px;
 }
 
+/* ============== UNIVERSAL IMPORT PROGRESS OVERLAY ============== */
+#importOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(5, 9, 20, 0.72);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .22s ease;
+}
+#importOverlay.show { display: flex; opacity: 1; }
+.import-card {
+  width: min(440px, 90vw);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 30px 30px 26px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.45), 0 0 0 1px rgba(19,194,194,.08);
+  text-align: center;
+  animation: importPop .26s cubic-bezier(.18,.89,.32,1.28);
+}
+@keyframes importPop { from { transform: translateY(10px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
+.import-spinner {
+  width: 46px; height: 46px; margin: 0 auto 16px;
+  border-radius: 50%;
+  border: 3px solid rgba(19,194,194,.18);
+  border-top-color: var(--cyan);
+  animation: importSpin .8s linear infinite;
+}
+@keyframes importSpin { to { transform: rotate(360deg); } }
+.import-title {
+  font-size: 16px; font-weight: 700; color: var(--text);
+  letter-spacing: .2px;
+}
+.import-label {
+  font-size: 13px; color: var(--text-dim);
+  margin-top: 5px; min-height: 18px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.import-bar-track {
+  margin: 18px 0 20px;
+  height: 8px; border-radius: 99px;
+  background: rgba(148,163,184,.16);
+  overflow: hidden;
+}
+.import-bar {
+  height: 100%; width: 0%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--cyan), var(--success));
+  transition: width .35s cubic-bezier(.4,0,.2,1);
+}
+.import-steps {
+  list-style: none; margin: 0; padding: 0;
+  text-align: left; display: grid; gap: 9px;
+}
+.import-step {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text-dim);
+  opacity: .55; transition: opacity .2s, color .2s;
+}
+.import-step .import-dot {
+  width: 16px; height: 16px; flex: 0 0 16px;
+  border-radius: 50%;
+  border: 2px solid var(--text-dim);
+  position: relative; transition: all .2s;
+}
+.import-step.active { opacity: 1; color: var(--text); }
+.import-step.active .import-dot {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 4px rgba(19,194,194,.16);
+  animation: importDotPulse 1s ease-in-out infinite;
+}
+@keyframes importDotPulse { 50% { box-shadow: 0 0 0 7px rgba(19,194,194,.05); } }
+.import-step.complete { opacity: 1; color: var(--success); }
+.import-step.complete .import-dot {
+  border-color: var(--success);
+  background: var(--success);
+}
+.import-step.complete .import-dot::after {
+  content: '✓'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #06281c;
+}
+
 </style>
 </head>
 <body>
@@ -2142,6 +3037,28 @@ input[type="file"] { display: none; }
 </div>
 
 <div id="toastContainer"></div>
+
+<!-- ============== UNIVERSAL IMPORT PROGRESS OVERLAY ============== -->
+<div id="importOverlay" aria-hidden="true" role="status">
+  <div class="import-card">
+    <div class="import-spinner" aria-hidden="true"></div>
+    <div class="import-title">กำลังประมวลผลไฟล์ Excel</div>
+    <div class="import-label" id="importLabel">กำลังเริ่มต้น…</div>
+    <div class="import-bar-track"><div class="import-bar" id="importBar"></div></div>
+    <ul class="import-steps">
+      <li class="import-step" data-step="reading">
+        <span class="import-dot"></span><span>อ่านไฟล์ (Workbook)</span></li>
+      <li class="import-step" data-step="parsing">
+        <span class="import-dot"></span><span>แปลงตาราง (Parse &amp; Normalize)</span></li>
+      <li class="import-step" data-step="mapping">
+        <span class="import-dot"></span><span>จับคู่คอลัมน์อัตโนมัติ (Schema Mapping)</span></li>
+      <li class="import-step" data-step="rendering">
+        <span class="import-dot"></span><span>สร้างกราฟ &amp; KPI</span></li>
+      <li class="import-step" data-step="done">
+        <span class="import-dot"></span><span>เสร็จสมบูรณ์</span></li>
+    </ul>
+  </div>
+</div>
 
 <script>
 /* ==============================================================
@@ -3605,11 +4522,71 @@ function safeClick(id) {
 }
 
 /* ============== FILTERS ============== */
+/* Thai month labels for dynamic month dropdown */
+const _THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+  'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+function _thaiMonthLabel(ym) {
+  // ym = 'YYYY-MM' (Gregorian). Show Buddhist-friendly Thai month + Gregorian year.
+  const m = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!m) return ym;
+  const idx = parseInt(m[2], 10) - 1;
+  return (_THAI_MONTHS[idx] || ('เดือน ' + m[2])) + ' ' + m[1];
+}
+/* Pull a 'YYYY-MM' key from any date-ish value without throwing */
+function _ymOf(v) {
+  if (!v) return null;
+  const s = String(v);
+  const m = /^(\d{4})-(\d{2})/.exec(s);
+  return m ? (m[1] + '-' + m[2]) : null;
+}
+
 function populateFilters() {
+  /* ---- Customer dropdown (union across customer-bearing datasets) ---- */
   const custSel = document.getElementById('filterCustomer');
-  const customers = [...new Set(DATA.revenue_actual.map(r => r.customer))].sort();
-  custSel.innerHTML = '<option value="all">ลูกค้าทั้งหมด</option>' +
-    customers.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (custSel) {
+    const custSet = new Set();
+    ['revenue_actual','revenue_forecast','customer_master','alarm_status',
+     'permit_jobs','cleaning','inspection','om_contracts'].forEach(k => {
+      (DATA[k] || []).forEach(r => {
+        const c = r && (r.customer || r.name);
+        if (c) custSet.add(c);
+      });
+    });
+    const customers = [...custSet].sort();
+    const prevCust = FILTERS.customer;
+    custSel.innerHTML = '<option value="all">ลูกค้าทั้งหมด</option>' +
+      customers.map(c => `<option value="${c}">${c}</option>`).join('');
+    // Keep current selection if still valid, else reset to all
+    if (prevCust !== 'all' && !customers.includes(prevCust)) FILTERS.customer = 'all';
+    custSel.value = FILTERS.customer;
+  }
+
+  /* ---- Month dropdown (dynamic: rebuilt from whatever months exist) ---- */
+  const monSel = document.getElementById('filterMonth');
+  if (monSel) {
+    const monthSet = new Set();
+    const addYM = v => { const ym = _ymOf(v); if (ym) monthSet.add(ym); };
+    (DATA.revenue_actual   || []).forEach(r => addYM(r.date));
+    (DATA.revenue_forecast || []).forEach(r => addYM(r.forecastMonth));
+    (DATA.alarm_status     || []).forEach(r => addYM(r.time));
+    (DATA.permit_jobs      || []).forEach(r => { addYM(r.startDate); addYM(r.dueDate); });
+    (DATA.cleaning         || []).forEach(r => addYM(r.planDate));
+    (DATA.inspection       || []).forEach(r => addYM(r.planDate));
+    (DATA.om_contracts     || []).forEach(r => addYM(r.startDate));
+    (DATA.scada_summary    || []).forEach(r => addYM(r.month));
+
+    const months = [...monthSet].sort();           // ascending 'YYYY-MM'
+    if (months.length) {
+      monSel.innerHTML = '<option value="all">ทุกเดือน</option>' +
+        months.map(m => `<option value="${m}">${_thaiMonthLabel(m)}</option>`).join('');
+      // Self-healing: if current month filter has no data, jump to the latest month present
+      if (FILTERS.month !== 'all' && !months.includes(FILTERS.month)) {
+        FILTERS.month = months[months.length - 1];
+      }
+      monSel.value = FILTERS.month;
+    }
+    // If no months at all, leave the existing (hardcoded) options untouched.
+  }
 }
 
 function bindFilters() {
@@ -3661,148 +4638,125 @@ function registerChart(name, chartInstance) {
   return chartInstance;
 }
 
-function loadExcelFile(file) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      processWorkbook(e.target.result);
-    } catch (err) {
-      console.error(err);
-      showToast(`โหลด Excel ผิดพลาด: ${err.message}`, 'error');
-    }
-  };
-  reader.readAsArrayBuffer(file);
+/* ============== EXCEL UPLOAD — UNIVERSAL ENGINE PIPELINE ============== *
+ * The old hardcoded parser (fixed sheet names + column indexes) is replaced
+ * by window.DataEngine. This function only orchestrates UX (progress states)
+ * and merges the engine output into the existing DATA contract. The render /
+ * chart / KPI / filter layers are untouched.                                */
+
+function setImportStage(stage, msg, pct) {
+  const ov = document.getElementById('importOverlay');
+  if (!ov) return;
+  const bar = document.getElementById('importBar');
+  const label = document.getElementById('importLabel');
+  if (label && msg) label.textContent = msg;
+  if (bar && pct != null) bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  ov.querySelectorAll('.import-step').forEach(el => {
+    const order = ['reading', 'parsing', 'mapping', 'rendering', 'done'];
+    const cur = order.indexOf(stage), my = order.indexOf(el.dataset.step);
+    el.classList.toggle('active', my === cur);
+    el.classList.toggle('complete', my < cur);
+  });
+}
+function showImportOverlay() {
+  const ov = document.getElementById('importOverlay');
+  if (ov) { ov.classList.add('show'); setImportStage('reading', 'กำลังอ่านไฟล์ Excel...', 8); }
+}
+function hideImportOverlay() {
+  const ov = document.getElementById('importOverlay');
+  if (ov) ov.classList.remove('show');
 }
 
-/* Shared workbook processing pipeline — used by both file upload + Google Sheets sync */
+function loadExcelFile(file) {
+  showImportOverlay();
+  const reader = new FileReader();
+  reader.onerror = () => { hideImportOverlay(); showToast('อ่านไฟล์ไม่สำเร็จ — ไฟล์อาจเสียหาย', 'error'); };
+  reader.onload = (e) => { processWorkbook(e.target.result); };
+  try { reader.readAsArrayBuffer(file); }
+  catch (err) { hideImportOverlay(); showToast('อ่านไฟล์ไม่สำเร็จ: ' + err.message, 'error'); }
+}
+
+/* Shared entry — used by both file upload and Google Sheets sync. Async, but
+ * fire-and-forget callers (gsheets) keep working. Never throws. */
 function processWorkbook(arrayBuffer) {
-  const wb = XLSX.read(arrayBuffer, { type: 'array' });
-  let loaded = [];
+  return runUniversalImport(arrayBuffer);
+}
 
-      // Revenue_Actual
-      if (wb.SheetNames.includes('Revenue_Actual')) {
-        const ws = wb.Sheets['Revenue_Actual'];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: 3 });
-        DATA.revenue_actual = rows.filter(r => r[0] && r[1]).map(r => {
-          const billingDate = toLocalISO(r[0]) || String(r[0]).slice(0,10);
-          const receivedDate = r[11] ? (toLocalISO(r[11]) || String(r[11]).slice(0,10)) : '';
-          return {
-            date: billingDate, billingDate, receivedDate,
-            daysOverdue: Number(r[12]) || 0,
-            customer: r[1], project: r[2], service: r[3], category: r[4],
-            revenue: Number(r[5]) || 0, cost: Number(r[6]) || 0, profit: Number(r[7]) || 0,
-            jobStatus: r[8], responsible: r[9], paymentStatus: r[10] || 'Pending',
-            kW: Number(r[13]) || 0,
-            province: r[14] || 'กรุงเทพฯ',
-            site: r[15] || '',
-          };
-        });
-        loaded.push(`Revenue_Actual (${DATA.revenue_actual.length} บิล)`);
-      }
+async function runUniversalImport(arrayBuffer) {
+  showImportOverlay();
+  const tick = (ms = 70) => new Promise(r => setTimeout(r, ms));
+  const LABELS = {
+    revenue_actual: 'รายได้', revenue_forecast: 'Forecast', customer_master: 'ลูกค้า',
+    alarm_status: 'Alarm', permit_jobs: 'Permit', cleaning: 'Cleaning',
+    inspection: 'Inspection', om_contracts: 'O&M', scada_summary: 'SCADA',
+  };
+  try {
+    if (!window.DataEngine) throw new Error('Data Engine ไม่พร้อมใช้งาน');
 
-      if (wb.SheetNames.includes('Revenue_Forecast')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Revenue_Forecast'], { header: 1, range: 3 });
-        DATA.revenue_forecast = rows.filter(r => r[0] && r[1]).map(r => ({
-          forecastMonth: typeof r[0] === 'string' ? r[0] : String(r[0]).slice(0,7),
-          project: r[1], customer: (r[1] || '').split(' ')[0],
-          ptype: r[2], probability: Number(r[3]) || 0, revenue: Number(r[4]) || 0,
-          closeDate: toLocalISO(r[5]) || (r[5]),
-          status: r[6]
-        }));
-        loaded.push(`Revenue_Forecast (${DATA.revenue_forecast.length} ดีล)`);
-      }
+    // Host context: lets the pure engine reuse the dashboard's exact helpers.
+    const ctx = { today, CONFIG, toLocalISO, toLocalDateTime, efficiencyAtHour, computeTimeSpecificLoss };
+    const stagePct = { reading: 14, parsing: 40, mapping: 66, rendering: 88 };
+    const onStage = (s, m) => setImportStage(s, m, stagePct[s] || 50);
 
-      if (wb.SheetNames.includes('Customer_Master')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Customer_Master'], { header: 1, range: 3 });
-        DATA.customer_master = rows.filter(r => r[0]).map(r => ({
-          name: r[0], group: r[1], businessType: r[2],
-          warrantyEnd: toLocalISO(r[3]) || (r[3]),
-          status: r[4], contact: r[5],
-          grade: r[6] || 'C', totalRevenue: Number(r[7]) || 0,
-        }));
-        // Compute revenue and grade if missing
-        DATA.customer_master.forEach(c => {
-          if (!c.totalRevenue) c.totalRevenue = DATA.revenue_actual.filter(r => r.customer === c.name).reduce((s,r)=>s+r.revenue, 0);
-          if (!c.grade || !['A','B','C'].includes(c.grade)) {
-            c.grade = c.totalRevenue >= CONFIG.GRADE_A_THRESHOLD ? 'A' :
-                      c.totalRevenue >= CONFIG.GRADE_B_THRESHOLD ? 'B' : 'C';
-          }
-        });
-        loaded.push(`Customer_Master (${DATA.customer_master.length})`);
-      }
+    setImportStage('reading', 'กำลังอ่านไฟล์ Excel...', 14);
+    await tick(90);
 
-      if (wb.SheetNames.includes('Alarm_Status')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Alarm_Status'], { header: 1, range: 3 });
-        DATA.alarm_status = rows.filter(r => r[0]).map(r => {
-          const level = r[2] || 'Minor';
-          const dt = Number(r[8]) || (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : 0.25);
-          const ts = r[0] instanceof Date ? r[0].getTime() : Date.now();
-          const startHour = new Date(ts).getHours();
-          const kW = Number(r[7]) || 100;  // optional kW column, default 100
-          return {
-            time: toLocalDateTime(r[0]) || String(r[0]),
-            timestamp: ts,
-            hourOfDay: startHour,
-            customer: (r[1] || '').split(' ')[0],
-            site: r[1], level, type: r[3], inverterId: r[4], status: r[5],
-            kW: kW,
-            efficiency: Number(efficiencyAtHour(startHour).toFixed(3)),
-            downtimeHrs: dt,
-            revenueLoss: computeTimeSpecificLoss(kW, startHour, dt),
-            responsible: r[6],
-          };
-        });
-        loaded.push(`Alarm_Status (${DATA.alarm_status.length})`);
-      }
+    // ---- Run the universal engine (parse → detect → map → classify → derive)
+    const { data, report } = window.DataEngine.run(arrayBuffer, ctx, onStage);
+    window.__dataEngineReport = report;            // exposed for debug mode
+    if (window.dashboardDebug) console.log('%c[DataEngine] report', 'color:#13C2C2', report);
 
-      if (wb.SheetNames.includes('Permit_Jobs')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Permit_Jobs'], { header: 1, range: 3 });
-        DATA.permit_jobs = rows.filter(r => r[0]).map(r => {
-          const dueDate = r[3] instanceof Date ? r[3] : new Date(r[3]);
-          const dueOffset = Math.floor((dueDate - today) / 86400000);
-          return {
-            customer: r[0], docType: r[1],
-            startDate: toLocalISO(r[2]) || (r[2]),
-            dueDate: toLocalISO(dueDate) || r[3],
-            dueOffset, revenue: Number(r[4]) || 0, status: r[5]
-          };
-        });
-        loaded.push(`Permit_Jobs (${DATA.permit_jobs.length})`);
-      }
+    const assigned = report.assignments || [];
+    if (!assigned.length) {
+      hideImportOverlay();
+      showToast('ไม่พบตารางข้อมูลที่อ่านได้ในไฟล์นี้ — โปรดตรวจสอบว่ามีแถวหัวตาราง (header)', 'error');
+      return report;
+    }
 
-      if (wb.SheetNames.includes('Cleaning_MasterPlan')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Cleaning_MasterPlan'], { header: 1, range: 3 });
-        DATA.cleaning = rows.filter(r => r[0]).map(r => ({
-          customer: r[0], site: r[1],
-          planDate: toLocalISO(r[2]) || (r[2]),
-          actualDate: toLocalISO(r[3]) || ((r[3] || '')),
-          status: r[4], team: r[5], kW: Number(r[6]) || 0
-        }));
-      }
-      if (wb.SheetNames.includes('Inspection_MasterPlan')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Inspection_MasterPlan'], { header: 1, range: 3 });
-        DATA.inspection = rows.filter(r => r[0]).map(r => ({
-          customer: r[0], site: r[1],
-          planDate: toLocalISO(r[2]) || (r[2]),
-          actualDate: toLocalISO(r[3]) || ((r[3] || '')),
-          status: r[4], team: r[5], kW: Number(r[6]) || 0
-        }));
-      }
+    setImportStage('mapping', 'กำลังจับคู่คอลัมน์อัตโนมัติ...', 66);
+    await tick(90);
 
-      if (wb.SheetNames.includes('O&M_Contracts')) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['O&M_Contracts'], { header: 1, range: 3 });
-        DATA.om_contracts = rows.filter(r => r[0]).map(r => ({
-          customer: r[0], site: r[1],
-          startDate: toLocalISO(r[2]) || (r[2]),
-          endDate: toLocalISO(r[3]) || (r[3]),
-          sla: Number(r[8]) || 95, fee: Number(r[9]) || 0,
-          status: r[10] || 'Active'
-        }));
-      }
+    // ---- Merge only datasets the engine actually found (partial-file friendly)
+    const loaded = [];
+    for (const a of assigned) {
+      const k = a.dataset;
+      if (Array.isArray(data[k])) { DATA[k] = data[k]; loaded.push(`${LABELS[k] || k} (${data[k].length})`); }
+    }
 
-      populateFilters();
-      renderActiveTab();
-      showToast(`โหลดสำเร็จ: ${loaded.join(', ')}`, 'success');
+    // ---- Self-heal: recompute customer grade against the merged dataset
+    try {
+      DATA.customer_master.forEach(c => {
+        if (!c.totalRevenue) c.totalRevenue = DATA.revenue_actual.filter(r => r.customer === c.name).reduce((s, r) => s + r.revenue, 0);
+        if (!['A', 'B', 'C'].includes(c.grade)) {
+          c.grade = c.totalRevenue >= CONFIG.GRADE_A_THRESHOLD ? 'A'
+                  : c.totalRevenue >= CONFIG.GRADE_B_THRESHOLD ? 'B' : 'C';
+        }
+      });
+    } catch (e) { /* non-fatal */ }
+
+    setImportStage('rendering', 'กำลังสร้างแดชบอร์ด...', 90);
+    await tick(90);
+
+    destroyCharts();              // prevent "Canvas already in use"
+    populateFilters();            // rebuild filters from REAL uploaded data
+    renderActiveTab();
+
+    setImportStage('done', 'สำเร็จ ✓', 100);
+    await tick(280);
+    hideImportOverlay();
+
+    const skipped = (report.skippedSheets || []).length;
+    const badRows = (report.invalidRows || []).length;
+    const extra = [];
+    if (skipped) extra.push(`ข้าม ${skipped} sheet ที่ไม่ใช่ข้อมูล`);
+    if (badRows) extra.push(`ข้าม ${badRows} แถวเสีย`);
+    showToast(`โหลดสำเร็จ ✓ ${loaded.join(' · ')}${extra.length ? ' — ' + extra.join(', ') : ''}`, 'success');
+    return report;
+  } catch (err) {
+    console.error('Universal import failed:', err);
+    hideImportOverlay();
+    showToast(`โหลด Excel ผิดพลาด: ${err && err.message ? err.message : err}`, 'error');
+  }
 }
 
 /* ============== GOOGLE SHEETS SYNC ============== */
@@ -4232,6 +5186,22 @@ function updateLiveTime() {
 
 /* ============== INIT ============== */
 function init() {
+  // ---- Debug mode bootstrap ----------------------------------------------
+  // Enable via URL (?debug=1 / #debug) or persisted localStorage flag.
+  // When on, window.DataEngine logs detailed parse/mapping diagnostics and
+  // window.__dataEngineReport holds the last import report for inspection.
+  try {
+    const qs = new URLSearchParams(location.search);
+    const urlDebug = qs.get('debug') === '1' || /(^|[#&])debug(=1)?($|&)/.test(location.hash);
+    const stored = localStorage.getItem('dashboardDebug') === '1';
+    window.dashboardDebug = !!(urlDebug || stored);
+    if (urlDebug) localStorage.setItem('dashboardDebug', '1'); // sticky once enabled via URL
+    if (window.dashboardDebug) {
+      console.log('%c[Dashboard] debug mode ON', 'color:#13C2C2;font-weight:bold');
+      console.log('ตรวจสอบรายงานการนำเข้าล่าสุดได้ที่ window.__dataEngineReport');
+    }
+  } catch (e) { window.dashboardDebug = false; }
+
   generateSampleData();
   setupChartDefaults();
   populateFilters();
