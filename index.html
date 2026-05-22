@@ -1,0 +1,4299 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Powervault Service Dashboard</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<style>
+:root {
+  --bg: #0A1124;
+  --bg-grad: radial-gradient(ellipse 80% 50% at 20% -10%, rgba(59, 130, 246, 0.10), transparent),
+             radial-gradient(ellipse 70% 50% at 80% -20%, rgba(19, 194, 194, 0.08), transparent),
+             linear-gradient(180deg, #0A1124 0%, #07091A 100%);
+  --card: #131C33;
+  --card-elev: #1A2440;
+  --card-hover: #1F2B4A;
+  --border: rgba(56, 78, 117, 0.35);
+  --border-bright: rgba(19, 194, 194, 0.25);
+  --text: #E5E7EB;
+  --text-dim: #94A3B8;
+  --text-muted: #64748B;
+  --cyan: #13C2C2;
+  --cyan-bright: #2DD4BF;
+  --cyan-glow: rgba(19, 194, 194, 0.15);
+  --solar: #FBBF24;
+  --critical: #EF4444;
+  --warning: #F59E0B;
+  --success: #10B981;
+  --info: #3B82F6;
+  --purple: #A78BFA;
+  --pink: #F472B6;
+  --grid-line: rgba(148, 163, 184, 0.08);
+  /* Business Unit colors per spec */
+  --bu-solar: #3B82F6;       /* Blue */
+  --bu-cleaning: #10B981;    /* Green */
+  --bu-om: #F59E0B;          /* Orange */
+  --bu-permit: #A78BFA;      /* Purple */
+}
+
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --bg-grad: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(19, 194, 194, 0.06), transparent),
+             linear-gradient(180deg, #F8FAFC 0%, #EEF2F8 100%);
+  --card: #FFFFFF;
+  --card-elev: #F8FAFC;
+  --border: rgba(203, 213, 225, 0.7);
+  --border-bright: rgba(19, 194, 194, 0.3);
+  --text: #0F172A;
+  --text-dim: #475569;
+  --text-muted: #94A3B8;
+  --cyan: #0E9F9F;
+  --cyan-bright: #0E9F9F;
+  --cyan-glow: rgba(19, 194, 194, 0.08);
+  --grid-line: rgba(15, 23, 42, 0.06);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: 'Prompt', 'Outfit', -apple-system, sans-serif;
+  background: var(--bg);
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ===================== TOP BAR ===================== */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+
+.logo-box {
+  height: 52px;
+  border-radius: 11px;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(255,255,255,0.08);
+  padding: 6px 10px;
+  overflow: hidden;
+}
+.logo-box img { height: 100%; width: auto; display: block; }
+.logo-box svg { width: 40px; height: 40px; }
+
+/* Business Unit color tokens */
+:root {
+  --bu-solar: #3B82F6;          /* Home Solar & SME = Blue */
+  --bu-cleaning: #10B981;       /* Cleaning = Emerald */
+  --bu-om: #F59E0B;             /* O&M = Amber */
+  --bu-permit: #A78BFA;         /* Permit = Purple */
+  --bu-summary: #13C2C2;        /* Summary = Cyan */
+}
+.bu-solar-bg { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.30); }
+.bu-cleaning-bg { background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.30); }
+.bu-om-bg { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.30); }
+.bu-permit-bg { background: rgba(167,139,250,0.10); border-color: rgba(167,139,250,0.30); }
+.bu-summary-bg { background: rgba(19,194,194,0.10); border-color: rgba(19,194,194,0.30); }
+.text-bu-solar { color: var(--bu-solar); }
+.text-bu-cleaning { color: var(--bu-cleaning); }
+.text-bu-om { color: var(--bu-om); }
+.text-bu-permit { color: var(--bu-permit); }
+.text-bu-summary { color: var(--bu-summary); }
+
+.brand-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.brand-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.topbar-spacer { flex: 1; }
+
+.topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn:hover { border-color: var(--border-bright); background: var(--card-elev); }
+.btn svg { width: 14px; height: 14px; }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--cyan) 0%, #0891B2 100%);
+  border-color: var(--cyan);
+  color: white;
+}
+.btn-primary:hover { filter: brightness(1.1); }
+
+select.btn { padding-right: 28px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%), linear-gradient(135deg, var(--text-dim) 50%, transparent 50%); background-position: calc(100% - 14px) center, calc(100% - 9px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+
+input[type="file"] { display: none; }
+
+/* ===================== TABS NAVIGATION ===================== */
+.tabs-nav {
+  position: sticky;
+  top: 65px;
+  z-index: 40;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs-nav::-webkit-scrollbar { display: none; }
+
+.tab-btn {
+  position: relative;
+  padding: 14px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.15s ease;
+  border-bottom: 2px solid transparent;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--cyan-bright);
+  border-bottom-color: var(--cyan);
+}
+.tab-btn svg { width: 16px; height: 16px; }
+
+.tab-btn-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  opacity: 0.6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--card-elev);
+}
+
+/* ===================== CONTAINER ===================== */
+.container { padding: 22px 24px 60px; max-width: 1500px; margin: 0 auto; }
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.page-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.page-subtitle { color: var(--text-dim); font-size: 13.5px; }
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  font-size: 11px;
+  color: var(--success);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+}
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 10px var(--success);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); } }
+
+/* ===================== CARD ===================== */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+.card.clickable { cursor: pointer; }
+.card.clickable:hover { border-color: var(--border-bright); transform: translateY(-1px); }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 10px;
+}
+.card-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.card-subtitle {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.click-hint {
+  font-size: 10px;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, transparent);
+  border-radius: 5px;
+  background: var(--cyan-glow);
+  white-space: nowrap;
+}
+
+/* ===================== TAB PANES ===================== */
+.tab-pane { display: none; animation: fadeIn 0.3s ease; }
+.tab-pane.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ===================== TAB 1: CEO OVERVIEW LAYOUT ===================== */
+.ceo-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (max-width: 1000px) { .ceo-grid { grid-template-columns: 1fr; } }
+
+.ceo-grid-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (max-width: 1000px) { .ceo-grid-bottom { grid-template-columns: 1fr; } }
+
+/* ===================== GAUGE CHART ===================== */
+.gauge-wrap {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gauge-center {
+  position: absolute;
+  top: 60%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+.gauge-percent {
+  font-family: 'Outfit', sans-serif;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--cyan-bright), var(--solar));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+}
+.gauge-actual {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.gauge-target {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 2px;
+}
+
+.gauge-legend {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+.gauge-leg-item { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.gauge-leg-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ===================== KPI CARDS ===================== */
+.kpi-stack { display: flex; flex-direction: column; gap: 12px; }
+
+.kpi-card-big {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.kpi-card-big:hover { border-color: var(--border-bright); transform: translateY(-1px); }
+.kpi-card-big::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 100% 0%, var(--accent-color, var(--cyan-glow)), transparent 60%);
+  opacity: 0.4;
+  pointer-events: none;
+}
+.kpi-big-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kpi-big-label svg { width: 14px; height: 14px; }
+.kpi-big-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.kpi-big-value .unit { font-size: 14px; color: var(--text-muted); margin-left: 4px; font-weight: 500; }
+.kpi-big-meta { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+
+.kpi-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 900px) { .kpi-mini-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.kpi-mini {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.kpi-mini:hover { border-color: var(--border-bright); }
+.kpi-mini-label {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 4px;
+}
+.kpi-mini-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.kpi-mini-trend {
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.kpi-mini-trend.up { color: var(--success); }
+.kpi-mini-trend.down { color: var(--critical); }
+.kpi-mini-trend.neutral { color: var(--text-muted); }
+
+/* ===================== CHARTS ===================== */
+.chart-wrap { position: relative; height: 260px; }
+.chart-wrap-tall { position: relative; height: 320px; }
+.chart-wrap-short { position: relative; height: 200px; }
+
+/* ===================== DONUT CENTER LABEL ===================== */
+.donut-wrap {
+  position: relative;
+  height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.donut-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+.donut-center-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+}
+.donut-center-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+/* ===================== TABLES ===================== */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.data-table thead th {
+  text-align: left;
+  padding: 9px 12px;
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  background: var(--card-elev);
+  position: sticky;
+  top: 0;
+}
+.data-table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.data-table tbody tr:hover td { background: var(--card-elev); }
+.data-table tbody tr:last-child td { border-bottom: none; }
+
+.table-wrap { max-height: 320px; overflow: auto; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+.table-wrap::-webkit-scrollbar-track { background: transparent; }
+.table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ===================== BADGES ===================== */
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.badge-paid { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+.badge-pending { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
+.badge-overdue { background: color-mix(in srgb, var(--critical) 18%, transparent); color: var(--critical); }
+.badge-partial { background: color-mix(in srgb, var(--info) 18%, transparent); color: var(--info); }
+.badge-active { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+.badge-grade-a { background: color-mix(in srgb, var(--cyan) 22%, transparent); color: var(--cyan-bright); }
+.badge-grade-b { background: color-mix(in srgb, var(--solar) 22%, transparent); color: var(--solar); }
+.badge-grade-c { background: color-mix(in srgb, var(--purple) 22%, transparent); color: var(--purple); }
+
+/* ===================== HEATMAP ===================== */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+.heat-cell {
+  position: relative;
+  padding: 14px 14px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  border: 1px solid transparent;
+  overflow: hidden;
+}
+.heat-cell:hover { transform: translateY(-2px) scale(1.01); }
+.heat-cell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--heat-bg);
+  opacity: 0.18;
+  pointer-events: none;
+}
+.heat-cell.heat-green { border-color: color-mix(in srgb, var(--success) 40%, transparent); --heat-bg: var(--success); }
+.heat-cell.heat-yellow { border-color: color-mix(in srgb, var(--warning) 45%, transparent); --heat-bg: var(--warning); }
+.heat-cell.heat-red { border-color: color-mix(in srgb, var(--critical) 50%, transparent); --heat-bg: var(--critical); }
+
+.heat-cust {
+  position: relative;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.3;
+}
+.heat-doc {
+  position: relative;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+.heat-rev {
+  position: relative;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  margin-top: 8px;
+  letter-spacing: -0.01em;
+}
+.heat-cell.heat-green .heat-rev { color: var(--success); }
+.heat-cell.heat-yellow .heat-rev { color: var(--warning); }
+.heat-cell.heat-red .heat-rev { color: var(--critical); }
+.heat-due {
+  position: relative;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.heat-status-tag {
+  display: inline-block;
+  font-size: 9.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.heat-cell.heat-green .heat-status-tag { background: color-mix(in srgb, var(--success) 30%, transparent); color: var(--success); }
+.heat-cell.heat-yellow .heat-status-tag { background: color-mix(in srgb, var(--warning) 30%, transparent); color: var(--warning); }
+.heat-cell.heat-red .heat-status-tag { background: color-mix(in srgb, var(--critical) 30%, transparent); color: var(--critical); }
+
+/* ===================== PROGRESS BARS ===================== */
+.progress-list { display: flex; flex-direction: column; gap: 11px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+.progress-list::-webkit-scrollbar { width: 5px; }
+.progress-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.progress-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+}
+.progress-label { font-size: 12px; color: var(--text); }
+.progress-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.progress-bar-bg {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: var(--card-elev);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--cyan-bright) 100%);
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+.progress-bar-fill.warning { background: linear-gradient(90deg, var(--warning), #FCD34D); }
+.progress-bar-fill.critical { background: linear-gradient(90deg, var(--critical), #F87171); }
+.progress-bar-fill.success { background: linear-gradient(90deg, var(--success), #34D399); }
+
+/* ===================== MODAL ===================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 24px;
+  animation: overlayIn 0.2s ease;
+}
+.modal-overlay.active { display: flex; }
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border-bright);
+  border-radius: 16px;
+  max-width: 1100px;
+  width: 100%;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modalIn { from { transform: translateY(10px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.modal-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.modal-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  letter-spacing: 0.04em;
+}
+.modal-close {
+  background: var(--card-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.modal-close:hover { background: var(--critical); color: white; border-color: var(--critical); }
+.modal-close svg { width: 16px; height: 16px; }
+
+.modal-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--card-elev);
+  border-bottom: 1px solid var(--border);
+}
+.modal-stat-label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.modal-stat-value { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 700; margin-top: 3px; }
+
+.modal-body { padding: 16px 24px 24px; overflow-y: auto; flex: 1; }
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ===================== AR AGING ===================== */
+.aging-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 800px) { .aging-cards { grid-template-columns: repeat(2, 1fr); } }
+.aging-card {
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s ease;
+}
+.aging-card:hover { transform: translateY(-1px); }
+.aging-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--aging-color);
+  opacity: 0.06;
+  pointer-events: none;
+}
+.aging-card[data-tier="current"] { border-color: color-mix(in srgb, var(--success) 40%, transparent); --aging-color: var(--success); }
+.aging-card[data-tier="0-30"] { border-color: color-mix(in srgb, var(--info) 40%, transparent); --aging-color: var(--info); }
+.aging-card[data-tier="31-60"] { border-color: color-mix(in srgb, var(--warning) 45%, transparent); --aging-color: var(--warning); }
+.aging-card[data-tier="60+"] { border-color: color-mix(in srgb, var(--critical) 50%, transparent); --aging-color: var(--critical); }
+.aging-tier-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.aging-amount {
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 6px;
+  letter-spacing: -0.02em;
+}
+.aging-card[data-tier="current"] .aging-amount { color: var(--success); }
+.aging-card[data-tier="0-30"] .aging-amount { color: var(--info); }
+.aging-card[data-tier="31-60"] .aging-amount { color: var(--warning); }
+.aging-card[data-tier="60+"] .aging-amount { color: var(--critical); }
+.aging-count { margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+
+/* ===================== FLEX BADGE ===================== */
+.flex-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--cyan-glow);
+  color: var(--cyan-bright);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ===================== TOAST ===================== */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 300;
+  background: var(--card);
+  border: 1px solid var(--success);
+  border-left-width: 4px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  animation: toastIn 0.3s ease;
+}
+.toast.error { border-color: var(--critical); }
+.toast svg { width: 18px; height: 18px; color: var(--success); flex-shrink: 0; }
+.toast.error svg { color: var(--critical); }
+@keyframes toastIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ===================== INFO BAR ===================== */
+.info-bar {
+  background: linear-gradient(135deg, var(--cyan-glow) 0%, transparent 100%);
+  border: 1px solid var(--border-bright);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.info-bar code {
+  background: var(--card-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--cyan-bright);
+}
+
+/* ===================== RING DECO ===================== */
+.deco-ring {
+  position: fixed;
+  width: 600px;
+  height: 600px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  top: -200px;
+  right: -200px;
+  pointer-events: none;
+  opacity: 0.4;
+  z-index: 0;
+}
+.deco-ring::after {
+  content: '';
+  position: absolute;
+  inset: 80px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+
+/* ===================== MISC ===================== */
+.text-cyan { color: var(--cyan-bright); }
+.text-solar { color: var(--solar); }
+.text-critical { color: var(--critical); }
+.text-success { color: var(--success); }
+.text-mono { font-family: 'JetBrains Mono', monospace; }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+
+.tab-section-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tab-section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.empty-state {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+/* ===================== UI POLISH ===================== */
+.card {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s, border-color 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.card.clickable {
+  cursor: pointer;
+}
+.card.clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-bright);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 0 0 1px var(--border-bright);
+}
+.card.clickable:hover::before { opacity: 1; }
+
+.kpi-mini {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s, background 0.18s;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-mini::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 60%, rgba(255,255,255,0.03) 100%);
+  pointer-events: none;
+}
+.kpi-mini:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-bright);
+  background: var(--card-hover, var(--card-elev));
+}
+
+/* Department cards - showcase per business unit */
+.dept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.dept-card {
+  padding: 18px 18px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--card) 0%, var(--card-elev) 100%);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+.dept-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 4px;
+  background: var(--dept-color, var(--cyan));
+}
+.dept-card::after {
+  content: '';
+  position: absolute;
+  top: -30%; right: -30%;
+  width: 160px; height: 160px;
+  background: radial-gradient(circle, var(--dept-color, var(--cyan)) 0%, transparent 65%);
+  opacity: 0.08;
+  pointer-events: none;
+}
+.dept-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35), 0 0 0 1px var(--dept-color, var(--cyan));
+}
+.dept-card .dept-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.dept-card .dept-title-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dept-color, var(--cyan));
+}
+.dept-card .dept-revenue {
+  font-family: 'Outfit', sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+  letter-spacing: -0.01em;
+}
+.dept-card .dept-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.dept-card .dept-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  font-size: 11.5px;
+}
+.dept-card .dept-metrics > div { display: flex; flex-direction: column; gap: 2px; }
+.dept-card .dept-metrics .label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dept-card .dept-metrics .val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Business Health Badge */
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.health-badge.healthy {
+  background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05));
+  border: 1px solid rgba(16,185,129,0.4);
+  color: #34D399;
+}
+.health-badge.watch {
+  background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05));
+  border: 1px solid rgba(245,158,11,0.4);
+  color: #FBBF24;
+}
+.health-badge.critical {
+  background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05));
+  border: 1px solid rgba(239,68,68,0.4);
+  color: #F87171;
+}
+.health-badge .health-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* 10-KPI grid */
+.kpi-10-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 11px;
+  margin-bottom: 14px;
+}
+.kpi-10 {
+  padding: 14px 15px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.18s, border-color 0.18s;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-10::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--kpi-color, var(--cyan));
+  opacity: 0.6;
+}
+.kpi-10:hover {
+  transform: translateY(-2px);
+  border-color: var(--kpi-color, var(--border-bright));
+}
+.kpi-10:hover::before { opacity: 1; }
+.kpi-10 .kpi-10-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px;
+}
+.kpi-10 .kpi-10-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.kpi-10 .kpi-10-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Leakage list */
+.leakage-list { display: flex; flex-direction: column; gap: 8px; }
+.leakage-item {
+  display: flex; align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--card-elev);
+  border-left: 3px solid var(--critical);
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s;
+}
+.leakage-item:hover { transform: translateX(3px); background: var(--card-hover); }
+.leakage-item .leak-info { display: flex; flex-direction: column; gap: 2px; }
+.leakage-item .leak-cust { font-weight: 600; color: var(--text); font-size: 13px; }
+.leakage-item .leak-sub { font-size: 11px; color: var(--text-dim); }
+.leakage-item .leak-amount { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--critical); font-weight: 700; }
+
+/* Friendly glow on active tab */
+.tab-btn.active {
+  position: relative;
+}
+.tab-btn.active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 70% at 50% 100%, rgba(19,194,194,0.12), transparent 70%);
+  pointer-events: none;
+}
+
+/* Smoother table rows */
+.data-table tbody tr {
+  transition: background 0.12s;
+  cursor: pointer;
+}
+.data-table tbody tr:hover td {
+  background: linear-gradient(90deg, rgba(19,194,194,0.04), transparent);
+}
+
+/* Page header subtle decoration */
+.page-title {
+  background: linear-gradient(135deg, var(--text) 0%, var(--cyan-bright) 200%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Brand styling */
+.brand-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #FFFFFF 0%, #94A3B8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ===================== HOME / SUMMARY V2 - CLEANER ===================== */
+
+/* Section header bar */
+.section-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin: 22px 0 12px;
+}
+.section-bar:first-child { margin-top: 0; }
+.section-bar .section-num {
+  width: 26px; height: 26px;
+  border-radius: 8px;
+  background: var(--card-elev);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px; font-weight: 700; color: var(--cyan);
+}
+.section-bar .section-title {
+  font-size: 15px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.005em;
+}
+.section-bar .section-sub {
+  font-size: 12px; color: var(--text-muted);
+  margin-left: 4px;
+}
+.section-bar .section-spacer {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
+  margin-left: 8px;
+}
+
+/* Health Banner — slim */
+.health-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.health-banner-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; }
+.health-banner-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.health-banner.healthy .health-banner-icon { background: rgba(16,185,129,0.15); color: #34D399; }
+.health-banner.watch .health-banner-icon { background: rgba(245,158,11,0.15); color: #FBBF24; }
+.health-banner.critical .health-banner-icon { background: rgba(239,68,68,0.15); color: #F87171; }
+.health-banner-text { display: flex; flex-direction: column; gap: 2px; }
+.health-banner-label {
+  font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--text-muted); font-weight: 600;
+}
+.health-banner-status {
+  font-size: 15px; font-weight: 600; color: var(--text);
+}
+.health-banner-detail {
+  font-size: 12px; color: var(--text-dim);
+}
+.health-banner-score {
+  font-family: 'Outfit', sans-serif;
+  font-size: 28px; font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.health-banner.healthy .health-banner-score { color: #34D399; }
+.health-banner.watch .health-banner-score { color: #FBBF24; }
+.health-banner.critical .health-banner-score { color: #F87171; }
+
+/* HERO row - Revenue + Gauge */
+.hero-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+@media (max-width: 900px) { .hero-row { grid-template-columns: 1fr; } }
+
+.hero-card {
+  padding: 22px 24px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--card) 0%, var(--card-elev) 100%);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.hero-card::after {
+  content: '';
+  position: absolute;
+  top: -40%; right: -25%;
+  width: 280px; height: 280px;
+  background: radial-gradient(circle, var(--cyan) 0%, transparent 60%);
+  opacity: 0.10;
+  pointer-events: none;
+}
+.hero-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-bright);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
+.hero-label {
+  font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--text-muted); font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 8px;
+}
+.hero-label-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+}
+.hero-amount {
+  font-family: 'Outfit', sans-serif;
+  font-size: 44px; font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1.0;
+  margin-bottom: 6px;
+}
+.hero-amount .currency { font-size: 28px; color: var(--text-dim); font-weight: 500; margin-right: 4px; }
+.hero-sub {
+  font-size: 13px; color: var(--text-dim);
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+}
+.hero-trend-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.hero-trend-pill.up { background: rgba(16,185,129,0.15); color: #34D399; }
+.hero-trend-pill.down { background: rgba(239,68,68,0.15); color: #F87171; }
+.hero-progress {
+  height: 8px;
+  background: var(--card-elev);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 14px 0 8px;
+}
+.hero-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--cyan-bright) 100%);
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+.hero-progress-labels {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.hero-gauge-card {
+  padding: 18px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+.hero-gauge-title {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--text-muted); font-weight: 600;
+  margin-bottom: 4px;
+}
+.hero-gauge-sub {
+  font-size: 11px; color: var(--text-dim); margin-bottom: 4px;
+}
+
+/* Quick Stats Strip */
+.quick-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+@media (max-width: 800px) { .quick-stats { grid-template-columns: repeat(2, 1fr); } }
+
+.qstat {
+  padding: 13px 15px;
+  border-radius: 11px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.18s, border-color 0.18s, background 0.18s;
+  display: flex; flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+.qstat:hover {
+  transform: translateY(-2px);
+  background: var(--card-elev);
+}
+.qstat .qstat-row {
+  display: flex; align-items: center; gap: 6px;
+}
+.qstat .qstat-icon {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.qstat .qstat-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.qstat .qstat-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px; font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.qstat .qstat-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.qstat.cyan { border-left: 3px solid var(--cyan); }
+.qstat.cyan .qstat-icon { background: rgba(19,194,194,0.15); color: var(--cyan); }
+.qstat.success { border-left: 3px solid var(--success); }
+.qstat.success .qstat-icon { background: rgba(16,185,129,0.15); color: var(--success); }
+.qstat.warning { border-left: 3px solid var(--warning); }
+.qstat.warning .qstat-icon { background: rgba(245,158,11,0.15); color: var(--warning); }
+.qstat.critical { border-left: 3px solid var(--critical); }
+.qstat.critical .qstat-icon { background: rgba(239,68,68,0.15); color: var(--critical); }
+
+/* Dept Cards V2 — simpler */
+.dept-grid-v2 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+@media (max-width: 1000px) { .dept-grid-v2 { grid-template-columns: repeat(2, 1fr); } }
+
+.dept-card-v2 {
+  padding: 16px 18px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+.dept-card-v2::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--dept-color, var(--cyan));
+}
+.dept-card-v2:hover {
+  transform: translateY(-3px);
+  border-color: var(--dept-color, var(--cyan));
+  box-shadow: 0 10px 26px rgba(0,0,0,0.30);
+}
+.dept-card-v2 .dept-name {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.dept-card-v2 .dept-name-icon { font-size: 14px; }
+.dept-card-v2 .dept-num {
+  font-family: 'Outfit', sans-serif;
+  font-size: 24px; font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+.dept-card-v2 .dept-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.dept-card-v2 .dept-link {
+  display: flex; align-items: center;
+  font-size: 11px; font-weight: 600;
+  color: var(--dept-color, var(--cyan));
+  margin-top: 8px;
+}
+
+/* Action items list */
+.action-list {
+  display: flex; flex-direction: column;
+  gap: 8px;
+}
+.action-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--action-color, var(--critical));
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s;
+}
+.action-item:hover {
+  transform: translateX(3px);
+  background: var(--card-elev);
+}
+.action-item .action-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--card-elev);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.action-item .action-info {
+  flex: 1; min-width: 0;
+}
+.action-item .action-title {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.action-item .action-sub {
+  font-size: 11.5px; color: var(--text-dim);
+  margin-top: 2px;
+}
+.action-item .action-amount {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 700;
+  color: var(--action-color, var(--critical));
+  flex-shrink: 0;
+}
+.action-item .action-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+/* Trend chart card */
+.trend-card {
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+.trend-card-header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  margin-bottom: 14px;
+}
+.trend-card-title {
+  font-size: 14px; font-weight: 600; color: var(--text);
+}
+.trend-card-sub {
+  font-size: 12px; color: var(--text-dim);
+  margin-top: 2px;
+}
+
+</style>
+</head>
+<body>
+
+<div class="deco-ring"></div>
+
+<!-- ===================== TOP BAR ===================== -->
+<div class="topbar">
+  <div class="brand">
+    <div class="logo-box" title="Powervault — อาณาจักรพลังงาน เพื่อ เมกะโปรเจค">
+      <svg viewBox="0 0 280 80" xmlns="http://www.w3.org/2000/svg" style="height:100%; width:auto;">
+        <!-- P shape · geometric facets -->
+        <g transform="translate(8,8)">
+          <!-- left vertical strip -->
+          <polygon points="0,0 18,0 18,64 0,64" fill="#1A8F8F"/>
+          <!-- inner lighter strip -->
+          <polygon points="18,0 32,0 24,32 18,32" fill="#A5D442"/>
+          <polygon points="18,32 24,32 18,64" fill="#15B8A6"/>
+          <!-- P bowl -->
+          <polygon points="32,0 56,0 56,28 44,36 32,32" fill="#1A8F8F"/>
+          <polygon points="44,36 56,28 56,40 44,40" fill="#A5D442"/>
+          <!-- lightning bolt overlay -->
+          <polygon points="36,8 50,8 40,30 47,30 32,56 41,34 32,34" fill="#F4D03F" stroke="#D4A92C" stroke-width="0.5" stroke-linejoin="round"/>
+        </g>
+        <!-- POWER VAULT text -->
+        <g transform="translate(82,0)" font-family="Outfit, Arial, sans-serif" font-weight="700">
+          <text x="0" y="36" font-size="28" fill="#374151" letter-spacing="2">POWER</text>
+          <text x="0" y="64" font-size="22" fill="#374151" letter-spacing="3.5">VAULT</text>
+        </g>
+        <!-- accent bar under VAULT -->
+        <rect x="82" y="68" width="80" height="2" fill="#15B8A6"/>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-name">Powervault Service Dashboard</div>
+      <div class="brand-sub">#MegaEnergyEmpire · Power Service Business Operating Platform</div>
+    </div>
+  </div>
+
+  <div class="topbar-spacer"></div>
+
+  <div class="topbar-actions">
+    <select id="filterMonth" class="btn" title="กรองรายเดือน">
+      <option value="all">ทุกเดือน</option>
+      <option value="2026-01">มกราคม 2026</option>
+      <option value="2026-02">กุมภาพันธ์ 2026</option>
+      <option value="2026-03">มีนาคม 2026</option>
+      <option value="2026-04">เมษายน 2026</option>
+      <option value="2026-05" selected>พฤษภาคม 2026</option>
+    </select>
+
+    <select id="filterCustomer" class="btn" title="กรองตามลูกค้า">
+      <option value="all">ลูกค้าทั้งหมด</option>
+    </select>
+
+    <select id="filterGrade" class="btn" title="กรองตาม Grade">
+      <option value="all">ทุก Grade</option>
+      <option value="A">Grade A</option>
+      <option value="B">Grade B</option>
+      <option value="C">Grade C</option>
+    </select>
+
+    <label for="fileInput" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span>อัพโหลด Excel</span>
+    </label>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" />
+
+    <div class="split-btn-group" style="display:inline-flex;align-items:stretch;border-radius:8px;overflow:hidden">
+      <button id="gsheetsSyncBtn" class="btn" title="Sync ข้อมูลล่าสุดจาก Google Sheets" style="background:linear-gradient(135deg,#34A853 0%,#0F9D58 100%);color:white;border:none;border-radius:8px 0 0 8px;border-right:1px solid rgba(255,255,255,0.2);margin:0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span id="gsheetsSyncLabel">Sync Sheets</span>
+      </button>
+      <button id="gsheetsCfgBtn" class="btn" title="ตั้งค่า Google Sheets URL" style="background:linear-gradient(135deg,#34A853 0%,#0F9D58 100%);color:white;border:none;border-radius:0 8px 8px 0;padding:0 10px;margin:0" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <button id="exportExecBtn" class="btn" title="ส่งออก HTML สำหรับผู้บริหาร (ไม่มี filter / ไม่มี tips)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span>Export Exec</span>
+    </button>
+
+    <button id="snapshotBtn" class="btn" title="Snapshot ส่ง Line">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <span>Snapshot</span>
+    </button>
+
+    <button id="themeBtn" class="btn" title="สลับ Theme">
+      <svg id="iconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ===================== TABS NAVIGATION (5 Business Units) ===================== -->
+<nav class="tabs-nav" id="tabsNav">
+  <button class="tab-btn active" data-tab="home">
+    <span class="tab-btn-num">01</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Summary
+  </button>
+  <button class="tab-btn" data-tab="solar">
+    <span class="tab-btn-num">02</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
+    Home Solar &amp; SME
+  </button>
+  <button class="tab-btn" data-tab="cleaning">
+    <span class="tab-btn-num">03</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+    Cleaning
+  </button>
+  <button class="tab-btn" data-tab="om">
+    <span class="tab-btn-num">04</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    O&amp;M
+  </button>
+  <button class="tab-btn" data-tab="permit">
+    <span class="tab-btn-num">05</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+    Permit
+  </button>
+</nav>
+
+<!-- ===================== MAIN CONTAINER ===================== -->
+<div class="container" id="snapshotTarget">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title" id="pageTitle">Summary</h1>
+      <p class="page-subtitle" id="pageSubtitle">Executive Command Center · เป้า <span class="text-cyan" style="font-weight:600;">10 ล้านบาท / เดือน</span></p>
+    </div>
+    <div class="live-indicator">
+      <span class="pulse-dot"></span>
+      <span id="liveTime">SYSTEM ONLINE</span>
+    </div>
+  </div>
+
+  <div class="info-bar">
+    <span class="flex-badge">Tip</span>
+    <span>คลิกที่ <strong>KPI / กราฟ / Heatmap / แถวตาราง / Department Card</strong> เพื่อ Drill-down · ใช้ filter ด้านบนเพื่อกรองแบบ Global · <code>Snapshot</code> เพื่อส่งภาพเข้า Line</span>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ============== TAB 1: HOME / SUMMARY ======================= -->
+  <!-- ============================================================ -->
+  <div class="tab-pane active" id="tab-home">
+
+    <div class="health-banner healthy" id="healthBannerNew">
+      <div class="health-banner-left">
+        <div class="health-banner-icon" id="healthBannerIcon">✓</div>
+        <div class="health-banner-text">
+          <div class="health-banner-label">Business Health วันนี้</div>
+          <div class="health-banner-status" id="healthBannerStatus">— กำลังคำนวณ —</div>
+          <div class="health-banner-detail" id="healthBannerDetail">โหลดข้อมูล...</div>
+        </div>
+      </div>
+      <div class="health-banner-score" id="healthBannerScore">—</div>
+    </div>
+
+    <div class="section-bar">
+      <div class="section-num">1</div>
+      <div class="section-title">รายได้เดือนนี้</div>
+      <div class="section-sub">เทียบกับเป้า 10 ล้าน · คลิกเพื่อ Drill-down</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div class="hero-row">
+      <div class="hero-card" id="cardHeroRevenue">
+        <div class="hero-label"><span class="hero-label-dot"></span>Revenue MTD · รายได้สะสมเดือนนี้</div>
+        <div class="hero-amount"><span class="currency">฿</span><span id="heroRevVal">0</span></div>
+        <div class="hero-sub">
+          <span id="heroRevSub">— รายการ</span>
+          <span class="hero-trend-pill up" id="heroRevTrend">↑ 0%</span>
+        </div>
+        <div class="hero-progress"><div class="hero-progress-bar" id="heroProgBar" style="width:0%"></div></div>
+        <div class="hero-progress-labels">
+          <span><span id="heroProgPct">0.0</span>% ของเป้า</span>
+          <span>เป้า ฿10.0M</span>
+        </div>
+      </div>
+
+      <div class="hero-gauge-card clickable" id="cardGauge">
+        <div class="hero-gauge-title">Path to ฿10M</div>
+        <div class="hero-gauge-sub">Actual + Forecast (≥70%)</div>
+        <div class="gauge-wrap" style="flex:1; min-height:170px;">
+          <canvas id="chartGauge"></canvas>
+          <div class="gauge-center">
+            <div class="gauge-percent" id="gaugePercent">0%</div>
+            <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10M</div>
+            <div class="gauge-target" id="gaugeStatus">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-bar">
+      <div class="section-num">2</div>
+      <div class="section-title">เงินสด · AR · กำไร · ความเสี่ยง</div>
+      <div class="section-sub">ภาพรวม Cash Flow ใน 4 ตัวเลขสำคัญ</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div class="quick-stats">
+      <div class="qstat success" id="qsCollected">
+        <div class="qstat-row">
+          <div class="qstat-icon">💵</div>
+          <div class="qstat-label">Cash Collected</div>
+        </div>
+        <div class="qstat-value">฿<span id="qsCollectedVal">0</span></div>
+        <div class="qstat-meta" id="qsCollectedMeta">— invoices · 0%</div>
+      </div>
+      <div class="qstat warning" id="qsAR">
+        <div class="qstat-row">
+          <div class="qstat-icon">📥</div>
+          <div class="qstat-label">Outstanding AR</div>
+        </div>
+        <div class="qstat-value">฿<span id="qsARVal">0</span></div>
+        <div class="qstat-meta" id="qsARMeta">— ใบค้าง</div>
+      </div>
+      <div class="qstat cyan" id="qsGP">
+        <div class="qstat-row">
+          <div class="qstat-icon">📈</div>
+          <div class="qstat-label">Gross Profit · Margin</div>
+        </div>
+        <div class="qstat-value">฿<span id="qsGPVal">0</span></div>
+        <div class="qstat-meta"><span id="qsGMVal">0.0</span>% margin</div>
+      </div>
+      <div class="qstat critical" id="qsRisk">
+        <div class="qstat-row">
+          <div class="qstat-icon">⚠️</div>
+          <div class="qstat-label">Revenue at Risk</div>
+        </div>
+        <div class="qstat-value">฿<span id="qsRiskVal">0</span></div>
+        <div class="qstat-meta" id="qsRiskMeta">Loss + Overdue</div>
+      </div>
+    </div>
+
+    <div class="section-bar">
+      <div class="section-num">3</div>
+      <div class="section-title">แยกตามแผนก</div>
+      <div class="section-sub">คลิกการ์ดเพื่อกระโดดไปแท็บแผนกนั้น</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div class="dept-grid-v2">
+      <div class="dept-card-v2" style="--dept-color:#3B82F6;" onclick="document.querySelector('[data-tab=solar]').click()">
+        <div class="dept-name"><span class="dept-name-icon">☀️</span> Home Solar &amp; SME</div>
+        <div class="dept-num">฿<span id="dv2SolarRev">0</span></div>
+        <div class="dept-status" id="dv2SolarStatus">— โครงการ · — kW</div>
+        <div class="dept-link">เปิดแท็บ Solar →</div>
+      </div>
+      <div class="dept-card-v2" style="--dept-color:#10B981;" onclick="document.querySelector('[data-tab=cleaning]').click()">
+        <div class="dept-name"><span class="dept-name-icon">🧹</span> Cleaning</div>
+        <div class="dept-num">฿<span id="dv2ClRev">0</span></div>
+        <div class="dept-status" id="dv2ClStatus">— งาน · เสร็จ 0/0</div>
+        <div class="dept-link">เปิดแท็บ Cleaning →</div>
+      </div>
+      <div class="dept-card-v2" style="--dept-color:#F59E0B;" onclick="document.querySelector('[data-tab=om]').click()">
+        <div class="dept-name"><span class="dept-name-icon">🔧</span> O&amp;M</div>
+        <div class="dept-num">฿<span id="dv2OMRev">0</span></div>
+        <div class="dept-status" id="dv2OMStatus">— Service · — Critical</div>
+        <div class="dept-link">เปิดแท็บ O&amp;M →</div>
+      </div>
+      <div class="dept-card-v2" style="--dept-color:#A78BFA;" onclick="document.querySelector('[data-tab=permit]').click()">
+        <div class="dept-name"><span class="dept-name-icon">📋</span> Permit</div>
+        <div class="dept-num">฿<span id="dv2PermitStuck">0</span></div>
+        <div class="dept-status" id="dv2PermitStatus">— เอกสารดีเลย์</div>
+        <div class="dept-link">เปิดแท็บ Permit →</div>
+      </div>
+    </div>
+
+    <div class="section-bar">
+      <div class="section-num">4</div>
+      <div class="section-title">แนวโน้มรายเดือน</div>
+      <div class="section-sub">Actual vs Forecast (Weighted ≥70%) vs Cash Collected</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div class="trend-card">
+      <div class="chart-wrap-tall"><canvas id="chartActVsFc"></canvas></div>
+    </div>
+
+    <div class="section-bar">
+      <div class="section-num">5</div>
+      <div class="section-title">จุดที่ต้องดูแลด่วน</div>
+      <div class="section-sub">Top issues ที่ทำให้เงินรั่ว · เรียงตามมูลค่า</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div class="action-list" id="leakageList"></div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ============== TAB 2: HOME SOLAR & SME ===================== -->
+  <!-- ============================================================ -->
+  <div class="tab-pane" id="tab-solar">
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-solar); padding-left:10px;">Home Solar &amp; SME · ภาพรวมยอดขายและการติดตั้ง</div>
+
+    <div class="kpi-mini-grid">
+      <div class="kpi-mini clickable" id="kpiSolarRev" style="cursor:pointer;">
+        <div class="kpi-mini-label">Revenue (Solar เดือนนี้)</div>
+        <div class="kpi-mini-value" style="color:var(--bu-solar);">฿<span id="solarRevVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="solarRevSub">— โครงการ</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiSolarKW" style="cursor:pointer;">
+        <div class="kpi-mini-label">kW ที่ติดตั้ง</div>
+        <div class="kpi-mini-value text-solar"><span id="solarKWVal">0</span> kW</div>
+        <div class="kpi-mini-trend neutral" id="solarKWAvg">เฉลี่ย 0 kW/หลัง</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiSolarForecast" style="cursor:pointer;">
+        <div class="kpi-mini-label">Sales Forecast</div>
+        <div class="kpi-mini-value text-solar">฿<span id="solarFcVal">0</span></div>
+        <div class="kpi-mini-trend up" id="solarFcSub">Weighted ฿0</div>
+      </div>
+      <div class="kpi-mini">
+        <div class="kpi-mini-label">Achievement %</div>
+        <div class="kpi-mini-value text-success"><span id="solarAchVal">0</span>%</div>
+        <div class="kpi-mini-trend neutral" id="solarAchSub">— vs เป้าเดือนนี้</div>
+      </div>
+    </div>
+
+    <div class="ceo-grid" style="margin-top:14px;">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Revenue by Region · กรุงเทพ / กลาง / เหนือ / อีสาน / ใต้</div>
+            <div class="card-subtitle">คลิกแถบเพื่อ Drill-down ดูจังหวัด</div>
+          </div>
+        </div>
+        <div class="chart-wrap-tall"><canvas id="chartSolarRegion"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Customer Acquisition Trend</div>
+            <div class="card-subtitle">ลูกค้าใหม่รายเดือน (รวม Forecast)</div>
+          </div>
+        </div>
+        <div class="chart-wrap-tall"><canvas id="chartSolarAcq"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Top Provinces · จังหวัดที่ติดตั้งมากสุด</div>
+          <div class="card-subtitle">คลิกแถวเพื่อดูโครงการในจังหวัดนั้น</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:340px;">
+        <table class="data-table">
+          <thead><tr><th>จังหวัด</th><th>ภาค</th><th class="text-right">โครงการ</th><th class="text-right">kW รวม</th><th class="text-right">Revenue (฿)</th></tr></thead>
+          <tbody id="solarProvBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ============== TAB 3: CLEANING ============================= -->
+  <!-- ============================================================ -->
+  <div class="tab-pane" id="tab-cleaning">
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-cleaning); padding-left:10px;">Cleaning · แผนงานทำความสะอาดแผงโซลาร์</div>
+
+    <div class="kpi-mini-grid">
+      <div class="kpi-mini clickable" id="kpiClRev" style="cursor:pointer;">
+        <div class="kpi-mini-label">Cleaning Revenue (เดือนนี้)</div>
+        <div class="kpi-mini-value" style="color:var(--bu-cleaning);">฿<span id="clRevVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="clRevSub">— งาน</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiClJobs" style="cursor:pointer;">
+        <div class="kpi-mini-label">งานเดือนนี้</div>
+        <div class="kpi-mini-value text-cyan" id="clMonthVal">0</div>
+        <div class="kpi-mini-trend up" id="clDoneSub">เสร็จสิ้น 0/0</div>
+      </div>
+      <div class="kpi-mini">
+        <div class="kpi-mini-label">kW ที่ทำสะอาด</div>
+        <div class="kpi-mini-value text-solar"><span id="clKWVal">0</span> kW</div>
+        <div class="kpi-mini-trend neutral" id="clKWSub">รวมทั้งหมด</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiClDelay" style="cursor:pointer;">
+        <div class="kpi-mini-label">ดีเลย์</div>
+        <div class="kpi-mini-value text-critical" id="clDelayVal">0</div>
+        <div class="kpi-mini-trend down" id="clDelaySub">งานที่ค้าง</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">รายการงาน Cleaning · เดือนนี้</div>
+          <div class="card-subtitle">คลิกแถวเพื่อดูรายละเอียดงาน</div>
+        </div>
+        <span class="text-mono" style="font-size:11px; color:var(--text-dim);"><span id="clSummary">0/0</span></span>
+      </div>
+      <div class="table-wrap" style="max-height:380px;">
+        <table class="data-table">
+          <thead><tr><th>วันที่นัด</th><th>ลูกค้า</th><th>Site</th><th class="text-right">kW</th><th>ทีมงาน</th><th>สถานะ</th></tr></thead>
+          <tbody id="clBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ceo-grid" style="margin-top:14px;">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Cleaning Progress รายลูกค้า</div>
+            <div class="card-subtitle">แผน vs จริง · เดือนนี้</div>
+          </div>
+        </div>
+        <div class="progress-list" id="clProgress"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Revenue per Team</div>
+            <div class="card-subtitle">ผลงานทีมตามรายได้</div>
+          </div>
+        </div>
+        <div class="chart-wrap-tall"><canvas id="chartClTeam"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ============== TAB 4: O&M ================================== -->
+  <!-- ============================================================ -->
+  <div class="tab-pane" id="tab-om">
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-om); padding-left:10px;">O&amp;M · Operations &amp; Maintenance + Time-Specific Revenue Loss</div>
+
+    <div class="card" style="margin-bottom:14px; cursor:pointer;" onclick="openRevenueLossFormulaDrill()">
+      <div class="card-header">
+        <div>
+          <div class="card-title">สูตร Revenue Loss · <span class="text-mono">Loss = kW × Efficiency × ชั่วโมงที่เสีย × ฿/kWh</span></div>
+          <div class="card-subtitle">ราคาค่าไฟ ฿4.50/kWh · คลิกเพื่อดูตัวอย่างคำนวณ</div>
+        </div>
+        <span class="click-hint">CLICK ▸ Details</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px; font-size:12px;">
+        <div style="padding:10px 12px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);">
+          <div style="color:var(--critical); font-weight:600; margin-bottom:4px;">10:00–14:00 · แดดจัด</div>
+          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.85 (peak)</div>
+        </div>
+        <div style="padding:10px 12px; border-radius:8px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+          <div style="color:var(--warning); font-weight:600; margin-bottom:4px;">08:00–10:00 / 14:00–17:00</div>
+          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.35 (shoulder)</div>
+        </div>
+        <div style="padding:10px 12px; border-radius:8px; background:var(--card-elev); border:1px solid var(--border);">
+          <div style="color:var(--text-dim); font-weight:600; margin-bottom:4px;">17:00–08:00 · กลางคืน</div>
+          <div style="color:var(--text-dim); font-size:11px;">Loss = 0 (ไม่มีแดด)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpi-mini-grid">
+      <div class="kpi-mini clickable" id="kpiOmSvc" style="cursor:pointer;">
+        <div class="kpi-mini-label">Service Revenue (เดือนนี้)</div>
+        <div class="kpi-mini-value" style="color:var(--bu-om);">฿<span id="omSvcVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="omSvcSub">— Service jobs</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiOmIns" style="cursor:pointer;">
+        <div class="kpi-mini-label">Inspection Progress</div>
+        <div class="kpi-mini-value text-success"><span id="omInsVal">0</span>%</div>
+        <div class="kpi-mini-trend up" id="omInsSub">PM Completion</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiOmLoss" style="cursor:pointer;">
+        <div class="kpi-mini-label">Revenue Loss (Time-Specific)</div>
+        <div class="kpi-mini-value text-critical">฿<span id="omLossVal">0</span></div>
+        <div class="kpi-mini-trend down" id="omLossSub">— hrs downtime</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiOmCrit" style="cursor:pointer;">
+        <div class="kpi-mini-label">Critical Alarms</div>
+        <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
+        <div class="kpi-mini-trend down" id="omCritSub">เปิดอยู่</div>
+      </div>
+    </div>
+
+    <div class="ceo-grid" style="margin-top:14px;">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Inspection Progress (เดือนนี้)</div>
+            <div class="card-subtitle">PM Completion รายลูกค้า</div>
+          </div>
+          <span class="text-mono" style="font-size:11px; color:var(--text-dim);"><span id="inspectionSummary">0/0</span></span>
+        </div>
+        <div class="progress-list" id="inspectionList"></div>
+      </div>
+      <div class="card clickable" id="cardAlarms">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Alarm Distribution by Severity</div>
+            <div class="card-subtitle">Critical · Major · Minor · Warning</div>
+          </div>
+          <span class="click-hint">CLICK ▸</span>
+        </div>
+        <div class="chart-wrap-tall"><canvas id="chartAlarms"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Critical Alarms · พร้อม kW, Efficiency และ Revenue Loss</div>
+          <div class="card-subtitle">คลิกแถวเพื่อดูการคำนวณ Time-Specific Loss</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:380px;">
+        <table class="data-table">
+          <thead><tr><th>เวลา</th><th>Site</th><th>ประเภท</th><th class="text-right">kW</th><th class="text-right">Eff.</th><th class="text-right">Hours</th><th class="text-right">Loss (฿)</th><th>สถานะ</th></tr></thead>
+          <tbody id="criticalAlarmsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ============== TAB 5: PERMIT =============================== -->
+  <!-- ============================================================ -->
+  <div class="tab-pane" id="tab-permit">
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-permit); padding-left:10px;">Permit · Revenue Delay Management Dashboard</div>
+
+    <div class="kpi-mini-grid">
+      <div class="kpi-mini">
+        <div class="kpi-mini-label">เอกสารทั้งหมด</div>
+        <div class="kpi-mini-value" style="color:var(--bu-permit);" id="pTotal">0</div>
+        <div class="kpi-mini-trend neutral">รายการ Permit</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiPStuck" style="cursor:pointer;">
+        <div class="kpi-mini-label">เงินจม (Delayed Revenue)</div>
+        <div class="kpi-mini-value text-critical">฿<span id="pStuckVal">0</span></div>
+        <div class="kpi-mini-trend down" id="pStuckSub">— เอกสารดีเลย์</div>
+      </div>
+      <div class="kpi-mini">
+        <div class="kpi-mini-label">วันดีเลย์เฉลี่ย</div>
+        <div class="kpi-mini-value text-warning"><span id="pAvgDelay">0</span></div>
+        <div class="kpi-mini-trend neutral">วัน</div>
+      </div>
+      <div class="kpi-mini">
+        <div class="kpi-mini-label">Expected Release</div>
+        <div class="kpi-mini-value text-success">฿<span id="pReleaseVal">0</span></div>
+        <div class="kpi-mini-trend up">อนุมัติแล้ว/รอลงนาม</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Permit Heatmap · 17 Sites</div>
+          <div class="card-subtitle">สี = ความเสี่ยงล่าช้า · ตัวเลข = มูลค่าเงินที่จมอยู่</div>
+        </div>
+        <div style="display:flex; gap:10px; font-size:11px;">
+          <span><span style="display:inline-block; width:10px; height:10px; background:var(--success); border-radius:3px;"></span> On-Track</span>
+          <span><span style="display:inline-block; width:10px; height:10px; background:var(--warning); border-radius:3px;"></span> Near Due</span>
+          <span><span style="display:inline-block; width:10px; height:10px; background:var(--critical); border-radius:3px;"></span> Delay</span>
+        </div>
+      </div>
+      <div class="heatmap-grid" id="permitHeatmap"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Permit Revenue Stuck — Pipeline</div>
+          <div class="card-subtitle">แยกตามสถานะ (รวมมูลค่า)</div>
+        </div>
+      </div>
+      <div class="chart-wrap-tall"><canvas id="chartPermitStatus"></canvas></div>
+    </div>
+  </div>
+
+  </div>
+
+<!-- ===================== MODAL ===================== -->
+<div class="modal-overlay" id="drillModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modalTitle">Drill-down</div>
+        <div class="modal-sub" id="modalSub">รายละเอียดข้อมูลดิบ</div>
+      </div>
+      <button class="modal-close" id="modalClose" aria-label="ปิด">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-summary" id="modalSummary"></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<script>
+/* ==============================================================
+   POWER VAULT — CEO EXECUTIVE DASHBOARD V4
+   ============================================================== */
+
+const DATA = {
+  revenue_actual: [],
+  revenue_forecast: [],
+  om_contracts: [],
+  alarm_status: [],
+  cleaning: [],
+  inspection: [],
+  permit_jobs: [],
+  customer_master: [],
+  scada_summary: [],
+};
+
+const FILTERS = { month: '2026-05', customer: 'all', grade: 'all' };
+
+const CONFIG = {
+  TARGET_MONTHLY: 10_000_000,
+  ELECTRICITY_RATE: 4.50,           // ฿/kWh ราคาค่าไฟ
+  PROBABILITY_THRESHOLD: 70,        // forecast >= 70% นับเข้า gauge
+  GRADE_A_THRESHOLD: 500_000,
+  GRADE_B_THRESHOLD: 150_000,
+  // Time-Specific Efficiency tiers
+  EFFICIENCY_PEAK: 0.85,            // 10:00-14:00 แดดจัด
+  EFFICIENCY_SHOULDER: 0.35,        // 08:00-10:00 / 14:00-17:00
+  EFFICIENCY_NIGHT: 0,              // 17:00-08:00 ไม่มีแดด
+  // Legacy fallback (for Excel import compat)
+  CRITICAL_DOWNTIME_HRS: 8,
+  MAJOR_DOWNTIME_HRS: 3,
+  MINOR_DOWNTIME_HRS: 1,
+  WARNING_DOWNTIME_HRS: 0.25,
+};
+
+function efficiencyAtHour(h) {
+  if (h >= 10 && h < 14) return CONFIG.EFFICIENCY_PEAK;
+  if ((h >= 8 && h < 10) || (h >= 14 && h < 17)) return CONFIG.EFFICIENCY_SHOULDER;
+  return CONFIG.EFFICIENCY_NIGHT;
+}
+
+function computeTimeSpecificLoss(kW, startHour, downtimeHrs) {
+  let loss = 0, remaining = downtimeHrs, h = startHour;
+  while (remaining > 0) {
+    loss += kW * efficiencyAtHour(h) * Math.min(1, remaining) * CONFIG.ELECTRICITY_RATE;
+    remaining -= 1;
+    h = (h + 1) % 24;
+  }
+  return Math.round(loss);
+}
+
+let CHARTS = {};
+const today = new Date('2026-05-12');     // baseline
+
+/* ============== SAMPLE DATA GENERATION ============== */
+function generateSampleData() {
+  const customers = ['Home Power','Robinson','Central Pattana','Thai Watsadu','Viriya Insurance',
+    'Hybrid Solar Co.','Mega Bangna','PTT Station Bangkok','CP All','HomePro','Big C Supercenter','Index Living Mall',
+    'Tesco Lotus','Makro','Tops Market'];
+  const groups = {
+    'Home Power': 'Home Power Group','Robinson': 'Central Group','Central Pattana': 'Central Group',
+    'Thai Watsadu': 'CRC Group','Viriya Insurance': 'Viriya Group','Hybrid Solar Co.': 'Hybrid Group',
+    'Mega Bangna': 'Siam Future','PTT Station Bangkok': 'PTT Group','CP All': 'CP Group',
+    'HomePro': 'Land & Houses','Big C Supercenter': 'BJC Group','Index Living Mall': 'Index',
+    'Tesco Lotus':'CP Group','Makro':'CP Group','Tops Market':'Central Group'
+  };
+  const sites = ['Bangna','Rangsit','Bangkok HQ','Chonburi','Rayong','Pattaya','Korat','Khon Kaen','Phuket'];
+  const siteProvince = {
+    'Bangna':'กรุงเทพฯ', 'Rangsit':'ปทุมธานี', 'Bangkok HQ':'กรุงเทพฯ',
+    'Chonburi':'ชลบุรี', 'Rayong':'ระยอง', 'Pattaya':'ชลบุรี',
+    'Korat':'นครราชสีมา', 'Khon Kaen':'ขอนแก่น', 'Phuket':'ภูเก็ต'
+  };
+  const services = ['Monitoring','Cleaning','Inspection','Service','Permit','EPC Solar'];
+  const cats = ['O&M Contract','After Sale Service','Permit/เอกสาร','Installation','Spare Parts','Emergency Service'];
+  const teams = ["P'It","P'Tik","P'Mon","P'Jay","Engineer A","Engineer B"];
+  const payStatus = ['Paid','Paid','Pending','Overdue','Partial','Paid'];
+
+  // Seeded random
+  let seed = 42;
+  Math.random = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const rand = arr => arr[Math.floor(Math.random() * arr.length)];
+  const rint = (a,b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+  // ----- Revenue Actual (with Billing Date / Received Date / Days Overdue) -----
+  DATA.revenue_actual = [];
+  for (let i = 0; i < 140; i++) {
+    const month = rint(1, 5);
+    const day = rint(1, 28);
+    const cat = rand(cats);
+    let rev;
+    if (cat === 'Installation') rev = rint(800000, 4500000);
+    else if (cat === 'O&M Contract') rev = rint(45000, 280000);
+    else if (cat === 'Permit/เอกสาร') rev = rint(30000, 150000);
+    else if (cat === 'Emergency Service') rev = rint(15000, 90000);
+    else rev = rint(25000, 350000);
+    const cost = Math.floor(rev * (0.55 + Math.random() * 0.23));
+    const cust = rand(customers);
+    const site = rand(sites);
+    const billingDate = new Date(2026, month-1, day);
+    const billingStr = toLocalISO(billingDate);
+
+    // ===== FIXED LOGIC: status MUST match overdue days =====
+    const dueDate = new Date(billingDate); dueDate.setDate(dueDate.getDate() + 30);
+    const overdueDays = Math.max(0, Math.floor((today - dueDate) / 86400000));
+
+    let paymentStatus, receivedDate = '', daysOverdue = overdueDays;
+    const r = Math.random();
+    if (overdueDays <= 0) {
+      // Not yet overdue → Paid or Pending only
+      if (r < 0.55) {
+        paymentStatus = 'Paid';
+        const recv = new Date(billingDate); recv.setDate(recv.getDate() + rint(5, 25));
+        receivedDate = toLocalISO(recv);
+        daysOverdue = 0;
+      } else {
+        paymentStatus = 'Pending';
+        daysOverdue = 0;
+      }
+    } else {
+      // Past due → Paid (late) / Partial / Overdue. NEVER Pending.
+      if (r < 0.40) {
+        paymentStatus = 'Paid';
+        const recv = new Date(billingDate); recv.setDate(recv.getDate() + 30 + rint(1, Math.min(60, overdueDays + 10)));
+        receivedDate = toLocalISO(recv);
+        daysOverdue = 0;
+      } else if (r < 0.55) {
+        paymentStatus = 'Partial';
+        const recv = new Date(billingDate); recv.setDate(recv.getDate() + 30 + rint(1, Math.max(1, overdueDays)));
+        receivedDate = toLocalISO(recv);
+      } else {
+        paymentStatus = 'Overdue';
+      }
+    }
+
+    DATA.revenue_actual.push({
+      date: billingStr,
+      billingDate: billingStr,
+      receivedDate,
+      daysOverdue,
+      customer: cust,
+      project: `${cust} - ${site}`,
+      service: rand(services),
+      category: cat,
+      revenue: rev,
+      cost,
+      profit: rev - cost,
+      kW: cat === 'Installation' ? rint(50, 800) : rint(20, 250),
+      province: siteProvince[site] || 'กรุงเทพฯ',
+      responsible: rand(teams),
+      paymentStatus,
+    });
+  }
+
+  // ----- Revenue Forecast -----
+  DATA.revenue_forecast = [];
+  const ptypes = ['Solar Farm','Floating Solar','Rooftop Solar','EPC Project','O&M Renewal','Permit Job','Service Contract'];
+  for (let i = 0; i < 55; i++) {
+    const month = 5 + rint(0, 5);
+    const adjMonth = month > 12 ? month - 12 : month;
+    const year = month > 12 ? 2027 : 2026;
+    const ptype = rand(ptypes);
+    let rev;
+    if (ptype === 'Solar Farm' || ptype === 'Floating Solar') rev = rint(8000000, 45000000);
+    else if (ptype === 'EPC Project') rev = rint(2500000, 12000000);
+    else if (ptype === 'Rooftop Solar') rev = rint(450000, 3500000);
+    else if (ptype === 'O&M Renewal') rev = rint(180000, 1800000);
+    else rev = rint(80000, 850000);
+    const cust = rand(customers);
+    DATA.revenue_forecast.push({
+      forecastMonth: `${year}-${String(adjMonth).padStart(2,'0')}`,
+      project: `${cust} ${ptype}`,
+      customer: cust,
+      ptype,
+      probability: rand([20,30,40,50,60,70,75,80,85,90]),
+      revenue: rev,
+      closeDate: `${year}-${String(adjMonth).padStart(2,'0')}-${String(rint(1,28)).padStart(2,'0')}`,
+      status: rand(['Hot Lead','Negotiation','Proposal Sent','Contract Drafting','PO Issued']),
+    });
+  }
+
+  // ----- O&M Contracts -----
+  DATA.om_contracts = [];
+  for (let i = 0; i < 38; i++) {
+    const cust = rand(customers);
+    const startYear = 2024 + rint(0, 1);
+    const startMonth = rint(1, 12);
+    const duration = rand([1, 2, 3, 5]);
+    const endYear = startYear + duration;
+    const endDate = `${endYear}-${String(startMonth).padStart(2,'0')}-${String(rint(1,28)).padStart(2,'0')}`;
+    const isActive = endYear >= 2026;
+    DATA.om_contracts.push({
+      customer: cust,
+      site: `${cust} ${rand(sites)}`,
+      startDate: `${startYear}-${String(startMonth).padStart(2,'0')}-01`,
+      endDate,
+      sla: 92 + Math.random() * 7.5,
+      fee: rint(35000, 280000),
+      status: isActive ? 'Active' : 'Expired',
+    });
+  }
+
+  // ----- Alarm Status (with downtime hours for Revenue Loss) -----
+  DATA.alarm_status = [];
+  const aLevels = ['Critical','Major','Minor','Warning'];
+  const aWeights = [5, 18, 35, 42];
+  const aTypes = ['Inverter Fault','String Issue','Communication Lost','Low Performance','Grid Voltage Abnormal','Temperature High'];
+  function weightedRand(items, weights) {
+    const total = weights.reduce((a,b) => a+b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < items.length; i++) { r -= weights[i]; if (r < 0) return items[i]; }
+    return items[items.length - 1];
+  }
+  const baseTime = new Date('2026-05-11T14:30:00');
+  for (let i = 0; i < 95; i++) {
+    const t = new Date(baseTime - rint(5, 14*24*60) * 60000);
+    const level = weightedRand(aLevels, aWeights);
+    const isOpen = level === 'Critical' ? Math.random() < 0.4 : Math.random() < 0.15;
+    const cust = rand(customers);
+    let downtime;
+    if (level === 'Critical') downtime = CONFIG.CRITICAL_DOWNTIME_HRS + Math.random()*4;
+    else if (level === 'Major') downtime = CONFIG.MAJOR_DOWNTIME_HRS + Math.random()*2;
+    else if (level === 'Minor') downtime = CONFIG.MINOR_DOWNTIME_HRS + Math.random();
+    else downtime = CONFIG.WARNING_DOWNTIME_HRS + Math.random()*0.5;
+    const kW = rint(20, 500);
+    const startHour = t.getHours();
+    const eff = efficiencyAtHour(startHour);
+    const revenueLoss = computeTimeSpecificLoss(kW, startHour, downtime);
+    DATA.alarm_status.push({
+      time: toLocalDateTime(t),
+      timestamp: t.getTime(),
+      hourOfDay: startHour,
+      customer: cust,
+      site: `${cust} ${rand(sites)}`,
+      level,
+      type: rand(aTypes),
+      inverterId: `INV-${String(rint(1,12)).padStart(2,'0')}`,
+      status: isOpen ? 'เปิดอยู่' : 'ปิดงานแล้ว',
+      kW: kW,
+      efficiency: Number(eff.toFixed(3)),
+      downtimeHrs: Number(downtime.toFixed(2)),
+      revenueLoss: revenueLoss,
+      responsible: rand(teams),
+    });
+  }
+  DATA.alarm_status.sort((a, b) => b.timestamp - a.timestamp);
+
+  // ----- Cleaning + Inspection -----
+  for (const arr of ['cleaning', 'inspection']) {
+    DATA[arr] = [];
+    for (const cust of customers) {
+      for (let m = 1; m <= 12; m++) {
+        if (Math.random() > 0.55) continue;
+        const planDate = `2026-${String(m).padStart(2,'0')}-${String(rint(1,28)).padStart(2,'0')}`;
+        const isPast = m < 5;
+        DATA[arr].push({
+          customer: cust,
+          site: `${cust} ${rand(sites)}`,
+          planDate,
+          actualDate: isPast ? planDate : '',
+          status: isPast ? rand(['เสร็จสิ้น','เสร็จสิ้น','เสร็จสิ้น','Delay']) : rand(['รอเริ่มงาน','นัดหมายแล้ว']),
+          kW: rint(30, 500),
+          team: rand(['Team A','Team B','Engineer A','Engineer B']),
+        });
+      }
+    }
+  }
+
+  // ----- Permit Jobs (17 sites) -----
+  DATA.permit_jobs = [];
+  const pTypes = ['ขออนุญาต MEA','ขออนุญาต PEA','EIA Report','Net Metering','COD ราชการ','ใบรับรองวิศวกร'];
+  const pStatus = ['ยื่นเอกสารแล้ว','รอการอนุมัติ','อนุมัติแล้ว','ต้องแก้ไขเอกสาร','เริ่มจัดเตรียม'];
+  for (let i = 0; i < 17; i++) {
+    const dueOffset = rint(-25, 70);
+    const due = new Date(today); due.setDate(due.getDate() + dueOffset);
+    const start = new Date(due); start.setDate(start.getDate() - rint(30, 90));
+    DATA.permit_jobs.push({
+      customer: rand(customers),
+      docType: rand(pTypes),
+      startDate: toLocalISO(start),
+      dueDate: toLocalISO(due),
+      dueOffset,
+      revenue: rint(120000, 850000),
+      status: rand(pStatus),
+    });
+  }
+
+  // ----- Customer Master (with Grade) -----
+  DATA.customer_master = customers.map(c => {
+    const totalRev = DATA.revenue_actual.filter(r => r.customer === c).reduce((s, r) => s + r.revenue, 0);
+    let grade = 'C';
+    if (totalRev >= CONFIG.GRADE_A_THRESHOLD) grade = 'A';
+    else if (totalRev >= CONFIG.GRADE_B_THRESHOLD) grade = 'B';
+    const warrantyDate = new Date(today); warrantyDate.setDate(warrantyDate.getDate() + rint(-30, 365));
+    return {
+      name: c,
+      group: groups[c] || 'Other',
+      businessType: rand(['ค้าปลีกวัสดุก่อสร้าง','ห้างสรรพสินค้า','ปั๊มน้ำมัน','พลังงานทดแทน','อุตสาหกรรม']),
+      warrantyEnd: toLocalISO(warrantyDate),
+      status: 'Active',
+      contact: `081-xxx-xxx${rint(1,9)}`,
+      grade,
+      totalRevenue: totalRev,
+    };
+  });
+
+  // ----- SCADA Summary (monthly aggregate) -----
+  DATA.scada_summary = [];
+  for (let m = 1; m <= 5; m++) {
+    const ym = `2026-${String(m).padStart(2,'0')}`;
+    const alarmsM = DATA.alarm_status.filter(a => a.time.startsWith(ym));
+    DATA.scada_summary.push({
+      month: ym,
+      alarms: alarmsM.length,
+      critical: alarmsM.filter(a => a.level === 'Critical').length,
+      totalDowntime: Number(alarmsM.reduce((s, a) => s + a.downtimeHrs, 0).toFixed(1)),
+      avgPR: Number((78 + Math.random()*6).toFixed(1)),
+      revenueLoss: alarmsM.reduce((s, a) => s + a.revenueLoss, 0),
+    });
+  }
+}
+
+/* ============== HELPERS ============== */
+function fmtCurrency(n) {
+  if (!n) return '0';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  return Math.round(n).toLocaleString();
+}
+function fmtFull(n) { return Math.round(n || 0).toLocaleString(); }
+function getCSSVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function applyFilters(rows, dateField = 'date', custField = 'customer') {
+  return rows.filter(r => {
+    if (FILTERS.month !== 'all' && r[dateField]) {
+      if (!String(r[dateField]).startsWith(FILTERS.month)) return false;
+    }
+    if (FILTERS.customer !== 'all' && r[custField] !== FILTERS.customer) return false;
+    if (FILTERS.grade !== 'all') {
+      const cust = DATA.customer_master.find(c => c.name === r[custField]);
+      if (!cust || cust.grade !== FILTERS.grade) return false;
+    }
+    return true;
+  });
+}
+
+function destroyCharts() {
+  Object.values(CHARTS).forEach(c => c && c.destroy());
+  CHARTS = {};
+}
+
+function showToast(msg, type='success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  const icon = type === 'error'
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+  t.innerHTML = icon + `<span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+/* ============== TAB SWITCHING ============== */
+const TAB_TITLES = {
+  home:     { title: 'Summary',  sub: 'Executive Command Center · เป้า <span class="text-cyan" style="font-weight:600;">10 ล้านบาท / เดือน</span>' },
+  solar:    { title: 'Home Solar & SME', sub: 'ภาพรวมยอดขาย Solar รายภาค · กรุงเทพ · กลาง · เหนือ · อีสาน' },
+  cleaning: { title: 'Cleaning',         sub: 'แผนงาน Cleaning · รายได้ · ความคืบหน้า' },
+  om:       { title: 'O&M',              sub: 'Operations + Maintenance · Service / Inspection / Time-Specific Revenue Loss' },
+  permit:   { title: 'Permit',           sub: 'Revenue Delay Management · Heatmap · เงินจม' },
+};
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+  document.getElementById('pageTitle').textContent = TAB_TITLES[tab].title;
+  document.getElementById('pageSubtitle').innerHTML = TAB_TITLES[tab].sub;
+  // Each tab requires re-renders that depend on canvas being visible
+  setTimeout(renderActiveTab, 50);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function getActiveTab() {
+  return document.querySelector('.tab-btn.active').dataset.tab;
+}
+
+function renderActiveTab() {
+  const tab = getActiveTab();
+  if (tab === 'home') renderHome();
+  else if (tab === 'solar') renderSolar();
+  else if (tab === 'cleaning') renderCleaning();
+  else if (tab === 'om') renderOM();
+  else if (tab === 'permit') renderPermit();
+}
+
+/* ============== CHART DEFAULTS ============== */
+function setupChartDefaults() {
+  Chart.defaults.font.family = "'Prompt', 'Outfit', sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = getCSSVar('--text-dim');
+}
+
+/* ============== CALCULATION ENGINES ============== */
+function computeRevenueLoss() {
+  const alarms = applyFilters(DATA.alarm_status, 'time', 'customer');
+  const totalLoss = alarms.reduce((s, a) => s + a.revenueLoss, 0);
+  const totalHours = alarms.reduce((s, a) => s + a.downtimeHrs, 0);
+  return { totalLoss, totalHours, count: alarms.length, alarms };
+}
+
+function computeGauge() {
+  const rev = applyFilters(DATA.revenue_actual).reduce((s, r) => s + r.revenue, 0);
+  const fcThisMonth = DATA.revenue_forecast.filter(f => {
+    if (FILTERS.month !== 'all' && f.forecastMonth !== FILTERS.month) return false;
+    if (FILTERS.customer !== 'all' && f.customer !== FILTERS.customer) return false;
+    if (FILTERS.grade !== 'all') {
+      const cust = DATA.customer_master.find(c => c.name === f.customer);
+      if (!cust || cust.grade !== FILTERS.grade) return false;
+    }
+    return f.probability >= CONFIG.PROBABILITY_THRESHOLD;
+  });
+  const fcAmount = fcThisMonth.reduce((s, f) => s + f.revenue, 0);
+  const projected = rev + fcAmount;
+  const pct = Math.min(100, (projected / CONFIG.TARGET_MONTHLY) * 100);
+  return { actual: rev, forecast: fcAmount, projected, pct, target: CONFIG.TARGET_MONTHLY, fcList: fcThisMonth };
+}
+
+function computeAging() {
+  const rev = applyFilters(DATA.revenue_actual);
+  const buckets = { current: [], '0-30': [], '31-60': [], '60+': [] };
+  for (const r of rev) {
+    if (r.paymentStatus === 'Paid') continue;
+    const billDate = new Date(r.billingDate);
+    const dueDate = new Date(billDate); dueDate.setDate(dueDate.getDate() + 30);
+    const overdueDays = Math.floor((today - dueDate) / 86400000);
+    if (overdueDays <= 0) buckets.current.push(r);
+    else if (overdueDays <= 30) buckets['0-30'].push(r);
+    else if (overdueDays <= 60) buckets['31-60'].push(r);
+    else buckets['60+'].push(r);
+  }
+  return buckets;
+}
+
+function computeCollection() {
+  const rev = applyFilters(DATA.revenue_actual);
+  const groups = { Paid: 0, Pending: 0, Overdue: 0, Partial: 0 };
+  const counts = { Paid: 0, Pending: 0, Overdue: 0, Partial: 0 };
+  const items = { Paid: [], Pending: [], Overdue: [], Partial: [] };
+  for (const r of rev) {
+    if (groups[r.paymentStatus] !== undefined) {
+      groups[r.paymentStatus] += r.revenue;
+      counts[r.paymentStatus]++;
+      items[r.paymentStatus].push(r);
+    }
+  }
+  return { groups, counts, items };
+}
+
+function getCustomerGrade(customerName) {
+  const cust = DATA.customer_master.find(c => c.name === customerName);
+  return cust ? cust.grade : 'C';
+}
+
+/* ============== TAB 1: HOME / SUMMARY V2 (Clearer) ============== */
+
+function fmtInt(n) { return Math.round(n || 0).toLocaleString(); }
+function fmtPct(n, d=1) { return (n || 0).toFixed(d); }
+function fmtKW(n) { return (n || 0).toFixed(2); }
+function fmtMoney(n) { return Math.round(n || 0).toLocaleString(); }
+
+function renderHome() {
+  destroyCharts();
+  const tab = document.getElementById('tab-home');
+  if (!tab || !tab.classList.contains('active')) return;
+
+  const rows = applyFilters(DATA.revenue_actual);
+  const totalRev = rows.reduce((s,r) => s + r.revenue, 0);
+  const totalProfit = rows.reduce((s,r) => s + r.profit, 0);
+  const margin = totalRev > 0 ? (totalProfit / totalRev * 100) : 0;
+  const collected = rows.filter(r => r.paymentStatus === 'Paid').reduce((s,r) => s + r.revenue, 0);
+  const collectedCount = rows.filter(r => r.paymentStatus === 'Paid').length;
+  const overdueRows = rows.filter(r => r.daysOverdue > 0 || r.paymentStatus === 'Overdue');
+  const overdueAmt = overdueRows.reduce((s,r) => s + r.revenue, 0);
+  const arRows = rows.filter(r => r.paymentStatus !== 'Paid');
+  const arAmt = arRows.reduce((s,r) => s + r.revenue, 0);
+  const collRate = totalRev > 0 ? (collected / totalRev * 100) : 0;
+  const targetPct = (totalRev / CONFIG.TARGET_MONTHLY) * 100;
+
+  const rl = computeRevenueLoss();
+  const delayedPermits = DATA.permit_jobs.filter(p => p.dueOffset < 0);
+  const delayedRevenue = delayedPermits.reduce((s,p) => s + p.revenue, 0);
+  const revAtRisk = rl.totalLoss + overdueAmt;
+
+  document.getElementById('heroRevVal').textContent = fmtMoney(totalRev);
+  document.getElementById('heroRevSub').textContent = `${rows.length} รายการในเดือนนี้`;
+  const heroProgWidth = Math.min(100, targetPct);
+  document.getElementById('heroProgBar').style.width = heroProgWidth + '%';
+  document.getElementById('heroProgPct').textContent = targetPct.toFixed(1);
+  const trendPill = document.getElementById('heroRevTrend');
+  const trendDirection = targetPct >= 50 ? 'up' : 'down';
+  trendPill.className = 'hero-trend-pill ' + trendDirection;
+  trendPill.textContent = (targetPct >= 50 ? '↑ ' : '↓ ') + targetPct.toFixed(0) + '% ของเป้า';
+
+  document.getElementById('qsCollectedVal').textContent = fmtMoney(collected);
+  document.getElementById('qsCollectedMeta').textContent = `${collectedCount} invoices · ${collRate.toFixed(1)}%`;
+  document.getElementById('qsARVal').textContent = fmtMoney(arAmt);
+  document.getElementById('qsARMeta').textContent = `${arRows.length} ใบค้าง`;
+  document.getElementById('qsGPVal').textContent = fmtMoney(totalProfit);
+  document.getElementById('qsGMVal').textContent = margin.toFixed(1);
+  document.getElementById('qsRiskVal').textContent = fmtMoney(revAtRisk);
+  document.getElementById('qsRiskMeta').textContent = `Loss ฿${fmtCurrency(rl.totalLoss)} + Overdue ฿${fmtCurrency(overdueAmt)}`;
+
+  const solarRows = rows.filter(r => r.category === 'Installation' || r.service === 'EPC Solar');
+  const solarRev = solarRows.reduce((s,r) => s + r.revenue, 0);
+  const solarKW = solarRows.reduce((s,r) => s + (r.kW||0), 0);
+  document.getElementById('dv2SolarRev').textContent = fmtMoney(solarRev);
+  document.getElementById('dv2SolarStatus').textContent = `${solarRows.length} โครงการ · ${solarKW.toFixed(2)} kW`;
+
+  const monthCl = DATA.cleaning.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const clDone = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
+  const clRev = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
+  document.getElementById('dv2ClRev').textContent = fmtMoney(clRev);
+  document.getElementById('dv2ClStatus').textContent = `${monthCl.length} งาน · เสร็จ ${clDone}/${monthCl.length}`;
+
+  const omRows = rows.filter(r => r.service === 'Service' || r.category === 'O&M Contract');
+  const omRev = omRows.reduce((s,r) => s + r.revenue, 0);
+  const critOpen = rl.alarms.filter(a => a.level === 'Critical' && a.status === 'เปิดอยู่').length;
+  document.getElementById('dv2OMRev').textContent = fmtMoney(omRev);
+  document.getElementById('dv2OMStatus').textContent = `${omRows.length} Service · ${critOpen} Critical`;
+
+  document.getElementById('dv2PermitStuck').textContent = fmtMoney(delayedRevenue);
+  document.getElementById('dv2PermitStatus').textContent = `${delayedPermits.length} เอกสารดีเลย์ · เฉลี่ย ${delayedPermits.length > 0 ? (delayedPermits.reduce((s,p) => s + Math.abs(p.dueOffset), 0) / delayedPermits.length).toFixed(0) : 0}d`;
+
+  let healthScore = 100;
+  if (collRate < 60) healthScore -= 25;
+  else if (collRate < 80) healthScore -= 10;
+  if (overdueAmt > totalRev * 0.3) healthScore -= 20;
+  if (delayedPermits.length > 5) healthScore -= 15;
+  if (targetPct < 50) healthScore -= 20;
+  if (critOpen > 5) healthScore -= 15;
+  healthScore = Math.max(0, healthScore);
+
+  const banner = document.getElementById('healthBannerNew');
+  let icon, label, detail, cls;
+  if (healthScore >= 75) {
+    cls = 'healthy'; icon = '✓'; label = 'ธุรกิจสุขภาพดี';
+    detail = `Collection ${collRate.toFixed(0)}% · ทำเป้า ${targetPct.toFixed(0)}% · ดีเลย์ ${delayedPermits.length} เอกสาร`;
+  } else if (healthScore >= 50) {
+    cls = 'watch'; icon = '⚠'; label = 'ต้องเฝ้าระวัง';
+    detail = `Collection ${collRate.toFixed(0)}% · ทำเป้า ${targetPct.toFixed(0)}% · ${delayedPermits.length} permits ดีเลย์`;
+  } else {
+    cls = 'critical'; icon = '✕'; label = 'ต้องแก้ด่วน';
+    detail = `Collection ${collRate.toFixed(0)}% · ${critOpen} Critical alarms · เงินจม ฿${fmtCurrency(delayedRevenue)}`;
+  }
+  banner.className = 'health-banner ' + cls;
+  document.getElementById('healthBannerIcon').textContent = icon;
+  document.getElementById('healthBannerStatus').textContent = label;
+  document.getElementById('healthBannerDetail').textContent = detail;
+  document.getElementById('healthBannerScore').textContent = healthScore + '/100';
+
+  const months = ['2026-01','2026-02','2026-03','2026-04','2026-05'];
+  const labels = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.'];
+  const actMonthly = months.map(m => DATA.revenue_actual.filter(r => r.billingDate?.startsWith(m)).reduce((s,r) => s + r.revenue, 0));
+  const collMonthly = months.map(m => DATA.revenue_actual.filter(r => r.billingDate?.startsWith(m) && r.paymentStatus === 'Paid').reduce((s,r) => s + r.revenue, 0));
+  const fcMonthly = months.map(m => DATA.revenue_forecast.filter(f => f.forecastMonth === m).reduce((s,f) => s + f.revenue * f.probability / 100, 0));
+
+  const ctx = document.getElementById('chartActVsFc').getContext('2d');
+  CHARTS.actVsFc = registerChart('actVsFc', new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Actual', data: actMonthly,
+          borderColor: getCSSVar('--cyan'), backgroundColor: 'rgba(19,194,194,0.15)',
+          fill: true, tension: 0.4, borderWidth: 3,
+          pointRadius: 5, pointBackgroundColor: getCSSVar('--cyan'),
+          pointBorderColor: '#fff', pointBorderWidth: 2 },
+        { label: 'Forecast (Weighted)', data: fcMonthly,
+          borderColor: getCSSVar('--solar'), backgroundColor: 'transparent',
+          borderWidth: 2.5, borderDash: [6, 4], tension: 0.4,
+          pointRadius: 4, pointBackgroundColor: getCSSVar('--solar') },
+        { label: 'Collected', data: collMonthly,
+          borderColor: getCSSVar('--success'), backgroundColor: 'transparent',
+          borderWidth: 2.5, tension: 0.4,
+          pointRadius: 4, pointBackgroundColor: getCSSVar('--success') },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 }, color: getCSSVar('--text-dim') } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ฿${fmtFull(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
+        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtCurrency(v), color: getCSSVar('--text-dim') } }
+      }
+    }
+  }));
+
+  const g = computeGauge();
+  document.getElementById('gaugePercent').textContent = g.pct.toFixed(1) + '%';
+  document.getElementById('gaugeAmount').textContent = `฿${fmtCurrency(g.projected)} / ฿${fmtCurrency(g.target)}`;
+  const gap = g.target - g.projected;
+  document.getElementById('gaugeStatus').innerHTML = gap <= 0
+    ? '✓ เกินเป้า'
+    : (g.pct >= 80 ? '⚠ ใกล้เป้า' : '⛔ ห่างเป้า ' + fmtCurrency(gap));
+  const gaugeCtx = document.getElementById('chartGauge').getContext('2d');
+  const actPct = (g.actual / g.target) * 100;
+  const fcPct = Math.max(0, (g.forecast / g.target) * 100);
+  const gapPct = Math.max(0, 100 - actPct - fcPct);
+  CHARTS.gauge = registerChart('gauge', new Chart(gaugeCtx, {
+    type: 'doughnut',
+    data: { datasets: [{
+      data: [actPct, fcPct, gapPct],
+      backgroundColor: [getCSSVar('--cyan'), getCSSVar('--solar'), getCSSVar('--card-elev')],
+      borderWidth: 0, cutout: '74%', circumference: 270, rotation: 225,
+    }]},
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } }
+    }
+  }));
+
+  const leakBox = document.getElementById('leakageList');
+  const leakItems = [];
+
+  const byCust = {};
+  overdueRows.forEach(r => {
+    if (!byCust[r.customer]) byCust[r.customer] = { amt: 0, cnt: 0, maxDays: 0 };
+    byCust[r.customer].amt += r.revenue;
+    byCust[r.customer].cnt++;
+    byCust[r.customer].maxDays = Math.max(byCust[r.customer].maxDays, r.daysOverdue);
+  });
+  Object.entries(byCust).sort((a,b) => b[1].amt - a[1].amt).slice(0, 3).forEach(([cust, d]) => {
+    leakItems.push({
+      icon: '💰', title: `${cust} · ค้างชำระ`,
+      sub: `${d.cnt} ใบ · สูงสุด ${d.maxDays} วัน`,
+      amount: d.amt, color: 'var(--critical)',
+      onclick: `openCustomerDrill('${cust}')`
+    });
+  });
+
+  delayedPermits.sort((a,b) => b.revenue - a.revenue).slice(0, 2).forEach(p => {
+    const idx = DATA.permit_jobs.indexOf(p);
+    leakItems.push({
+      icon: '📋', title: `${p.customer} · ${p.docType}`,
+      sub: `Permit เลยกำหนด ${-p.dueOffset} วัน`,
+      amount: p.revenue, color: 'var(--purple)',
+      onclick: `openPermitDrill(${idx})`
+    });
+  });
+
+  if (rl.totalLoss > 0) {
+    leakItems.push({
+      icon: '⚡', title: 'Revenue Loss · เครื่องหยุดทำงาน',
+      sub: `${rl.totalHours.toFixed(1)} hrs downtime · ${rl.count} alarms`,
+      amount: rl.totalLoss, color: 'var(--warning)',
+      onclick: 'openRevenueLossFormulaDrill()'
+    });
+  }
+
+  leakBox.innerHTML = leakItems.length
+    ? leakItems.map(it => `
+        <div class="action-item" style="--action-color:${it.color};" onclick="${it.onclick}">
+          <div class="action-icon">${it.icon}</div>
+          <div class="action-info">
+            <div class="action-title">${it.title}</div>
+            <div class="action-sub">${it.sub}</div>
+          </div>
+          <div class="action-amount">฿${fmtCurrency(it.amount)}</div>
+          <div class="action-arrow">›</div>
+        </div>`).join('')
+    : '<div class="empty-state">ไม่มีจุดที่ต้องดูแล ✓</div>';
+}
+
+/* ============== TAB 2: HOME SOLAR & SME ============== */
+function renderSolar() {
+  destroyCharts();
+  const tab = document.getElementById('tab-solar');
+  if (!tab || !tab.classList.contains('active')) return;
+
+  // Filter solar-related categories (Installation + everything with Solar revenue)
+  const isSolarCat = (r) => r.category === 'Installation' || r.service === 'EPC Solar' || r.service === 'Monitoring';
+  const rows = applyFilters(DATA.revenue_actual).filter(isSolarCat);
+  const totalRev = rows.reduce((s,r) => s + r.revenue, 0);
+  const totalKW = rows.reduce((s,r) => s + (r.kW||0), 0);
+  const count = rows.length;
+  document.getElementById('solarRevVal').textContent = fmtFull(totalRev);
+  document.getElementById('solarKWVal').textContent = totalKW.toFixed(2);
+  document.getElementById('solarRevSub').textContent = `${count} โครงการ`;
+  document.getElementById('solarKWAvg').textContent = `เฉลี่ย ${count ? (totalKW/count).toFixed(2) : 0} kW/โครงการ`;
+
+  // Forecast
+  const fc = DATA.revenue_forecast.filter(f => f.ptype && (f.ptype.includes('Solar') || f.ptype === 'Rooftop Solar' || f.ptype === 'EPC Project'));
+  const fcSum = fc.reduce((s,f) => s + f.revenue, 0);
+  const fcWeighted = fc.reduce((s,f) => s + f.revenue * f.probability / 100, 0);
+  document.getElementById('solarFcVal').textContent = fmtFull(fcSum);
+  document.getElementById('solarFcSub').textContent = `Weighted ฿${fmtCurrency(fcWeighted)}`;
+
+  // Achievement vs monthly target (assume Solar target = 60% of total = 6M)
+  const solarTarget = 6_000_000;
+  const ach = Math.min(100, (totalRev / solarTarget) * 100);
+  document.getElementById('solarAchVal').textContent = ach.toFixed(1);
+  document.getElementById('solarAchSub').textContent = `vs ฿${fmtCurrency(solarTarget)} เป้า Solar`;
+
+  // Region grouping (simulated based on province)
+  const provinceRegion = {
+    'กรุงเทพฯ':'กรุงเทพฯ', 'ปทุมธานี':'ภาคกลาง', 'นครราชสีมา':'ภาคอีสาน',
+    'ขอนแก่น':'ภาคอีสาน', 'ชลบุรี':'ภาคตะวันออก', 'ระยอง':'ภาคตะวันออก',
+    'ภูเก็ต':'ภาคใต้',
+  };
+  const regionTotals = {};
+  rows.forEach(r => {
+    const reg = provinceRegion[r.province] || 'ภาคกลาง';
+    regionTotals[reg] = (regionTotals[reg]||0) + r.revenue;
+  });
+  const regLabels = Object.keys(regionTotals);
+  const regValues = regLabels.map(k => regionTotals[k]);
+  const regCtx = document.getElementById('chartSolarRegion').getContext('2d');
+  CHARTS.solarRegion = registerChart('solarRegion', new Chart(regCtx, {
+    type: 'bar',
+    data: { labels: regLabels, datasets: [{
+      data: regValues,
+      backgroundColor: getCSSVar('--bu-solar'),
+      borderRadius: 6,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.y)}` } } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtCurrency(v) } }
+      },
+      onClick: (evt, els) => {
+        if (els.length) {
+          const reg = regLabels[els[0].index];
+          const rs = rows.filter(r => (provinceRegion[r.province]||'ภาคกลาง') === reg);
+          openDrill(`Solar Region · ${reg}`, `รายการโครงการในภาค ${reg}`, rs,
+            [
+              { key: 'billingDate', label: 'วันที่' },
+              { key: 'customer', label: 'ลูกค้า' },
+              { key: 'project', label: 'Project' },
+              { key: 'province', label: 'จังหวัด' },
+              { key: 'kW', label: 'kW', fmt: v => (v||0).toFixed(2), right: true },
+              { key: 'revenue', label: 'Revenue', fmt: v => '฿' + fmtFull(v), right: true },
+            ],
+            [
+              { label: 'จำนวนโครงการ', value: rs.length },
+              { label: 'kW รวม', value: rs.reduce((s,r)=>s+(r.kW||0),0).toFixed(2) + ' kW' },
+              { label: 'Revenue รวม', value: '฿' + fmtCurrency(rs.reduce((s,r)=>s+r.revenue,0)) },
+            ]
+          );
+        }
+      }
+    }
+  }));
+
+  // Customer Acquisition Trend
+  const months = ['2026-01','2026-02','2026-03','2026-04','2026-05'];
+  const labels = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.'];
+  const monthly = months.map(m => rows.filter(r => r.billingDate?.startsWith(m)).length);
+  const acqCtx = document.getElementById('chartSolarAcq').getContext('2d');
+  CHARTS.solarAcq = registerChart('solarAcq', new Chart(acqCtx, {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: 'โครงการใหม่',
+      data: monthly,
+      borderColor: getCSSVar('--bu-solar'),
+      backgroundColor: 'rgba(59,130,246,0.15)',
+      fill: true, tension: 0.35, borderWidth: 2.5,
+      pointRadius: 4, pointBackgroundColor: getCSSVar('--bu-solar'),
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: getCSSVar('--grid-line') }, beginAtZero: true }
+      }
+    }
+  }));
+
+  // Top Provinces table
+  const provTotals = {};
+  rows.forEach(r => {
+    if (!provTotals[r.province]) provTotals[r.province] = { count: 0, kW: 0, rev: 0, region: provinceRegion[r.province]||'ภาคกลาง' };
+    provTotals[r.province].count++;
+    provTotals[r.province].kW += (r.kW||0);
+    provTotals[r.province].rev += r.revenue;
+  });
+  const sortedProvs = Object.entries(provTotals).sort((a,b) => b[1].rev - a[1].rev);
+  document.getElementById('solarProvBody').innerHTML = sortedProvs.length
+    ? sortedProvs.map(([prov, d]) => `
+        <tr style="cursor:pointer;" onclick="openProvinceDrill('${prov}')">
+          <td><strong>${prov}</strong></td>
+          <td>${d.region}</td>
+          <td class="text-right">${d.count}</td>
+          <td class="text-right text-mono">${d.kW.toFixed(2)}</td>
+          <td class="text-right text-mono">฿${fmtFull(d.rev)}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="5" class="empty-state">ไม่มีโครงการ Solar ในช่วงเวลานี้</td></tr>';
+}
+
+function openProvinceDrill(province) {
+  const rs = DATA.revenue_actual.filter(r => r.province === province);
+  openDrill(`จังหวัด · ${province}`, `รายการทั้งหมดในจังหวัดนี้`, rs,
+    [
+      { key: 'billingDate', label: 'วันที่' },
+      { key: 'customer', label: 'ลูกค้า' },
+      { key: 'project', label: 'Project' },
+      { key: 'kW', label: 'kW', fmt: v => (v||0).toFixed(2), right: true },
+      { key: 'revenue', label: 'Revenue', fmt: v => '฿' + fmtFull(v), right: true },
+      { key: 'paymentStatus', label: 'สถานะ', badge: true },
+    ],
+    [
+      { label: 'จำนวนโครงการ', value: rs.length },
+      { label: 'kW รวม', value: rs.reduce((s,r)=>s+(r.kW||0),0).toFixed(2) + ' kW' },
+      { label: 'Revenue รวม', value: '฿' + fmtCurrency(rs.reduce((s,r)=>s+r.revenue,0)) },
+    ]
+  );
+}
+
+/* ============== TAB 3: CLEANING ============== */
+function renderCleaning() {
+  destroyCharts();
+  const tab = document.getElementById('tab-cleaning');
+  if (!tab || !tab.classList.contains('active')) return;
+
+  const monthCl = DATA.cleaning.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const done = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
+  const delay = monthCl.filter(c => c.status === 'Delay').length;
+  const totalKW = monthCl.reduce((s,c) => s + (c.kW||0), 0);
+  // Revenue from cleaning jobs (estimate: 800 ฿/kW per cleaning job)
+  const clRevenue = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
+
+  document.getElementById('clRevVal').textContent = fmtFull(clRevenue);
+  document.getElementById('clRevSub').textContent = `${monthCl.length} งาน`;
+  document.getElementById('clMonthVal').textContent = monthCl.length;
+  document.getElementById('clDoneSub').textContent = `เสร็จสิ้น ${done}/${monthCl.length}`;
+  document.getElementById('clKWVal').textContent = totalKW.toFixed(2);
+  document.getElementById('clKWSub').textContent = 'รวมทั้งหมด';
+  document.getElementById('clDelayVal').textContent = delay;
+  document.getElementById('clDelaySub').textContent = `${delay} งานค้าง`;
+  document.getElementById('clSummary').textContent = `${done}/${monthCl.length} เสร็จสิ้น`;
+
+  // Table
+  document.getElementById('clBody').innerHTML = monthCl.length
+    ? monthCl.slice(0, 80).map((c, idx) => `
+      <tr style="cursor:pointer;" onclick="openCleaningRowDrill(${idx})">
+        <td class="text-mono">${c.planDate}</td>
+        <td><strong>${c.customer}</strong></td>
+        <td>${c.site}</td>
+        <td class="text-right text-mono">${(c.kW||0).toFixed(2)}</td>
+        <td>${c.team}</td>
+        <td><span class="badge ${c.status === 'เสร็จสิ้น' ? 'badge-paid' : c.status === 'Delay' ? 'badge-overdue' : 'badge-pending'}">${c.status}</span></td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="empty-state">ไม่มีงาน Cleaning ในเดือนนี้</td></tr>';
+
+  // Progress per customer
+  const byCust = {};
+  monthCl.forEach(c => {
+    if (!byCust[c.customer]) byCust[c.customer] = { plan: 0, done: 0 };
+    byCust[c.customer].plan++;
+    if (c.status === 'เสร็จสิ้น') byCust[c.customer].done++;
+  });
+  document.getElementById('clProgress').innerHTML = Object.entries(byCust).map(([cust, d]) => {
+    const pct = d.plan ? (d.done / d.plan * 100) : 0;
+    const cls = pct >= 80 ? 'success' : pct >= 40 ? '' : 'warning';
+    return `<div class="progress-item">
+      <span class="progress-label">${cust}</span>
+      <span class="progress-num">${d.done}/${d.plan} · ${pct.toFixed(0)}%</span>
+      <div class="progress-bar-bg"><div class="progress-bar-fill ${cls}" style="width:${pct}%; background:var(--bu-cleaning);"></div></div>
+    </div>`;
+  }).join('') || '<div class="empty-state">ไม่มีแผนงาน Cleaning</div>';
+
+  // Revenue per team chart
+  const teamRev = {};
+  monthCl.forEach(c => {
+    teamRev[c.team] = (teamRev[c.team] || 0) + (c.kW||0) * 800;
+  });
+  const tCtx = document.getElementById('chartClTeam').getContext('2d');
+  CHARTS.clTeam = registerChart('clTeam', new Chart(tCtx, {
+    type: 'bar',
+    data: { labels: Object.keys(teamRev), datasets: [{
+      data: Object.values(teamRev),
+      backgroundColor: getCSSVar('--bu-cleaning'),
+      borderRadius: 6,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.x)}` } } },
+      scales: {
+        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtCurrency(v) } },
+        y: { grid: { display: false } }
+      }
+    }
+  }));
+}
+
+function openCleaningRowDrill(idx) {
+  const cl = DATA.cleaning[idx];
+  if (!cl) return;
+  openDrill(`Cleaning · ${cl.customer}`, `${cl.site} · ${cl.planDate}`, [cl],
+    [
+      { key: 'planDate', label: 'วันที่นัด' },
+      { key: 'actualDate', label: 'วันที่ทำจริง' },
+      { key: 'customer', label: 'ลูกค้า' },
+      { key: 'site', label: 'Site' },
+      { key: 'kW', label: 'kW', fmt: v => (v||0).toFixed(2), right: true },
+      { key: 'team', label: 'ทีม' },
+      { key: 'status', label: 'สถานะ', badge: true },
+    ],
+    [
+      { label: 'ขนาดระบบ', value: (cl.kW||0).toFixed(2) + ' kW' },
+      { label: 'ค่าทำสะอาด (est.)', value: '฿' + fmtCurrency((cl.kW||0) * 800) },
+    ]
+  );
+}
+
+/* ============== TAB 4: O&M ============== */
+function renderOM() {
+  destroyCharts();
+  const tab = document.getElementById('tab-om');
+  if (!tab || !tab.classList.contains('active')) return;
+
+  // Service revenue (current month, category not Installation)
+  const svc = applyFilters(DATA.revenue_actual).filter(r => r.service === 'Service' || r.category === 'O&M Contract');
+  const svcTotal = svc.reduce((s,r) => s + r.revenue, 0);
+  document.getElementById('omSvcVal').textContent = fmtFull(svcTotal);
+  document.getElementById('omSvcSub').textContent = `${svc.length} Service Jobs`;
+
+  // Inspection progress
+  const monthIn = DATA.inspection.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const inDone = monthIn.filter(c => c.status === 'เสร็จสิ้น').length;
+  const insPct = monthIn.length ? (inDone / monthIn.length * 100) : 0;
+  document.getElementById('omInsVal').textContent = insPct.toFixed(1);
+  document.getElementById('omInsSub').textContent = `${inDone}/${monthIn.length} PM completed`;
+  document.getElementById('inspectionSummary').textContent = `${inDone}/${monthIn.length}`;
+
+  const byCustIn = {};
+  monthIn.forEach(c => {
+    if (!byCustIn[c.customer]) byCustIn[c.customer] = { plan: 0, done: 0 };
+    byCustIn[c.customer].plan++;
+    if (c.status === 'เสร็จสิ้น') byCustIn[c.customer].done++;
+  });
+  document.getElementById('inspectionList').innerHTML = Object.entries(byCustIn).map(([cust, d]) => {
+    const pct = d.plan ? (d.done / d.plan * 100) : 0;
+    return `<div class="progress-item">
+      <span class="progress-label">${cust}</span>
+      <span class="progress-num">${d.done}/${d.plan} · ${pct.toFixed(0)}%</span>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%; background:var(--bu-om);"></div></div>
+    </div>`;
+  }).join('') || '<div class="empty-state">ไม่มี Inspection ในเดือนนี้</div>';
+
+  // Revenue Loss (Time-Specific)
+  const rl = computeRevenueLoss();
+  document.getElementById('omLossVal').textContent = fmtFull(rl.totalLoss);
+  document.getElementById('omLossSub').textContent = `${rl.totalHours.toFixed(1)} hrs downtime`;
+
+  // Critical alarms
+  const crit = rl.alarms.filter(a => a.level === 'Critical');
+  const critOpen = crit.filter(a => a.status === 'เปิดอยู่').length;
+  document.getElementById('omCritVal').textContent = crit.length;
+  document.getElementById('omCritSub').textContent = `${critOpen} ยังเปิดอยู่`;
+
+  // Alarm Distribution Chart
+  const levels = ['Critical', 'Major', 'Minor', 'Warning'];
+  const lcount = levels.map(l => rl.alarms.filter(a => a.level === l).length);
+  const aCtx = document.getElementById('chartAlarms').getContext('2d');
+  CHARTS.alarms = registerChart('alarms', new Chart(aCtx, {
+    type: 'bar',
+    data: { labels: levels, datasets: [{
+      data: lcount,
+      backgroundColor: [getCSSVar('--critical'), getCSSVar('--warning'), '#FACC15', getCSSVar('--info')],
+      borderRadius: 8,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false } }, y: { grid: { color: getCSSVar('--grid-line') }, beginAtZero: true } },
+      onClick: (evt, els) => {
+        if (els.length) {
+          const lvl = levels[els[0].index];
+          openDrill(`Alarms · ${lvl}`, `รายการ Alarm ระดับ ${lvl}`, rl.alarms.filter(a => a.level === lvl),
+            [
+              { key: 'time', label: 'เวลา' },
+              { key: 'site', label: 'Site' },
+              { key: 'type', label: 'ประเภท' },
+              { key: 'kW', label: 'kW', right: true },
+              { key: 'efficiency', label: 'Eff.', fmt: v => v.toFixed(2), right: true },
+              { key: 'downtimeHrs', label: 'Hrs', fmt: v => v.toFixed(2), right: true },
+              { key: 'revenueLoss', label: 'Loss (฿)', fmt: v => fmtFull(v), right: true },
+              { key: 'status', label: 'สถานะ' },
+            ],
+            [
+              { label: 'จำนวน', value: rl.alarms.filter(a => a.level === lvl).length },
+              { label: 'Downtime รวม', value: rl.alarms.filter(a => a.level === lvl).reduce((s,a)=>s+a.downtimeHrs,0).toFixed(1) + ' hrs' },
+              { label: 'Loss รวม', value: '฿' + fmtCurrency(rl.alarms.filter(a => a.level === lvl).reduce((s,a)=>s+a.revenueLoss,0)) }
+            ]
+          );
+        }
+      }
+    }
+  }));
+
+  // Critical alarms table
+  const critList = rl.alarms.filter(a => a.level === 'Critical' || a.level === 'Major').slice(0, 30);
+  document.getElementById('criticalAlarmsBody').innerHTML = critList.length
+    ? critList.map((a, idx) => `
+      <tr style="cursor:pointer;" onclick="openAlarmRowDrill(${DATA.alarm_status.indexOf(a)})">
+        <td class="text-mono">${a.time}</td>
+        <td>${a.site}</td>
+        <td>${a.type}</td>
+        <td class="text-right text-mono">${a.kW||0}</td>
+        <td class="text-right text-mono">${(a.efficiency||0).toFixed(2)}</td>
+        <td class="text-right text-mono">${a.downtimeHrs.toFixed(2)}</td>
+        <td class="text-right text-mono text-critical">฿${fmtFull(a.revenueLoss)}</td>
+        <td><span class="badge ${a.status === 'เปิดอยู่' ? 'badge-overdue' : 'badge-paid'}">${a.status}</span></td>
+      </tr>`).join('')
+    : '<tr><td colspan="8" class="empty-state">ไม่มี Critical/Major Alarm</td></tr>';
+}
+
+function openAlarmRowDrill(idx) {
+  const a = DATA.alarm_status[idx];
+  if (!a) return;
+  const example = `Loss = ${a.kW||0} kW × ${(a.efficiency||0).toFixed(2)} × ${a.downtimeHrs.toFixed(2)} hrs × ฿${CONFIG.ELECTRICITY_RATE}/kWh = ฿${fmtFull(a.revenueLoss)}`;
+  openDrill(`Alarm · ${a.site}`, `${a.type} · ${a.time}`, [a],
+    [
+      { key: 'time', label: 'เวลา' },
+      { key: 'hourOfDay', label: 'ชั่วโมง' },
+      { key: 'kW', label: 'kW' },
+      { key: 'efficiency', label: 'Efficiency' },
+      { key: 'downtimeHrs', label: 'Downtime (hr)' },
+      { key: 'revenueLoss', label: 'Loss (฿)', fmt: v => fmtFull(v) },
+      { key: 'status', label: 'สถานะ' },
+    ],
+    [
+      { label: 'สูตรคำนวณ', value: example },
+    ]
+  );
+}
+
+function openRevenueLossFormulaDrill() {
+  const example1 = `<div style="padding:14px; background:var(--card-elev); border-radius:10px; margin-bottom:10px;">
+    <div style="font-weight:600; margin-bottom:6px; color:var(--cyan);">ตัวอย่าง 1 · เครื่อง 100 kW เสีย 4 ชม. ช่วงแดดจัด (10:00-14:00)</div>
+    <div class="text-mono" style="font-size:13px; line-height:1.7;">
+      Loss = 100 kW × 0.85 × 4 hrs × ฿4.50/kWh<br>
+      &nbsp;&nbsp;&nbsp;&nbsp; = <span class="text-critical" style="font-weight:600;">฿1,530.00</span>
+    </div>
+  </div>`;
+  const example2 = `<div style="padding:14px; background:var(--card-elev); border-radius:10px; margin-bottom:10px;">
+    <div style="font-weight:600; margin-bottom:6px; color:var(--warning);">ตัวอย่าง 2 · เครื่อง 100 kW เสีย 4 ชม. ช่วงเช้า (08:00-12:00)</div>
+    <div class="text-mono" style="font-size:13px; line-height:1.7;">
+      08:00-10:00 = 100 × 0.35 × 2 × 4.50 = ฿315.00<br>
+      10:00-12:00 = 100 × 0.85 × 2 × 4.50 = ฿765.00<br>
+      รวม = <span class="text-critical" style="font-weight:600;">฿1,080.00</span>
+    </div>
+  </div>`;
+  const example3 = `<div style="padding:14px; background:var(--card-elev); border-radius:10px;">
+    <div style="font-weight:600; margin-bottom:6px; color:var(--text-dim);">ตัวอย่าง 3 · เครื่อง 100 kW เสีย 4 ชม. ช่วงกลางคืน (22:00-02:00)</div>
+    <div class="text-mono" style="font-size:13px; line-height:1.7;">
+      ทุกชั่วโมง: 100 × 0 × 1 × 4.50 = ฿0<br>
+      รวม = <span class="text-success" style="font-weight:600;">฿0.00</span> (ไม่มีแดด)
+    </div>
+  </div>`;
+  document.getElementById('modalTitle').textContent = 'สูตร Revenue Loss · Time-Specific Calculation';
+  document.getElementById('modalSub').textContent = 'Loss = kW × Efficiency × ชั่วโมงที่เสีย × ราคาค่าไฟ';
+  document.getElementById('modalSummary').innerHTML = `
+    <div><div class="modal-stat-label">ราคาค่าไฟ</div><div class="modal-stat-value">฿${CONFIG.ELECTRICITY_RATE}/kWh</div></div>
+    <div><div class="modal-stat-label">Eff. Peak (10-14h)</div><div class="modal-stat-value">${CONFIG.EFFICIENCY_PEAK}</div></div>
+    <div><div class="modal-stat-label">Eff. Shoulder (8-10/14-17)</div><div class="modal-stat-value">${CONFIG.EFFICIENCY_SHOULDER}</div></div>
+    <div><div class="modal-stat-label">Eff. Night (18-06)</div><div class="modal-stat-value">${CONFIG.EFFICIENCY_NIGHT}</div></div>`;
+  document.getElementById('modalBody').innerHTML = example1 + example2 + example3;
+  document.getElementById('drillModal').classList.add('active');
+}
+
+/* ============== TAB 5: PERMIT ============== */
+function renderPermit() {
+  destroyCharts();
+  const tab = document.getElementById('tab-permit');
+  if (!tab || !tab.classList.contains('active')) return;
+
+  const permits = DATA.permit_jobs;
+  const delayed = permits.filter(p => p.dueOffset < 0);
+  const stuckMoney = delayed.reduce((s,p) => s + p.revenue, 0);
+  const released = permits.filter(p => p.status === 'อนุมัติแล้ว').reduce((s,p) => s + p.revenue, 0);
+  const avgDelay = delayed.length ? delayed.reduce((s,p) => s + Math.abs(p.dueOffset), 0) / delayed.length : 0;
+
+  document.getElementById('pTotal').textContent = permits.length;
+  document.getElementById('pStuckVal').textContent = fmtFull(stuckMoney);
+  document.getElementById('pStuckSub').textContent = `${delayed.length} เอกสารดีเลย์`;
+  document.getElementById('pAvgDelay').textContent = avgDelay.toFixed(0);
+  document.getElementById('pReleaseVal').textContent = fmtFull(released);
+
+  // Heatmap
+  const heat = document.getElementById('permitHeatmap');
+  heat.innerHTML = permits.map((p, idx) => {
+    let cls = 'heat-green', tag = 'On-Track';
+    if (p.dueOffset < 0) { cls = 'heat-red'; tag = `เลย ${-p.dueOffset}d`; }
+    else if (p.dueOffset <= 14) { cls = 'heat-yellow'; tag = `${p.dueOffset}d`; }
+    else { tag = `${p.dueOffset}d`; }
+    return `<div class="heat-cell ${cls}" onclick="openPermitDrill(${idx})">
+      <div class="heat-cust">${p.customer}</div>
+      <div class="heat-doc">${p.docType}</div>
+      <div class="heat-rev">฿${fmtCurrency(p.revenue)}</div>
+      <div class="heat-due"><span>${p.dueDate}</span><span class="heat-status-tag">${tag}</span></div>
+    </div>`;
+  }).join('');
+
+  // Permit status pipeline
+  const pStatusGroups = {};
+  permits.forEach(p => { pStatusGroups[p.status] = (pStatusGroups[p.status] || 0) + p.revenue; });
+  const psLabels = Object.keys(pStatusGroups);
+  const psCtx = document.getElementById('chartPermitStatus').getContext('2d');
+  CHARTS.permitStatus = registerChart('permitStatus', new Chart(psCtx, {
+    type: 'bar',
+    data: { labels: psLabels, datasets: [{
+      data: psLabels.map(k => pStatusGroups[k]),
+      backgroundColor: getCSSVar('--bu-permit'),
+      borderRadius: 6,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.x)}` } } },
+      scales: {
+        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtCurrency(v) } },
+        y: { grid: { display: false } }
+      },
+      onClick: (evt, els) => {
+        if (els.length) {
+          const status = psLabels[els[0].index];
+          const rs = permits.filter(p => p.status === status);
+          openDrill(`Permit · ${status}`, `รายการ Permit สถานะ ${status}`, rs,
+            [
+              { key: 'customer', label: 'ลูกค้า' },
+              { key: 'docType', label: 'ประเภทเอกสาร' },
+              { key: 'startDate', label: 'เริ่ม' },
+              { key: 'dueDate', label: 'กำหนดเสร็จ' },
+              { key: 'dueOffset', label: 'วันเหลือ', right: true },
+              { key: 'revenue', label: 'เงินจม (฿)', fmt: v => fmtFull(v), right: true },
+            ],
+            [
+              { label: 'จำนวน', value: rs.length },
+              { label: 'เงินรวม', value: '฿' + fmtCurrency(rs.reduce((s,p)=>s+p.revenue,0)) }
+            ]
+          );
+        }
+      }
+    }
+  }));
+}
+
+function openPermitDrill(idx) {
+  const p = DATA.permit_jobs[idx];
+  if (!p) return;
+  openDrill(`Permit · ${p.customer}`, `${p.docType}`, [p],
+    [
+      { key: 'customer', label: 'ลูกค้า' },
+      { key: 'docType', label: 'ประเภท' },
+      { key: 'startDate', label: 'เริ่ม' },
+      { key: 'dueDate', label: 'กำหนดเสร็จ' },
+      { key: 'dueOffset', label: 'วันเหลือ', right: true },
+      { key: 'revenue', label: 'เงินจม', fmt: v => '฿' + fmtFull(v), right: true },
+      { key: 'status', label: 'สถานะ' },
+    ],
+    [
+      { label: 'มูลค่า', value: '฿' + fmtCurrency(p.revenue) },
+      { label: 'สถานะ', value: p.status },
+      { label: 'วันถึงกำหนด', value: p.dueOffset + ' วัน' },
+    ]
+  );
+}
+
+/* ============== DRILL-DOWN MODAL ============== */
+function openDrill(title, sub, rows, columns, summary) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalSub').textContent = sub;
+
+  // Summary cells
+  const sumEl = document.getElementById('modalSummary');
+  sumEl.innerHTML = (summary || []).map(s => `
+    <div><div class="modal-stat-label">${s.label}</div>
+    <div class="modal-stat-value text-cyan">${s.value}</div></div>
+  `).join('');
+  sumEl.style.display = summary && summary.length ? 'grid' : 'none';
+
+  // Body table
+  const body = document.getElementById('modalBody');
+  if (!rows || !rows.length) {
+    body.innerHTML = '<div class="empty-state">ไม่มีข้อมูลในช่วงที่กรอง</div>';
+  } else {
+    const head = columns.map(c => `<th class="${c.right ? 'text-right' : ''}">${c.label}</th>`).join('');
+    const trs = rows.map(r => {
+      const tds = columns.map(c => {
+        let val = r[c.key];
+        if (c.fmt) val = c.fmt(val);
+        else if (val == null) val = '';
+        if (c.badge) {
+          const cls = String(val).toLowerCase();
+          val = `<span class="badge badge-${cls}">${val}</span>`;
+        }
+        const align = c.right ? 'text-right text-mono' : '';
+        return `<td class="${align}">${val}</td>`;
+      }).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    body.innerHTML = `<div class="table-wrap" style="max-height:54vh;"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${trs}</tbody></table></div>`;
+  }
+  document.getElementById('drillModal').classList.add('active');
+}
+
+function openAgingDrill(label, rows) {
+  openDrill(`AR Aging · ${label}`, `รายการบิลในกลุ่ม ${label}`, rows,
+    [
+      { key: 'billingDate', label: 'Billing Date' },
+      { key: 'customer', label: 'ลูกค้า' },
+      { key: 'project', label: 'Project' },
+      { key: 'daysOverdue', label: 'วันค้าง', right: true },
+      { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+      { key: 'paymentStatus', label: 'สถานะ', badge: true },
+    ],
+    [
+      { label: 'จำนวนใบ', value: rows.length },
+      { label: 'มูลค่ารวม', value: '฿' + fmtCurrency(rows.reduce((s,r)=>s+r.revenue,0)) },
+    ]
+  );
+}
+
+function openCustomerDrill(customer) {
+  const bills = DATA.revenue_actual.filter(r => r.customer === customer);
+  const total = bills.reduce((s, b) => s + b.revenue, 0);
+  const overdue = bills.filter(b => b.paymentStatus === 'Overdue').reduce((s, b) => s + b.revenue, 0);
+  openDrill(`Customer Drill-down · ${customer}`,
+    `รายการบิลทั้งหมด · Grade ${getCustomerGrade(customer)}`,
+    bills,
+    [
+      { key: 'billingDate', label: 'Billing Date' },
+      { key: 'project', label: 'Project' },
+      { key: 'service', label: 'บริการ' },
+      { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+      { key: 'paymentStatus', label: 'สถานะ', badge: true },
+      { key: 'daysOverdue', label: 'วันค้าง', right: true },
+    ],
+    [
+      { label: 'จำนวนใบ', value: bills.length },
+      { label: 'รายได้รวม', value: '฿' + fmtCurrency(total) },
+      { label: 'ยอดค้าง', value: '฿' + fmtCurrency(overdue) },
+    ]
+  );
+}
+
+function closeDrill() {
+  document.getElementById('drillModal').classList.remove('active');
+}
+
+/* ============== CARD CLICK HANDLERS ============== */
+function attachCardClicks() {
+  const safe = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+
+  safe('cardGauge', () => {
+    const g = computeGauge();
+    openDrill('Path to ฿10M Target',
+      'รายการ Forecast ที่มี Probability ≥ 70% (รวมเข้ากับ Actual ในการคำนวณ Gauge)',
+      g.fcList,
+      [
+        { key: 'forecastMonth', label: 'เดือน' },
+        { key: 'project', label: 'Project' },
+        { key: 'ptype', label: 'ประเภท' },
+        { key: 'probability', label: 'Prob %', right: true },
+        { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+        { key: 'status', label: 'สถานะ' },
+      ],
+      [
+        { label: 'Actual', value: '฿' + fmtCurrency(g.actual) },
+        { label: 'Forecast ≥70%', value: '฿' + fmtCurrency(g.forecast) },
+        { label: 'Projected', value: '฿' + fmtCurrency(g.projected) },
+        { label: '% Target', value: g.pct.toFixed(1) + '%' },
+      ]
+    );
+  });
+
+  safe('cardRevLoss', () => {
+    const rl = computeRevenueLoss();
+    openDrill('Revenue Loss · Time-Specific',
+      `สูตร: kW × Efficiency × hours × ฿${CONFIG.ELECTRICITY_RATE}/kWh`,
+      rl.alarms.sort((a,b) => b.revenueLoss - a.revenueLoss).slice(0, 50),
+      [
+        { key: 'time', label: 'เวลา' },
+        { key: 'site', label: 'Site' },
+        { key: 'level', label: 'ระดับ', badge: true },
+        { key: 'type', label: 'ประเภท' },
+        { key: 'kW', label: 'kW', right: true },
+        { key: 'efficiency', label: 'Eff.', fmt: v => (v||0).toFixed(2), right: true },
+        { key: 'downtimeHrs', label: 'Hrs', fmt: v => v.toFixed(2), right: true },
+        { key: 'revenueLoss', label: 'Loss (฿)', fmt: v => fmtFull(v), right: true },
+      ],
+      [
+        { label: 'Revenue Loss รวม', value: '฿' + fmtCurrency(rl.totalLoss) },
+        { label: 'Downtime รวม', value: rl.totalHours.toFixed(1) + ' hrs' },
+        { label: 'จำนวน Alarm', value: rl.count },
+      ]
+    );
+  });
+
+  safe('cardCashflow', () => {
+    const col = computeCollection();
+    openDrill('Cash Collected · Paid Invoices',
+      'รายการบิลที่เก็บเงินได้แล้ว',
+      col.items.Paid.sort((a,b) => b.revenue - a.revenue),
+      [
+        { key: 'billingDate', label: 'Billing' },
+        { key: 'receivedDate', label: 'Received' },
+        { key: 'customer', label: 'ลูกค้า' },
+        { key: 'project', label: 'Project' },
+        { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+      ],
+      [
+        { label: 'Paid', value: '฿' + fmtCurrency(col.groups.Paid) },
+        { label: 'จำนวนใบ', value: col.counts.Paid },
+      ]
+    );
+  });
+
+  safe('cardCollection', () => {
+    const col = computeCollection();
+    const all = [...col.items.Paid, ...col.items.Pending, ...col.items.Overdue, ...col.items.Partial];
+    openDrill('Cash Collection · ทุกสถานะ', 'รายการบิลทั้งหมดในเดือนที่กรอง',
+      all.sort((a,b) => b.revenue - a.revenue),
+      [
+        { key: 'billingDate', label: 'Billing' },
+        { key: 'customer', label: 'ลูกค้า' },
+        { key: 'project', label: 'Project' },
+        { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+        { key: 'paymentStatus', label: 'สถานะ', badge: true },
+        { key: 'daysOverdue', label: 'วันค้าง', right: true },
+      ],
+      [
+        { label: 'Paid', value: '฿' + fmtCurrency(col.groups.Paid) },
+        { label: 'Pending', value: '฿' + fmtCurrency(col.groups.Pending) },
+        { label: 'Overdue', value: '฿' + fmtCurrency(col.groups.Overdue) },
+        { label: 'Partial', value: '฿' + fmtCurrency(col.groups.Partial) },
+      ]
+    );
+  });
+
+  // Solar / Cleaning / OM / Permit KPI clicks - delegate to Home tab drill-downs
+  safe('kpiSolarRev', () => safeClick('kpiSumRevenue'));
+  safe('kpiSolarKW', () => safeClick('kpiSumProj'));
+  safe('kpiSolarForecast', () => safeClick('kpiSumForecast'));
+  safe('kpiClRev', () => safeClick('kpiSumRevenue'));
+  safe('kpiClJobs', () => safeClick('kpiSumProj'));
+  safe('kpiClDelay', () => safeClick('kpiSumDelayed'));
+  safe('kpiOmSvc', () => safeClick('kpiSumRevenue'));
+  safe('kpiOmIns', () => safeClick('kpiSumRevenue'));
+  safe('kpiOmLoss', () => safeClick('kpiSumRisk'));
+  safe('kpiOmCrit', () => safeClick('kpiSumRisk'));
+  safe('kpiPStuck', () => safeClick('kpiSumDelayed'));
+  // Home V2 click handlers
+  safe('cardHeroRevenue', () => {
+    const rows = applyFilters(DATA.revenue_actual);
+    openDrill('Revenue MTD · เดือนนี้', 'รายการ Revenue ทั้งหมด',
+      rows.sort((a,b) => b.revenue - a.revenue),
+      [
+        { key: 'billingDate', label: 'วันที่' },
+        { key: 'customer', label: 'ลูกค้า' },
+        { key: 'service', label: 'บริการ' },
+        { key: 'category', label: 'หมวด' },
+        { key: 'kW', label: 'kW', right: true },
+        { key: 'revenue', label: 'รายได้', fmt: v => '฿' + fmtFull(v), right: true },
+      ],
+      [
+        { label: 'จำนวน', value: rows.length },
+        { label: 'รวมรายได้', value: '฿' + fmtCurrency(rows.reduce((s,r)=>s+r.revenue,0)) },
+        { label: '% Target', value: ((rows.reduce((s,r)=>s+r.revenue,0)/CONFIG.TARGET_MONTHLY)*100).toFixed(1) + '%' },
+      ]
+    );
+  });
+
+  safe('qsCollected', () => {
+    const col = computeCollection();
+    openDrill('Cash Collected · เก็บเงินได้แล้ว', 'รายการบิลที่จ่ายแล้ว',
+      col.items.Paid.sort((a,b) => b.revenue - a.revenue),
+      [
+        { key: 'billingDate', label: 'Billing' },
+        { key: 'receivedDate', label: 'Received' },
+        { key: 'customer', label: 'ลูกค้า' },
+        { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+      ],
+      [
+        { label: 'Paid', value: '฿' + fmtCurrency(col.groups.Paid) },
+        { label: 'จำนวนใบ', value: col.counts.Paid },
+      ]
+    );
+  });
+
+  safe('qsAR', () => {
+    const col = computeCollection();
+    const ar = [...col.items.Pending, ...col.items.Overdue, ...col.items.Partial];
+    openDrill('Outstanding AR · ใบที่ยังไม่ได้เก็บ', 'รายการ AR ทั้งหมด',
+      ar.sort((a,b) => b.daysOverdue - a.daysOverdue),
+      [
+        { key: 'billingDate', label: 'Billing' },
+        { key: 'customer', label: 'ลูกค้า' },
+        { key: 'daysOverdue', label: 'วันค้าง', right: true },
+        { key: 'revenue', label: 'มูลค่า', fmt: v => '฿' + fmtFull(v), right: true },
+        { key: 'paymentStatus', label: 'สถานะ', badge: true },
+      ],
+      [
+        { label: 'Pending', value: '฿' + fmtCurrency(col.groups.Pending) },
+        { label: 'Overdue', value: '฿' + fmtCurrency(col.groups.Overdue) },
+        { label: 'Partial', value: '฿' + fmtCurrency(col.groups.Partial) },
+      ]
+    );
+  });
+
+  safe('qsGP', () => {
+    const rows = applyFilters(DATA.revenue_actual);
+    openDrill('Gross Profit · เดือนนี้', 'เรียงตาม GP สูงสุด',
+      rows.sort((a,b) => b.profit - a.profit),
+      [
+        { key: 'billingDate', label: 'วันที่' },
+        { key: 'customer', label: 'ลูกค้า' },
+        { key: 'revenue', label: 'รายได้', fmt: v => '฿' + fmtFull(v), right: true },
+        { key: 'cost', label: 'ต้นทุน', fmt: v => '฿' + fmtFull(v), right: true },
+        { key: 'profit', label: 'GP', fmt: v => '฿' + fmtFull(v), right: true },
+      ],
+      [
+        { label: 'GP รวม', value: '฿' + fmtCurrency(rows.reduce((s,r)=>s+r.profit,0)) },
+        { label: 'Margin %', value: rows.length > 0 ? (rows.reduce((s,r)=>s+r.profit,0)/rows.reduce((s,r)=>s+r.revenue,0)*100).toFixed(1) + '%' : '0%' },
+      ]
+    );
+  });
+
+  safe('qsRisk', () => {
+    const rl = computeRevenueLoss();
+    const col = computeCollection();
+    const combined = [
+      ...rl.alarms.map(a => ({ ...a, type_risk: 'Revenue Loss', amount: a.revenueLoss, item: a.site + ' · ' + a.type })),
+      ...col.items.Overdue.map(o => ({ ...o, type_risk: 'Overdue AR', amount: o.revenue, item: o.customer + ' · ' + o.project }))
+    ];
+    openDrill('Revenue at Risk', 'Revenue Loss + Overdue AR',
+      combined.sort((a,b) => b.amount - a.amount).slice(0, 60),
+      [
+        { key: 'type_risk', label: 'ประเภท', badge: true },
+        { key: 'item', label: 'รายการ' },
+        { key: 'amount', label: 'จำนวน', fmt: v => '฿' + fmtFull(v), right: true },
+      ],
+      [
+        { label: 'Revenue Loss', value: '฿' + fmtCurrency(rl.totalLoss) },
+        { label: 'Overdue AR', value: '฿' + fmtCurrency(col.groups.Overdue) },
+        { label: 'รวม at Risk', value: '฿' + fmtCurrency(rl.totalLoss + col.groups.Overdue) },
+      ]
+    );
+  });
+}
+
+function safeClick(id) {
+  const el = document.getElementById(id);
+  if (el && el.onclick) el.onclick();
+}
+
+/* ============== FILTERS ============== */
+function populateFilters() {
+  const custSel = document.getElementById('filterCustomer');
+  const customers = [...new Set(DATA.revenue_actual.map(r => r.customer))].sort();
+  custSel.innerHTML = '<option value="all">ลูกค้าทั้งหมด</option>' +
+    customers.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+function bindFilters() {
+  document.getElementById('filterMonth').addEventListener('change', e => {
+    FILTERS.month = e.target.value;
+    renderActiveTab();
+  });
+  document.getElementById('filterCustomer').addEventListener('change', e => {
+    FILTERS.customer = e.target.value;
+    renderActiveTab();
+  });
+  document.getElementById('filterGrade').addEventListener('change', e => {
+    FILTERS.grade = e.target.value;
+    renderActiveTab();
+  });
+}
+
+/* ============== EXCEL UPLOAD ============== */
+/* Helpers for date timezone safety + chart memory management */
+function toLocalISO(d) {
+  if (!d) return '';
+  if (typeof d === 'string') return d.slice(0, 10);
+  if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function toLocalDateTime(d) {
+  if (!d) return '';
+  if (typeof d === 'string') return d;
+  if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
+/* Chart registry — destroys old charts to prevent memory leaks + visual stacking */
+const _CHART_REGISTRY = new Map();
+function registerChart(name, chartInstance) {
+  if (_CHART_REGISTRY.has(name)) {
+    try { _CHART_REGISTRY.get(name).destroy(); } catch (e) {}
+  }
+  _CHART_REGISTRY.set(name, chartInstance);
+  return chartInstance;
+}
+
+function loadExcelFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      processWorkbook(e.target.result);
+    } catch (err) {
+      console.error(err);
+      showToast(`โหลด Excel ผิดพลาด: ${err.message}`, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* Shared workbook processing pipeline — used by both file upload + Google Sheets sync */
+function processWorkbook(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  let loaded = [];
+
+      // Revenue_Actual
+      if (wb.SheetNames.includes('Revenue_Actual')) {
+        const ws = wb.Sheets['Revenue_Actual'];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, range: 3 });
+        DATA.revenue_actual = rows.filter(r => r[0] && r[1]).map(r => {
+          const billingDate = toLocalISO(r[0]) || String(r[0]).slice(0,10);
+          const receivedDate = r[11] ? (toLocalISO(r[11]) || String(r[11]).slice(0,10)) : '';
+          return {
+            date: billingDate, billingDate, receivedDate,
+            daysOverdue: Number(r[12]) || 0,
+            customer: r[1], project: r[2], service: r[3], category: r[4],
+            revenue: Number(r[5]) || 0, cost: Number(r[6]) || 0, profit: Number(r[7]) || 0,
+            jobStatus: r[8], responsible: r[9], paymentStatus: r[10] || 'Pending',
+            kW: Number(r[13]) || 0,
+            province: r[14] || 'กรุงเทพฯ',
+            site: r[15] || '',
+          };
+        });
+        loaded.push(`Revenue_Actual (${DATA.revenue_actual.length} บิล)`);
+      }
+
+      if (wb.SheetNames.includes('Revenue_Forecast')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Revenue_Forecast'], { header: 1, range: 3 });
+        DATA.revenue_forecast = rows.filter(r => r[0] && r[1]).map(r => ({
+          forecastMonth: typeof r[0] === 'string' ? r[0] : String(r[0]).slice(0,7),
+          project: r[1], customer: (r[1] || '').split(' ')[0],
+          ptype: r[2], probability: Number(r[3]) || 0, revenue: Number(r[4]) || 0,
+          closeDate: toLocalISO(r[5]) || (r[5]),
+          status: r[6]
+        }));
+        loaded.push(`Revenue_Forecast (${DATA.revenue_forecast.length} ดีล)`);
+      }
+
+      if (wb.SheetNames.includes('Customer_Master')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Customer_Master'], { header: 1, range: 3 });
+        DATA.customer_master = rows.filter(r => r[0]).map(r => ({
+          name: r[0], group: r[1], businessType: r[2],
+          warrantyEnd: toLocalISO(r[3]) || (r[3]),
+          status: r[4], contact: r[5],
+          grade: r[6] || 'C', totalRevenue: Number(r[7]) || 0,
+        }));
+        // Compute revenue and grade if missing
+        DATA.customer_master.forEach(c => {
+          if (!c.totalRevenue) c.totalRevenue = DATA.revenue_actual.filter(r => r.customer === c.name).reduce((s,r)=>s+r.revenue, 0);
+          if (!c.grade || !['A','B','C'].includes(c.grade)) {
+            c.grade = c.totalRevenue >= CONFIG.GRADE_A_THRESHOLD ? 'A' :
+                      c.totalRevenue >= CONFIG.GRADE_B_THRESHOLD ? 'B' : 'C';
+          }
+        });
+        loaded.push(`Customer_Master (${DATA.customer_master.length})`);
+      }
+
+      if (wb.SheetNames.includes('Alarm_Status')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Alarm_Status'], { header: 1, range: 3 });
+        DATA.alarm_status = rows.filter(r => r[0]).map(r => {
+          const level = r[2] || 'Minor';
+          const dt = Number(r[8]) || (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : 0.25);
+          const ts = r[0] instanceof Date ? r[0].getTime() : Date.now();
+          const startHour = new Date(ts).getHours();
+          const kW = Number(r[7]) || 100;  // optional kW column, default 100
+          return {
+            time: toLocalDateTime(r[0]) || String(r[0]),
+            timestamp: ts,
+            hourOfDay: startHour,
+            customer: (r[1] || '').split(' ')[0],
+            site: r[1], level, type: r[3], inverterId: r[4], status: r[5],
+            kW: kW,
+            efficiency: Number(efficiencyAtHour(startHour).toFixed(3)),
+            downtimeHrs: dt,
+            revenueLoss: computeTimeSpecificLoss(kW, startHour, dt),
+            responsible: r[6],
+          };
+        });
+        loaded.push(`Alarm_Status (${DATA.alarm_status.length})`);
+      }
+
+      if (wb.SheetNames.includes('Permit_Jobs')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Permit_Jobs'], { header: 1, range: 3 });
+        DATA.permit_jobs = rows.filter(r => r[0]).map(r => {
+          const dueDate = r[3] instanceof Date ? r[3] : new Date(r[3]);
+          const dueOffset = Math.floor((dueDate - today) / 86400000);
+          return {
+            customer: r[0], docType: r[1],
+            startDate: toLocalISO(r[2]) || (r[2]),
+            dueDate: toLocalISO(dueDate) || r[3],
+            dueOffset, revenue: Number(r[4]) || 0, status: r[5]
+          };
+        });
+        loaded.push(`Permit_Jobs (${DATA.permit_jobs.length})`);
+      }
+
+      if (wb.SheetNames.includes('Cleaning_MasterPlan')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Cleaning_MasterPlan'], { header: 1, range: 3 });
+        DATA.cleaning = rows.filter(r => r[0]).map(r => ({
+          customer: r[0], site: r[1],
+          planDate: toLocalISO(r[2]) || (r[2]),
+          actualDate: toLocalISO(r[3]) || ((r[3] || '')),
+          status: r[4], team: r[5], kW: Number(r[6]) || 0
+        }));
+      }
+      if (wb.SheetNames.includes('Inspection_MasterPlan')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Inspection_MasterPlan'], { header: 1, range: 3 });
+        DATA.inspection = rows.filter(r => r[0]).map(r => ({
+          customer: r[0], site: r[1],
+          planDate: toLocalISO(r[2]) || (r[2]),
+          actualDate: toLocalISO(r[3]) || ((r[3] || '')),
+          status: r[4], team: r[5], kW: Number(r[6]) || 0
+        }));
+      }
+
+      if (wb.SheetNames.includes('O&M_Contracts')) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['O&M_Contracts'], { header: 1, range: 3 });
+        DATA.om_contracts = rows.filter(r => r[0]).map(r => ({
+          customer: r[0], site: r[1],
+          startDate: toLocalISO(r[2]) || (r[2]),
+          endDate: toLocalISO(r[3]) || (r[3]),
+          sla: Number(r[8]) || 95, fee: Number(r[9]) || 0,
+          status: r[10] || 'Active'
+        }));
+      }
+
+      populateFilters();
+      renderActiveTab();
+      showToast(`โหลดสำเร็จ: ${loaded.join(', ')}`, 'success');
+}
+
+/* ============== GOOGLE SHEETS SYNC ============== */
+const GSHEETS_KEY_URL = 'gsheets_export_url';
+const GSHEETS_KEY_LAST = 'gsheets_last_sync';
+
+function extractSheetId(url) {
+  if (!url) return null;
+  // Accepts: full URL, just ID, or /spreadsheets/d/ID/...
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) ||
+            url.match(/^([a-zA-Z0-9-_]{20,})$/);
+  return m ? m[1] : null;
+}
+
+function buildExportUrl(sheetId) {
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+}
+
+async function syncFromGoogleSheets() {
+  let url = localStorage.getItem(GSHEETS_KEY_URL);
+  if (!url) {
+    configureGoogleSheets();
+    return;
+  }
+
+  const sheetId = extractSheetId(url);
+  if (!sheetId) {
+    showToast('URL ของ Google Sheets ไม่ถูกต้อง — กดปุ่ม ⚙ ตั้งค่าใหม่', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('gsheetsSyncBtn');
+  const label = document.getElementById('gsheetsSyncLabel');
+  btn.disabled = true;
+  label.textContent = 'Syncing...';
+
+  try {
+    const exportUrl = buildExportUrl(sheetId);
+    const res = await fetch(exportUrl, { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} — Sheet ต้องตั้ง "Anyone with link" ก่อน`);
+    }
+    const buffer = await res.arrayBuffer();
+    processWorkbook(buffer);
+
+    const now = new Date();
+    localStorage.setItem(GSHEETS_KEY_LAST, now.toISOString());
+    label.textContent = `Synced ${now.toLocaleTimeString('th-TH', {hour:'2-digit',minute:'2-digit'})}`;
+    setTimeout(() => { label.textContent = 'Sync Sheets'; }, 5000);
+  } catch (err) {
+    console.error(err);
+    showToast(`Sync ผิดพลาด: ${err.message}`, 'error');
+    label.textContent = 'Sync Sheets';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function configureGoogleSheets() {
+  const current = localStorage.getItem(GSHEETS_KEY_URL) || '';
+  const lastSync = localStorage.getItem(GSHEETS_KEY_LAST);
+  const lastTxt = lastSync ? new Date(lastSync).toLocaleString('th-TH') : 'ยังไม่เคย sync';
+  const auto = localStorage.getItem('gsheets_auto_min') || '0';
+
+  const msg = `🔗 ตั้งค่า Google Sheets Sync\n\n` +
+    `📋 วิธีเอา URL:\n` +
+    `  1. เปิด Google Sheets ของคุณ\n` +
+    `  2. กดปุ่ม Share (มุมขวาบน)\n` +
+    `  3. ตั้ง "Anyone with the link" → Viewer\n` +
+    `  4. Copy link → วางที่นี่\n\n` +
+    `🕓 Sync ล่าสุด: ${lastTxt}\n\n` +
+    `ใส่ Google Sheets URL หรือ Sheet ID:`;
+
+  const newUrl = prompt(msg, current);
+  if (newUrl === null) return;  // user cancelled
+
+  const trimmed = newUrl.trim();
+  if (!trimmed) {
+    if (confirm('ล้าง URL ที่บันทึกไว้?')) {
+      localStorage.removeItem(GSHEETS_KEY_URL);
+      localStorage.removeItem(GSHEETS_KEY_LAST);
+      localStorage.removeItem('gsheets_auto_min');
+      showToast('ล้าง URL เรียบร้อย', 'success');
+    }
+    return;
+  }
+
+  const sheetId = extractSheetId(trimmed);
+  if (!sheetId) {
+    showToast('URL ไม่ถูกต้อง — ต้องเป็น Google Sheets URL หรือ Sheet ID', 'error');
+    return;
+  }
+
+  localStorage.setItem(GSHEETS_KEY_URL, trimmed);
+  showToast(`บันทึก URL แล้ว → Sheet ID: ${sheetId.slice(0,8)}...`, 'success');
+
+  // Optional: ask for auto-refresh interval
+  const autoMin = prompt(
+    `⏱ ต้องการ auto-sync ทุกๆ กี่นาที? (0 = ปิด)`,
+    auto
+  );
+  if (autoMin !== null) {
+    const n = Math.max(0, parseInt(autoMin) || 0);
+    localStorage.setItem('gsheets_auto_min', String(n));
+    setupAutoSync();
+    if (n > 0) showToast(`Auto-sync เปิดใช้: ทุก ${n} นาที`, 'success');
+  }
+
+  // Sync immediately
+  syncFromGoogleSheets();
+}
+
+let _autoSyncTimer = null;
+function setupAutoSync() {
+  if (_autoSyncTimer) { clearInterval(_autoSyncTimer); _autoSyncTimer = null; }
+  const min = parseInt(localStorage.getItem('gsheets_auto_min') || '0');
+  if (min > 0 && localStorage.getItem(GSHEETS_KEY_URL)) {
+    _autoSyncTimer = setInterval(syncFromGoogleSheets, min * 60 * 1000);
+  }
+}
+
+/* ============== EXECUTIVE EXPORT — clean read-only HTML for management ============== */
+async function exportExecutiveReport() {
+  showToast('กำลังสร้าง Executive Report...', 'success');
+  await new Promise(r => setTimeout(r, 200));
+
+  try {
+    // Capture all chart canvases as data URLs
+    const chartImages = {};
+    document.querySelectorAll('canvas').forEach(c => {
+      if (c.id) {
+        try { chartImages[c.id] = c.toDataURL('image/png'); } catch (e) {}
+      }
+    });
+
+    // Build summary metrics (computed from DATA — no formulas exposed)
+    const totalRevenue   = DATA.revenue_actual.reduce((s,r) => s + (r.revenue||0), 0);
+    const totalProfit    = DATA.revenue_actual.reduce((s,r) => s + (r.profit||0), 0);
+    const paidCount      = DATA.revenue_actual.filter(r => r.paymentStatus === 'Paid').length;
+    const unpaidCount    = DATA.revenue_actual.filter(r => r.paymentStatus !== 'Paid').length;
+    const overdueAmount  = DATA.revenue_actual.filter(r => r.daysOverdue > 0).reduce((s,r) => s + (r.revenue||0), 0);
+    const customers      = DATA.customer_master.length;
+    const activeAlarms   = DATA.alarm_status.filter(a => a.status !== 'Resolved' && a.status !== 'Closed').length;
+    const criticalPermits= DATA.permit_jobs ? DATA.permit_jobs.filter(p => (p.daysRemaining||999) <= 30).length : 0;
+    const omActive       = DATA.om_contracts.filter(c => c.status === 'Active').length;
+    const totalForecast  = DATA.revenue_forecast.reduce((s,r) => s + (r.revenue * (r.probability||0) / 100), 0);
+
+    const fmt = n => '฿' + Math.round(n).toLocaleString('th-TH');
+    const fmtNum = n => Number(n).toLocaleString('th-TH');
+    const today = new Date().toLocaleString('th-TH', {dateStyle:'long', timeStyle:'short'});
+
+    // Top 10 customers by revenue
+    const topCustomers = [...DATA.customer_master]
+      .sort((a,b) => (b.totalRevenue||0) - (a.totalRevenue||0))
+      .slice(0, 10);
+
+    // Recent critical alarms (top 10)
+    const recentAlarms = [...DATA.alarm_status]
+      .filter(a => a.level === 'Critical' || a.level === 'Major')
+      .sort((a,b) => (b.timestamp||0) - (a.timestamp||0))
+      .slice(0, 10);
+
+    // Outstanding receivables (top 10 overdue)
+    const overdueList = [...DATA.revenue_actual]
+      .filter(r => r.daysOverdue > 0 && r.paymentStatus !== 'Paid')
+      .sort((a,b) => b.daysOverdue - a.daysOverdue)
+      .slice(0, 10);
+
+    // Build standalone HTML
+    const html = `<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>PowerVault Executive Report — ${today}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f7fa; color: #1a1f2e; padding: 24px; line-height: 1.5; }
+.report { max-width: 1100px; margin: 0 auto; background: white; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.report-header { border-bottom: 3px solid #13C2C2; padding-bottom: 16px; margin-bottom: 24px; }
+h1 { font-size: 24px; color: #13C2C2; }
+.report-date { font-size: 13px; color: #666; margin-top: 4px; }
+h2 { font-size: 18px; color: #1a1f2e; margin: 28px 0 12px; border-left: 4px solid #13C2C2; padding-left: 10px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+.kpi { background: #fafbfc; border: 1px solid #e8edf2; border-radius: 8px; padding: 14px; }
+.kpi-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi-value { font-size: 22px; font-weight: 700; color: #1a1f2e; margin-top: 4px; }
+.kpi-success .kpi-value { color: #52C41A; }
+.kpi-warn .kpi-value { color: #FAAD14; }
+.kpi-danger .kpi-value { color: #F5222D; }
+.kpi-info .kpi-value { color: #1A73E8; }
+table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+th { background: #f0f4f8; padding: 10px; text-align: left; font-weight: 600; color: #1a1f2e; border-bottom: 2px solid #d4dce5; }
+td { padding: 10px; border-bottom: 1px solid #eef2f6; }
+tr:nth-child(even) { background: #fafbfc; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.badge-critical { background: #fff1f0; color: #F5222D; }
+.badge-major    { background: #fff7e6; color: #FAAD14; }
+.badge-active   { background: #f6ffed; color: #52C41A; }
+.badge-A { background: #e6fffb; color: #13C2C2; }
+.badge-B { background: #fff7e6; color: #FAAD14; }
+.badge-C { background: #f5f5f5; color: #666; }
+.text-right { text-align: right; }
+.text-danger { color: #F5222D; font-weight: 600; }
+.text-success { color: #52C41A; font-weight: 600; }
+.chart-container { margin: 16px 0; }
+.chart-container img { max-width: 100%; height: auto; border: 1px solid #eef2f6; border-radius: 8px; padding: 8px; background: white; }
+.footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #eef2f6; font-size: 11px; color: #999; text-align: center; }
+@media print {
+  body { background: white; padding: 0; }
+  .report { box-shadow: none; padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="report">
+  <div class="report-header">
+    <h1>PowerVault Aftersale Service Executive Report</h1>
+    <div class="report-date">รายงานสำหรับผู้บริหาร · ${today}</div>
+  </div>
+
+  <h2>📊 Key Performance Indicators</h2>
+  <div class="kpi-grid">
+    <div class="kpi kpi-info"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(totalRevenue)}</div></div>
+    <div class="kpi kpi-success"><div class="kpi-label">Total Profit</div><div class="kpi-value">${fmt(totalProfit)}</div></div>
+    <div class="kpi kpi-warn"><div class="kpi-label">Outstanding</div><div class="kpi-value">${fmt(overdueAmount)}</div></div>
+    <div class="kpi kpi-info"><div class="kpi-label">Forecast (weighted)</div><div class="kpi-value">${fmt(totalForecast)}</div></div>
+    <div class="kpi"><div class="kpi-label">Customers</div><div class="kpi-value">${fmtNum(customers)}</div></div>
+    <div class="kpi kpi-success"><div class="kpi-label">Bills Paid</div><div class="kpi-value">${fmtNum(paidCount)}</div></div>
+    <div class="kpi kpi-warn"><div class="kpi-label">Bills Unpaid</div><div class="kpi-value">${fmtNum(unpaidCount)}</div></div>
+    <div class="kpi kpi-danger"><div class="kpi-label">Active Alarms</div><div class="kpi-value">${fmtNum(activeAlarms)}</div></div>
+  </div>
+
+  <h2>🏆 Top 10 Customers by Revenue</h2>
+  <table>
+    <thead><tr><th>#</th><th>ลูกค้า</th><th>Grade</th><th class="text-right">Revenue</th></tr></thead>
+    <tbody>
+      ${topCustomers.map((c,i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td>${c.name || ''}</td>
+          <td><span class="badge badge-${c.grade||'C'}">${c.grade||'C'}</span></td>
+          <td class="text-right">${fmt(c.totalRevenue||0)}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+
+  ${overdueList.length > 0 ? `
+  <h2>⚠️ Outstanding Receivables (Top 10 overdue)</h2>
+  <table>
+    <thead><tr><th>ลูกค้า</th><th>โครงการ</th><th class="text-right">จำนวน</th><th class="text-right">เกินกำหนด</th></tr></thead>
+    <tbody>
+      ${overdueList.map(r => `
+        <tr>
+          <td>${r.customer || ''}</td>
+          <td>${r.project || ''}</td>
+          <td class="text-right">${fmt(r.revenue||0)}</td>
+          <td class="text-right text-danger">${fmtNum(r.daysOverdue)} วัน</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${recentAlarms.length > 0 ? `
+  <h2>🚨 Recent Critical/Major Alarms (Top 10)</h2>
+  <table>
+    <thead><tr><th>เวลา</th><th>Site</th><th>Level</th><th>ประเภท</th><th>สถานะ</th></tr></thead>
+    <tbody>
+      ${recentAlarms.map(a => `
+        <tr>
+          <td>${a.time || ''}</td>
+          <td>${a.site || ''}</td>
+          <td><span class="badge badge-${(a.level||'minor').toLowerCase()}">${a.level || 'Minor'}</span></td>
+          <td>${a.type || ''}</td>
+          <td>${a.status || ''}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>` : ''}
+
+  <h2>📋 O&amp;M Contracts Summary</h2>
+  <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr)">
+    <div class="kpi kpi-success"><div class="kpi-label">Active Contracts</div><div class="kpi-value">${fmtNum(omActive)}</div></div>
+    <div class="kpi"><div class="kpi-label">Total Contracts</div><div class="kpi-value">${fmtNum(DATA.om_contracts.length)}</div></div>
+    <div class="kpi kpi-warn"><div class="kpi-label">Critical Permits ≤30d</div><div class="kpi-value">${fmtNum(criticalPermits)}</div></div>
+  </div>
+
+  <div class="footer">
+    Generated by PowerVault Aftersale Dashboard · ${today}<br>
+    ข้อมูลนี้สำหรับผู้บริหารใช้ในการตัดสินใจ — ไม่ใช่เอกสารทางบัญชี
+  </div>
+</div>
+</body>
+</html>`;
+
+    // Download
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toLocaleString('sv').slice(0,10);
+    a.href = url;
+    a.download = `PowerVault_Executive_Report_${ts}.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast(`✓ Executive Report บันทึกแล้ว — เปิดด้วย browser ส่งให้ผู้บริหาร`, 'success');
+  } catch (err) {
+    console.error('Export failed:', err);
+    showToast('Export ผิดพลาด: ' + (err.message || err), 'error');
+  }
+}
+
+/* ============== SNAPSHOT EXPORT ============== */
+async function snapshotDashboard() {
+  showToast('กำลังสร้าง Snapshot...', 'success');
+
+  // Wait for charts and layout to settle (animations finish ~750ms in Chart.js default)
+  await new Promise(r => setTimeout(r, 350));
+
+  try {
+    const target = document.getElementById('snapshotTarget');
+    if (!target) throw new Error('snapshotTarget element not found');
+
+    // Force Chart.js canvases to commit their current frame so html2canvas reads pixels
+    document.querySelectorAll('canvas').forEach(c => {
+      try {
+        if (c.getContext && typeof c.toDataURL === 'function') c.toDataURL();
+      } catch (e) {}
+    });
+
+    // Capture with options tuned for dark theme + gradients + backdrop-filter
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const bg = getCSSVar('--bg') || (isDark ? '#0a0e1a' : '#ffffff');
+
+    const canvas = await html2canvas(target, {
+      backgroundColor: bg,
+      scale: window.devicePixelRatio < 2 ? 2 : window.devicePixelRatio,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      foreignObjectRendering: false,
+      // explicit dimensions help html2canvas with overflow
+      windowWidth: target.scrollWidth,
+      windowHeight: target.scrollHeight,
+      width: target.scrollWidth,
+      height: target.scrollHeight,
+      // Skip elements with class .no-snapshot if marked
+      ignoreElements: (el) => el.classList && el.classList.contains('no-snapshot'),
+      onclone: (clonedDoc) => {
+        // Walk original document, copy resolved colors to clone (fixes color-mix() which html2canvas can't parse)
+        const origAll = document.querySelectorAll('*');
+        const cloneAll = clonedDoc.querySelectorAll('*');
+        const n = Math.min(origAll.length, cloneAll.length);
+        for (let i = 0; i < n; i++) {
+          const cs = window.getComputedStyle(origAll[i]);
+          const ce = cloneAll[i];
+          if (!ce) continue;
+          // Resolved colors → inline (overrides any color-mix in stylesheets)
+          ce.style.backgroundColor = cs.backgroundColor;
+          ce.style.borderTopColor = cs.borderTopColor;
+          ce.style.borderRightColor = cs.borderRightColor;
+          ce.style.borderBottomColor = cs.borderBottomColor;
+          ce.style.borderLeftColor = cs.borderLeftColor;
+          ce.style.color = cs.color;
+          // backdrop-filter unsupported by html2canvas
+          ce.style.backdropFilter = 'none';
+          ce.style.webkitBackdropFilter = 'none';
+          // box-shadow with color-mix
+          if (cs.boxShadow && cs.boxShadow !== 'none') ce.style.boxShadow = cs.boxShadow;
+          // outline color
+          if (cs.outlineColor) ce.style.outlineColor = cs.outlineColor;
+        }
+      },
+    });
+
+    // Use toBlob with fallback to dataURL on iOS-safari quirks
+    if (canvas.toBlob) {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          // Fallback to dataURL
+          downloadDataUrl(canvas.toDataURL('image/png'));
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toLocaleString('sv').slice(0,16).replace(/[: ]/g, '-');
+        a.href = url;
+        a.download = `PowerVault_Snapshot_${getActiveTab()}_${ts}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`✓ Snapshot บันทึกแล้ว — ลากเข้า Line ได้เลย`, 'success');
+      }, 'image/png');
+    } else {
+      downloadDataUrl(canvas.toDataURL('image/png'));
+    }
+  } catch (err) {
+    console.error('Snapshot failed:', err);
+    showToast('Snapshot ผิดพลาด: ' + (err.message || err), 'error');
+  }
+}
+
+function downloadDataUrl(dataUrl) {
+  const a = document.createElement('a');
+  const ts = new Date().toLocaleString('sv').slice(0,16).replace(/[: ]/g, '-');
+  a.href = dataUrl;
+  a.download = `PowerVault_Snapshot_${getActiveTab()}_${ts}.png`;
+  a.click();
+  showToast(`✓ Snapshot บันทึกแล้ว`, 'success');
+}
+
+/* ============== THEME ============== */
+function toggleTheme() {
+  const html = document.documentElement;
+  const cur = html.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  document.getElementById('iconMoon').style.display = next === 'dark' ? '' : 'none';
+  document.getElementById('iconSun').style.display = next === 'dark' ? 'none' : '';
+  setupChartDefaults();
+  renderActiveTab();
+}
+
+/* ============== LIVE TIME ============== */
+function updateLiveTime() {
+  const t = new Date();
+  document.getElementById('liveTime').textContent = t.toLocaleTimeString('th-TH', { hour12: false });
+}
+
+/* ============== INIT ============== */
+function init() {
+  generateSampleData();
+  setupChartDefaults();
+  populateFilters();
+  bindFilters();
+  attachCardClicks();
+
+  // Tab navigation
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  // Modal close
+  document.getElementById('modalClose').addEventListener('click', closeDrill);
+  document.getElementById('drillModal').addEventListener('click', (e) => {
+    if (e.target.id === 'drillModal') closeDrill();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrill(); });
+
+  // File upload
+  document.getElementById('fileInput').addEventListener('change', (e) => {
+    if (e.target.files[0]) loadExcelFile(e.target.files[0]);
+  });
+
+  // Google Sheets sync — split-button: main = sync, gear = settings
+  document.getElementById('gsheetsSyncBtn').addEventListener('click', syncFromGoogleSheets);
+  document.getElementById('gsheetsCfgBtn').addEventListener('click', configureGoogleSheets);
+
+  // Export Executive HTML
+  document.getElementById('exportExecBtn').addEventListener('click', exportExecutiveReport);
+
+  // Auto-sync setup + indicator on load
+  const lastSync = localStorage.getItem('gsheets_last_sync');
+  const savedUrl = localStorage.getItem('gsheets_export_url');
+  if (lastSync) {
+    const dt = new Date(lastSync);
+    const ago = Math.floor((Date.now() - dt.getTime()) / 60000);
+    const lbl = document.getElementById('gsheetsSyncLabel');
+    if (ago < 60) lbl.textContent = `Synced ${ago}m ago`;
+    else if (ago < 60*24) lbl.textContent = `Synced ${Math.floor(ago/60)}h ago`;
+  }
+  setupAutoSync();
+
+  // Snapshot
+  document.getElementById('snapshotBtn').addEventListener('click', snapshotDashboard);
+
+  // Theme
+  document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+
+  // Live time
+  updateLiveTime();
+  setInterval(updateLiveTime, 1000);
+
+  // First render
+  renderHome();
+
+  // Auto-sync on page load if Google Sheets URL was saved (replaces sample data)
+  if (savedUrl) {
+    setTimeout(syncFromGoogleSheets, 500);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
