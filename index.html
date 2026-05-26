@@ -600,6 +600,121 @@
     return out;
   }
 
+  /* ---------------------------------------------------------------------------
+   * GENERIC EXTRACTION (V9, Phase 1) — for sheets the classifier could NOT
+   * assign to a known dataset. Produces a self-describing, typed table so the
+   * runtime fallback explorer can render ANY unknown sheet. Purely additive:
+   * this never touches the canonical DATA contract or known-dataset flow.
+   * -------------------------------------------------------------------------*/
+  function parseGeneric(type, v) {
+    switch (type) {
+      case 'date':    return T.toDate(v);
+      case 'percent': return T.toPercent(v);
+      case 'number':  return T.toNumber(v);
+      default:        return T.text(v);
+    }
+  }
+
+  function extractGeneric(grid, header) {
+    // 1. Build column descriptors {key,idx,label,type}; type inferred from a sample.
+    const cols = header.cols.map((c, i) => ({ key: 'c' + i, idx: c.idx, label: c.raw, type: 'text' }));
+    const SAMPLE = 80;
+    for (const col of cols) {
+      const samples = [];
+      for (let r = header.dataStart; r < grid.length && samples.length < SAMPLE; r++) {
+        const row = grid[r]; if (!row) continue;
+        const v = row[col.idx];
+        if (v !== null && v !== undefined && v !== '') samples.push(v);
+      }
+      const t = T.detectType(samples);
+      col.type = (t === 'empty') ? 'text' : t;   // empty cols safely fall back to text
+    }
+    // 2. Typed, null-safe row extraction. Skip fully-empty rows.
+    const rows = [];
+    for (let r = header.dataStart; r < grid.length; r++) {
+      const raw = grid[r]; if (!raw) continue;
+      let any = false;
+      const obj = {};
+      for (const col of cols) {
+        const cv = raw[col.idx];
+        if (cv !== null && cv !== undefined && cv !== '') any = true;
+        try { obj[col.key] = parseGeneric(col.type, cv); }
+        catch (e) { obj[col.key] = null; }
+      }
+      if (any) rows.push(obj);
+    }
+    return { columns: cols, rows };
+  }
+
+  /* ---------------------------------------------------------------------------
+   * DATASET INTENT FILTER (V9.1) — decide whether an UNCLASSIFIED sheet is a
+   * real *business* dataset (→ deserves a tab) or a support / reference /
+   * documentation sheet (README, Master Data, Config, Mapping, Lookup,
+   * Template, Helper …) that should NOT generate tabs/KPI/charts.
+   *
+   * Deterministic + explainable. Combines two independent signals:
+   *   1) sheet-name patterns (weak signal — names lie / get renamed)
+   *   2) structural business signal (strong signal — metrics/dates/rows/cols)
+   * A name match alone NEVER suppresses a metric-rich table (avoids false
+   * negatives like "Master Production Schedule"). Scores are attached to the
+   * report for debug transparency.
+   * -------------------------------------------------------------------------*/
+  const NONBUSINESS_PATTERNS = [
+    { re: /(read\s*me|readme|instruction|manual|guide|about|info\b|notes?\b|change\s*log|version|cover|^menu$|^toc$|glossary|legend|help)/, cat: 'doc' },
+    { re: /(config|setting|parameter|param|validation|dropdown|enum|option|^_?system$|internal)/, cat: 'support' },
+    { re: /(master\s*data|^master$|reference|^ref$|lookup|dictionary|dict\b|mapping|^map$|^index$|metadata|^meta$|template|helper|sample|example)/, cat: 'reference' },
+  ];
+  function nameSignal(name) {
+    const n = String(name || '').toLowerCase().replace(/[_\-\/]+/g, ' ').replace(/\s+/g, ' ').trim();
+    for (const p of NONBUSINESS_PATTERNS) if (p.re.test(n)) return p.cat;
+    return null;
+  }
+  function classifyIntent(generic) {
+    const cols = generic.columns || [];
+    const rows = generic.rows || [];
+    const metrics = cols.filter(c => c.type === 'number' || c.type === 'percent').length;
+    const dates = cols.filter(c => c.type === 'date').length;
+    const colCount = cols.length, rowCount = rows.length;
+    const nameHit = nameSignal(generic.name);
+
+    // businessRelevanceScore (0..1): how much this looks like a KPI-bearing dataset
+    let brs = 0;
+    if (metrics >= 1) brs += 0.45;
+    if (metrics >= 2) brs += 0.10;
+    if (dates >= 1) brs += 0.15;
+    if (colCount >= 4) brs += 0.15;
+    if (rowCount >= 5) brs += 0.15;
+    brs = Math.min(1, brs);
+    if (nameHit) brs = Math.max(0, brs - 0.45);   // soft penalty, not a veto
+
+    // sheetConfidenceScore (0..1): how much this looks like a real table at all
+    let scs = 0;
+    if (colCount >= 2) scs += 0.30;
+    if (colCount >= 4) scs += 0.20;
+    if (rowCount >= 3) scs += 0.30;
+    if (rowCount >= 20) scs += 0.20;
+    scs = Math.min(1, scs);
+
+    // Strong structural business signal — overrides a non-business name, but only
+    // for GENUINE density: ≥2 metrics, or a metric paired with a date (a real time
+    // series). A single stray numeric column (e.g. one count in a 21-col Master
+    // Data sheet) must NOT promote a clearly-named reference sheet to a tab.
+    const strongBusiness = (metrics >= 2 && rowCount >= 3) || (metrics >= 1 && dates >= 1 && rowCount >= 3);
+
+    let datasetIntent;
+    if (strongBusiness || brs >= 0.5) datasetIntent = 'business';
+    else if (nameHit) datasetIntent = nameHit;                 // doc / support / reference
+    else if (rowCount < 3 || colCount < 2) datasetIntent = 'ignore';
+    else datasetIntent = 'reference';                          // unknown, low-signal → keep but don't tab
+
+    return {
+      datasetIntent,
+      businessRelevanceScore: +brs.toFixed(2),
+      sheetConfidenceScore: +scs.toFixed(2),
+      signals: { metrics, dates, colCount, rowCount, nameHit: nameHit || null },
+    };
+  }
+
   /* ===========================================================================
    * 9. KPI / DERIVE ENGINE — map typed rows -> the exact UI DATA contract
    * =========================================================================*/
@@ -772,6 +887,15 @@
         const colMap = a.map;
         const typedRows = extractRows(sh.grid, sh.header, ds, colMap, report);
         const derived = DERIVE[ds.key] ? DERIVE[ds.key](typedRows, ctx, data) : typedRows;
+        // Hardening (V9.1): a borderline match that derives ZERO usable rows is
+        // almost certainly spurious (e.g. a "Fleet Maintenance" sheet grazing the
+        // cleaning signature). Committing it would overwrite real DATA with [].
+        // Skip the assignment entirely so the sheet falls through to Stage D and
+        // is handled generically instead.
+        if (!derived || !derived.length) {
+          report.warnings.push(`assignment ${a.sheet}->${ds.key} produced 0 rows; deferred to generic handling`);
+          continue;
+        }
         data[ds.key] = derived;
         report.sheetsAssigned++;
         report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2) };
@@ -781,6 +905,40 @@
         report.warnings.push(`extract ${a.sheet}->${a.dsKey} failed: ${e}`);
       }
     }
+
+    // --- Stage D: capture UNCLASSIFIED sheets + classify INTENT (V9.1) -----
+    // Any detected sheet that no known dataset claimed is preserved as a
+    // generic, typed table instead of being discarded. Each is then tagged
+    // with a datasetIntent so the UI can build tabs ONLY for real business
+    // datasets and quietly hold support/reference sheets (README, Master
+    // Data, Config, Lookup …) for debug/explorer access. Fully additive.
+    try {
+      report.unclassified = [];        // business → eligible for runtime tabs
+      report.referenceSheets = [];     // support/reference/doc → no tab (debug-accessible)
+      // Use the COMMITTED assignments (report.assignments), not the raw classify()
+      // candidates — so any sheet deferred in Stage C (0-row spurious match) is
+      // correctly picked up here instead of being silently lost.
+      const assignedNames = new Set((report.assignments || []).map(a => a.sheet));
+      for (const sh of detected) {
+        if (assignedNames.has(sh.name)) continue;
+        try {
+          const generic = extractGeneric(sh.grid, sh.header);
+          if (generic && generic.rows.length) {
+            generic.name = sh.name;
+            generic.intent = classifyIntent(generic);
+            if (generic.intent.datasetIntent === 'business') {
+              report.unclassified.push(generic);
+              Debug.log(`◆ ${sh.name} → business tab (${generic.rows.length} rows, ${generic.columns.length} cols, BRS ${generic.intent.businessRelevanceScore})`);
+            } else {
+              report.referenceSheets.push(generic);
+              Debug.log(`◇ ${sh.name} → ${generic.intent.datasetIntent} (suppressed; BRS ${generic.intent.businessRelevanceScore}, name="${generic.intent.signals.nameHit}")`);
+            }
+          } else {
+            report.skippedSheets.push({ name: sh.name, reason: 'no data rows' });
+          }
+        } catch (e) { report.warnings.push(`unclassified ${sh.name} failed: ${e}`); }
+      }
+    } catch (e) { report.warnings.push('unclassified capture failed: ' + e); }
 
     // Recompute customer grades once revenue is known (self-heal ordering)
     try {
@@ -2071,11 +2229,22 @@ input[type="file"] { display: none; }
 /* HERO row - Revenue + Gauge */
 .hero-row {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: 1.15fr 1fr;
   gap: 14px;
   margin-bottom: 16px;
+  align-items: stretch;
 }
 @media (max-width: 900px) { .hero-row { grid-template-columns: 1fr; } }
+
+/* Left column: Revenue MTD stacked on top of the Path-to-10M gauge */
+.hero-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.hero-left .hero-gauge-card { flex: 1; min-height: 200px; }
+/* Right column: embedded Monthly Summary panel */
+.hero-right { display: flex; min-width: 0; }
+.hero-right > .card { flex: 1; display: flex; flex-direction: column; margin: 0; }
+.hero-right .ms-chart-wrap { flex: 1; min-height: 180px; position: relative; }
+.hero-right .ms-table-wrap { max-height: 168px; overflow: auto; margin-top: 10px; }
+@media (max-width: 900px) { .hero-right .ms-chart-wrap { min-height: 220px; } }
 
 .hero-card {
   padding: 22px 24px;
@@ -2611,30 +2780,45 @@ input[type="file"] { display: none; }
     </div>
 
     <div class="hero-row">
-      <div class="hero-card" id="cardHeroRevenue">
-        <div class="hero-label"><span class="hero-label-dot"></span>Revenue MTD · รายได้สะสมเดือนนี้</div>
-        <div class="hero-amount"><span class="currency">฿</span><span id="heroRevVal">0</span></div>
-        <div class="hero-sub">
-          <span id="heroRevSub">— รายการ</span>
-          <span class="hero-trend-pill up" id="heroRevTrend">↑ 0%</span>
+      <div class="hero-left">
+        <div class="hero-card" id="cardHeroRevenue">
+          <div class="hero-label"><span class="hero-label-dot"></span>Revenue MTD · รายได้สะสมเดือนนี้</div>
+          <div class="hero-amount"><span class="currency">฿</span><span id="heroRevVal">0</span></div>
+          <div class="hero-sub">
+            <span id="heroRevSub">— รายการ</span>
+            <span class="hero-trend-pill up" id="heroRevTrend">↑ 0%</span>
+          </div>
+          <div class="hero-progress"><div class="hero-progress-bar" id="heroProgBar" style="width:0%"></div></div>
+          <div class="hero-progress-labels">
+            <span><span id="heroProgPct">0.0</span>% ของเป้า</span>
+            <span>เป้า ฿10.0M</span>
+          </div>
         </div>
-        <div class="hero-progress"><div class="hero-progress-bar" id="heroProgBar" style="width:0%"></div></div>
-        <div class="hero-progress-labels">
-          <span><span id="heroProgPct">0.0</span>% ของเป้า</span>
-          <span>เป้า ฿10.0M</span>
+
+        <div class="hero-gauge-card clickable" id="cardGauge">
+          <div class="hero-gauge-title">Path to ฿10M</div>
+          <div class="hero-gauge-sub">Actual + Forecast (≥70%)</div>
+          <div class="gauge-wrap" style="flex:1; min-height:170px;">
+            <canvas id="chartGauge"></canvas>
+            <div class="gauge-center">
+              <div class="gauge-percent" id="gaugePercent">0%</div>
+              <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10M</div>
+              <div class="gauge-target" id="gaugeStatus">—</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="hero-gauge-card clickable" id="cardGauge">
-        <div class="hero-gauge-title">Path to ฿10M</div>
-        <div class="hero-gauge-sub">Actual + Forecast (≥70%)</div>
-        <div class="gauge-wrap" style="flex:1; min-height:170px;">
-          <canvas id="chartGauge"></canvas>
-          <div class="gauge-center">
-            <div class="gauge-percent" id="gaugePercent">0%</div>
-            <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10M</div>
-            <div class="gauge-target" id="gaugeStatus">—</div>
+      <div class="hero-right">
+        <div class="card" id="cardMonthlySummary">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Monthly Summary · รายได้ vs เป้า</div>
+              <div class="card-subtitle" id="msSubtitle">รายเดือนเทียบเป้า ฿10M</div>
+            </div>
           </div>
+          <div class="ms-chart-wrap"><canvas id="chartMonthlySummary"></canvas></div>
+          <div class="ms-table-wrap" id="monthlySummaryTable"></div>
         </div>
       </div>
     </div>
@@ -3453,6 +3637,10 @@ function renderActiveTab() {
   else if (tab === 'cleaning') renderCleaning();
   else if (tab === 'om') renderOM();
   else if (tab === 'permit') renderPermit();
+  // V9 Phase 1: runtime-generated tabs (unknown sheets) dispatch through the registry.
+  else if (window.DynamicTabs && typeof window.DynamicTabs.render === 'function') {
+    window.DynamicTabs.render(tab);
+  }
 }
 
 /* ============== CHART DEFAULTS ============== */
@@ -3733,6 +3921,90 @@ function renderHome() {
           <div class="action-arrow">›</div>
         </div>`).join('')
     : '<div class="empty-state">ไม่มีจุดที่ต้องดูแล ✓</div>';
+
+  renderMonthlySummaryPanel();
+}
+
+/* Monthly Summary panel — embedded on the Home page (right column).
+ * Source priority: uploaded Monthly_Summary sheet (window.MONTHLY, cleaned to
+ * valid-date rows only) → fallback to deriving monthly actuals from
+ * DATA.revenue_actual. Always safe: never throws, shows empty-state if no data. */
+function getMonthlyData() {
+  if (window.MONTHLY && Array.isArray(window.MONTHLY.rows) && window.MONTHLY.rows.length) {
+    return { source: 'sheet', rows: window.MONTHLY.rows.map(r => ({ month: r._month, actual: r._actual || 0, target: r._target || 0 })) };
+  }
+  // Fallback: group revenue_actual by month
+  const map = {};
+  (DATA.revenue_actual || []).forEach(r => {
+    const m = (r.billingDate || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(m)) map[m] = (map[m] || 0) + (r.revenue || 0);
+  });
+  const rows = Object.keys(map).sort().map(m => ({ month: m, actual: map[m], target: CONFIG.TARGET_MONTHLY }));
+  return { source: 'derived', rows };
+}
+
+function renderMonthlySummaryPanel() {
+  const sub = document.getElementById('msSubtitle');
+  const tableBox = document.getElementById('monthlySummaryTable');
+  const canvas = document.getElementById('chartMonthlySummary');
+  if (!canvas) return;
+  let md;
+  try { md = getMonthlyData(); } catch (e) { md = { source: 'derived', rows: [] }; }
+  const rows = (md.rows || []).filter(r => /^\d{4}-\d{2}$/.test(r.month));
+
+  if (sub) sub.textContent = rows.length
+    ? (md.source === 'sheet' ? `จาก Sheet Monthly_Summary · ${rows.length} เดือน` : `คำนวณจาก Revenue Actual · ${rows.length} เดือน`)
+    : 'ยังไม่มีข้อมูลรายเดือน';
+
+  if (!rows.length) {
+    if (tableBox) tableBox.innerHTML = '<div class="empty-state">อัปโหลด Excel ที่มี Sheet "Monthly_Summary"</div>';
+    return;
+  }
+
+  const last = rows.slice(-12);
+  const labels = last.map(r => r.month.slice(2).replace('-', '/'));   // YY/MM
+  const actual = last.map(r => r.actual);
+  const target = last.map(r => r.target);
+
+  const mlabel = (m) => {
+    const [y, mo] = m.split('-');
+    return ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][(+mo) - 1] + ' ' + String(+y + 543).slice(-2);
+  };
+
+  const ctxM = canvas.getContext('2d');
+  CHARTS.monthlySummary = registerChart('monthlySummary', new Chart(ctxM, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'รายได้จริง', data: actual, backgroundColor: getCSSVar('--cyan'), borderRadius: 5, maxBarThickness: 26, order: 2 },
+        { type: 'line', label: 'เป้า', data: target, borderColor: getCSSVar('--solar'), borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0, order: 1 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: getCSSVar('--text-dim') } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ฿${fmtFull(c.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim'), maxRotation: 0, autoSkip: true } },
+        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtCurrency(v), color: getCSSVar('--text-dim') }, beginAtZero: true }
+      }
+    }
+  }));
+
+  if (tableBox) {
+    const body = last.slice().reverse().map(r => {
+      const pct = r.target ? (r.actual / r.target * 100) : 0;
+      const cls = pct >= 100 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--text-dim)';
+      return `<tr>
+        <td>${mlabel(r.month)}</td>
+        <td class="text-right text-mono">฿${fmtCurrency(r.actual)}</td>
+        <td class="text-right text-mono" style="color:${cls}">${pct.toFixed(0)}%</td>
+      </tr>`;
+    }).join('');
+    tableBox.innerHTML = `<table class="data-table"><thead><tr><th>เดือน</th><th class="text-right">รายได้จริง</th><th class="text-right">% เป้า</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
 }
 
 /* ============== TAB 2: HOME SOLAR & SME ============== */
@@ -4682,6 +4954,54 @@ function processWorkbook(arrayBuffer) {
   return runUniversalImport(arrayBuffer);
 }
 
+/* V9.2 — find a Monthly_Summary-style sheet among the unknown business sheets,
+ * normalise it to {_month,_actual,_target}, and REMOVE it from report.unclassified
+ * so it renders inside Home (right column) instead of as its own tab. Cleans out
+ * non-month rows (e.g. trailing total / AR-aging blocks). Returns null if none. */
+function extractMonthlyFromReport(report) {
+  const list = (report && report.unclassified) || [];
+  let idx = -1;
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    const nm = String(u.name || '').toLowerCase().replace(/[_\s-]+/g, '');
+    const labels = u.columns.map(c => String(c.label || '').toLowerCase());
+    const hasTarget = labels.some(l => l.includes('เป้า') || l.includes('target'));
+    const hasMonth = u.columns.some(c => c.type === 'date') || labels.some(l => l.includes('เดือน') || l.includes('month'));
+    if (/monthlysummary/.test(nm) || (hasTarget && hasMonth)) { idx = i; break; }
+  }
+  if (idx < 0) return null;
+
+  const ds = list.splice(idx, 1)[0];                  // remove → no dynamic tab
+  const cols = ds.columns;
+  const find = pred => cols.find(pred);
+  const monthCol = find(c => c.type === 'date') || find(c => /เดือน|month/i.test(c.label));
+  const targetCol = find(c => /เป้า|target/i.test(c.label));
+  const actualCol = find(c => /รายได้จริง|actual/i.test(c.label))
+                 || find(c => /รายได้|revenue/i.test(c.label) && c !== targetCol)
+                 || find(c => (c.type === 'number' || c.type === 'percent') && c !== targetCol);
+
+  const out = [];
+  for (const r of ds.rows) {
+    const mv = monthCol ? r[monthCol.key] : null;
+    let mk = null;
+    if (mv instanceof Date && !isNaN(mv.getTime())) {
+      mk = `${mv.getFullYear()}-${String(mv.getMonth() + 1).padStart(2, '0')}`;
+    } else {
+      const m = String(mv == null ? '' : mv).match(/(\d{4})-(\d{1,2})/);
+      if (m) mk = `${m[1]}-${String(+m[2]).padStart(2, '0')}`;
+    }
+    if (!mk) continue;                                // drops total + AR-aging rows
+    out.push({
+      _month: mk,
+      _actual: actualCol ? (+r[actualCol.key] || 0) : 0,
+      _target: targetCol ? (+r[targetCol.key] || 0) : 0,
+    });
+  }
+  if (!out.length) return null;
+  out.sort((a, b) => a._month.localeCompare(b._month));
+  return { name: ds.name, columns: cols, rows: out };
+}
+
 async function runUniversalImport(arrayBuffer) {
   showImportOverlay();
   const tick = (ms = 70) => new Promise(r => setTimeout(r, ms));
@@ -4707,7 +5027,9 @@ async function runUniversalImport(arrayBuffer) {
     if (window.dashboardDebug) console.log('%c[DataEngine] report', 'color:#13C2C2', report);
 
     const assigned = report.assignments || [];
-    if (!assigned.length) {
+    const unclassified = report.unclassified || [];
+    const reference = report.referenceSheets || [];
+    if (!assigned.length && !unclassified.length && !reference.length) {
       hideImportOverlay();
       showToast('ไม่พบตารางข้อมูลที่อ่านได้ในไฟล์นี้ — โปรดตรวจสอบว่ามีแถวหัวตาราง (header)', 'error');
       return report;
@@ -4739,6 +5061,19 @@ async function runUniversalImport(arrayBuffer) {
 
     destroyCharts();              // prevent "Canvas already in use"
     populateFilters();            // rebuild filters from REAL uploaded data
+
+    // V9.2: pull a Monthly_Summary-style sheet out of the dynamic-tab list and
+    // embed it on the Home page (right column) instead of giving it its own tab.
+    try { window.MONTHLY = extractMonthlyFromReport(report); }
+    catch (e) { window.MONTHLY = null; console.warn('extractMonthlyFromReport failed (non-fatal):', e); }
+
+    // V9 Phase 1: build runtime tabs for business sheets only (intent-filtered).
+    // Additive + isolated: a failure here must never block the known dashboard.
+    let dyn = { business: 0, reference: 0, suppressed: 0 };
+    try {
+      if (window.DynamicTabs) dyn = window.DynamicTabs.rebuild(report) || dyn;
+    } catch (e) { console.warn('DynamicTabs.rebuild failed (non-fatal):', e); }
+
     renderActiveTab();
 
     setImportStage('done', 'สำเร็จ ✓', 100);
@@ -4748,9 +5083,13 @@ async function runUniversalImport(arrayBuffer) {
     const skipped = (report.skippedSheets || []).length;
     const badRows = (report.invalidRows || []).length;
     const extra = [];
+    if (dyn.business) extra.push(`สร้าง ${dyn.business} แท็บอัตโนมัติจาก sheet ที่ไม่รู้จัก`);
+    if (dyn.reference) extra.push(`แสดง ${dyn.reference} sheet อ้างอิง (debug)`);
+    if (dyn.suppressed) extra.push(`กรอง ${dyn.suppressed} sheet สนับสนุน/อ้างอิงออก`);
     if (skipped) extra.push(`ข้าม ${skipped} sheet ที่ไม่ใช่ข้อมูล`);
     if (badRows) extra.push(`ข้าม ${badRows} แถวเสีย`);
-    showToast(`โหลดสำเร็จ ✓ ${loaded.join(' · ')}${extra.length ? ' — ' + extra.join(', ') : ''}`, 'success');
+    const head = loaded.length ? loaded.join(' · ') : 'อ่านข้อมูลจากไฟล์';
+    showToast(`โหลดสำเร็จ ✓ ${head}${extra.length ? ' — ' + extra.join(', ') : ''}`, 'success');
     return report;
   } catch (err) {
     console.error('Universal import failed:', err);
@@ -5264,6 +5603,363 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+</script>
+
+<!-- ============================================================
+     DYNAMIC TABS MODULE (V9 · Phase 1) — Adaptive runtime layer
+     ------------------------------------------------------------
+     Turns every UNKNOWN Excel sheet (report.unclassified, produced
+     by the Universal Data Engine) into a fully-rendered dashboard
+     tab, WITHOUT any per-sheet coding. Three deterministic stages:
+
+       profile()        column roles -> {dates, metrics, dimensions, entities}
+       WidgetFactory    roles -> widget descriptors (KPI / trend / breakdown /
+                        ranking / data explorer), reusing the V8 design system
+       tab injector     creates real .tab-btn + .tab-pane nodes and registers
+                        a renderer that renderActiveTab() dispatches to
+
+     Isolation guarantees (so it can NEVER break the known dashboard):
+       - Its own chart registry (separate from CHARTS / _CHART_REGISTRY).
+       - Every widget render is wrapped in try/catch -> inline error card.
+       - Reads globals defensively (typeof guards); writes only additively.
+       - No CSS added: reuses .card/.kpi-mini/.chart-wrap-tall/.data-table.
+     ============================================================ -->
+<script id="dynamic-tabs-module">
+(function (root) {
+  'use strict';
+
+  /* ---------- small self-contained helpers (mirror app conventions) ------- */
+  function cssVar(n) { try { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); } catch (e) { return ''; } }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function fmtNum(n) {
+    if (n == null || (typeof n === 'number' && !isFinite(n))) return '0';
+    const num = typeof n === 'number' ? n : parseFloat(n);
+    if (isNaN(num)) return String(n);
+    const abs = Math.abs(num);
+    if (abs >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+    if (abs >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+    return (Math.round(num * 100) / 100).toLocaleString();
+  }
+  function toISO(d) {
+    if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function fmtCell(v, type) {
+    if (v == null || v === '') return '';
+    if (type === 'date') return (v instanceof Date) ? toISO(v) : String(v);
+    if (type === 'number' || type === 'percent') return (typeof v === 'number') ? (Math.round(v * 100) / 100).toLocaleString() : String(v);
+    return String(v);
+  }
+  function monthKey(v) {
+    if (v instanceof Date && !isNaN(v.getTime())) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}`;
+    const m = String(v == null ? '' : v).match(/(\d{4})-(\d{1,2})/);
+    return m ? `${m[1]}-${String(+m[2]).padStart(2, '0')}` : null;
+  }
+  const PALETTE = ['--cyan', '--bu-solar', '--solar', '--success', '--purple', '--pink', '--info', '--warning'];
+  function color(i) { return cssVar(PALETTE[i % PALETTE.length]) || '#13C2C2'; }
+
+  /* ---------- isolated state ---------------------------------------------- */
+  const TABS = {};     // key -> { key, name, columns, rows, profile }
+  const CHARTS = {};   // canvasId -> Chart instance (separate from app CHARTS)
+
+  /* ========================================================================
+   * 1. SCHEMA PROFILER — deterministic column-role inference (no heurist"AI")
+   *    date -> dates ; numeric/percent -> metrics ;
+   *    low-cardinality text -> dimensions ; high-cardinality text -> entities
+   * ======================================================================*/
+  function profile(columns, rows) {
+    const dates = [], metrics = [], dimensions = [], entities = [];
+    for (const col of columns) {
+      const c = { key: col.key, label: col.label, type: col.type };
+      if (col.type === 'date') { dates.push(c); continue; }
+      if (col.type === 'number' || col.type === 'percent') { c.isPercent = (col.type === 'percent'); metrics.push(c); continue; }
+      // text: measure cardinality to decide dimension vs entity
+      const seen = new Set(); let filled = 0;
+      for (const r of rows) { const v = r[col.key]; if (v != null && v !== '') { filled++; seen.add(v); } }
+      const uniq = seen.size, ratio = filled ? uniq / filled : 0;
+      c.cardinality = uniq;
+      if (uniq > 1 && uniq <= 25 && ratio < 0.6) dimensions.push(c);
+      else entities.push(c);
+    }
+    return { dates, metrics, dimensions, entities, rowCount: rows.length };
+  }
+
+  /* ========================================================================
+   * 2. CHART helpers — safe create/destroy on an isolated registry
+   * ======================================================================*/
+  function baseChartOpts(showLegend) {
+    return {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: !!showLegend, position: 'bottom', labels: { boxWidth: 12, color: cssVar('--text-dim') } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label ? c.dataset.label + ': ' : ''}${Number(c.parsed.y != null ? c.parsed.y : c.parsed).toLocaleString()}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: cssVar('--text-dim'), autoSkip: true, maxRotation: 0 } },
+        y: { grid: { color: cssVar('--grid-line') }, ticks: { color: cssVar('--text-dim'), callback: v => fmtNum(v) }, beginAtZero: true }
+      }
+    };
+  }
+  function makeChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !root.Chart) return;
+    try { const ex = root.Chart.getChart(canvas); if (ex) ex.destroy(); } catch (e) {}
+    try { CHARTS[canvasId] = new root.Chart(canvas.getContext('2d'), config); } catch (e) { /* leave canvas blank, never throw */ }
+  }
+  function destroyTabCharts(key) {
+    const pre = 'dynchart-' + key + '-';
+    for (const id in CHARTS) { if (id.indexOf(pre) === 0) { try { CHARTS[id].destroy(); } catch (e) {} delete CHARTS[id]; } }
+  }
+  function destroyAllCharts() { for (const id in CHARTS) { try { CHARTS[id].destroy(); } catch (e) {} delete CHARTS[id]; } }
+
+  /* ---------- DOM builders (reuse existing classes only) ------------------ */
+  function makeCard(title, subtitle) {
+    const el = document.createElement('div'); el.className = 'card'; el.style.marginTop = '14px';
+    const header = document.createElement('div'); header.className = 'card-header';
+    header.innerHTML = `<div><div class="card-title">${esc(title)}</div>${subtitle ? `<div class="card-subtitle">${esc(subtitle)}</div>` : ''}</div>`;
+    const body = document.createElement('div');
+    el.appendChild(header); el.appendChild(body);
+    return { el, body };
+  }
+  function errorNode(title, e) {
+    const d = document.createElement('div');
+    d.innerHTML = `<div class="card" style="margin-top:14px;border-color:var(--critical,#EF4444)"><div class="card-header"><div><div class="card-title" style="color:var(--critical,#EF4444)">⚠ ${esc(title)}</div><div class="card-subtitle">${esc((e && e.message) || e || '')}</div></div></div></div>`;
+    return d.firstChild;
+  }
+  function emptyNode() {
+    const d = document.createElement('div');
+    d.innerHTML = `<div class="card" style="margin-top:14px"><div class="empty-state">ไม่มีข้อมูลให้แสดง</div></div>`;
+    return d.firstChild;
+  }
+
+  /* ========================================================================
+   * 3. WIDGET FACTORY — metadata -> widget descriptors {title, render(host)}
+   * ======================================================================*/
+  function kpiStrip(tab) {
+    return { title: 'KPI', render(host) {
+      const p = tab.profile;
+      const cards = [`<div class="kpi-mini"><div class="kpi-mini-label">จำนวนแถว</div><div class="kpi-mini-value">${esc(p.rowCount.toLocaleString())}</div><div class="kpi-mini-trend neutral">${esc(tab.name)}</div></div>`];
+      let n = 0;
+      for (const m of p.metrics) {
+        if (n >= 4) break; n++;
+        let value, sub;
+        if (m.isPercent) {
+          const vals = tab.rows.map(r => r[m.key]).filter(v => typeof v === 'number');
+          const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+          value = fmtNum(avg); sub = 'ค่าเฉลี่ย';
+        } else {
+          const sum = tab.rows.reduce((s, r) => s + (typeof r[m.key] === 'number' ? r[m.key] : 0), 0);
+          value = fmtNum(sum); sub = 'ผลรวม';
+        }
+        cards.push(`<div class="kpi-mini"><div class="kpi-mini-label">${esc(m.label)}</div><div class="kpi-mini-value" style="color:${color(n)}">${esc(value)}</div><div class="kpi-mini-trend neutral">${esc(sub)}</div></div>`);
+      }
+      const grid = document.createElement('div'); grid.className = 'kpi-mini-grid'; grid.style.marginTop = '14px';
+      grid.innerHTML = cards.join('');
+      host.appendChild(grid);
+    } };
+  }
+
+  function trendWidget(tab) {
+    const p = tab.profile;
+    if (!p.dates.length || !p.metrics.length) return null;
+    const dateCol = p.dates[0];
+    const metric = p.metrics.find(m => !m.isPercent) || p.metrics[0];
+    return { title: 'แนวโน้ม', render(host) {
+      const map = new Map();
+      for (const r of tab.rows) {
+        const mk = monthKey(r[dateCol.key]); if (!mk) continue;
+        map.set(mk, (map.get(mk) || 0) + (typeof r[metric.key] === 'number' ? r[metric.key] : 0));
+      }
+      const labels = [...map.keys()].sort();
+      if (!labels.length) return;
+      const card = makeCard(`${metric.label} ตามช่วงเวลา`, `รวมตาม ${dateCol.label}`);
+      const id = 'dynchart-' + tab.key + '-trend';
+      card.body.innerHTML = `<div class="chart-wrap-tall"><canvas id="${id}"></canvas></div>`;
+      host.appendChild(card.el);
+      makeChart(id, { type: 'line', data: { labels, datasets: [{ label: metric.label, data: labels.map(l => map.get(l)), borderColor: color(0), backgroundColor: 'rgba(19,194,194,0.15)', fill: true, tension: 0.35, borderWidth: 2.5, pointRadius: 3 }] }, options: baseChartOpts(false) });
+    } };
+  }
+
+  function breakdownWidget(tab) {
+    const p = tab.profile;
+    if (!p.dimensions.length || !p.metrics.length) return null;
+    const dim = p.dimensions[0];
+    const metric = p.metrics.find(m => !m.isPercent) || p.metrics[0];
+    return { title: 'สัดส่วน', render(host) {
+      const map = new Map();
+      for (const r of tab.rows) { const k = r[dim.key]; if (k == null || k === '') continue; map.set(k, (map.get(k) || 0) + (typeof r[metric.key] === 'number' ? r[metric.key] : 0)); }
+      const top = [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+      if (!top.length) return;
+      const card = makeCard(`${metric.label} แยกตาม ${dim.label}`, `สูงสุด ${top.length} อันดับ`);
+      const id = 'dynchart-' + tab.key + '-break';
+      card.body.innerHTML = `<div class="chart-wrap-tall"><canvas id="${id}"></canvas></div>`;
+      host.appendChild(card.el);
+      makeChart(id, { type: 'bar', data: { labels: top.map(e => String(e[0])), datasets: [{ data: top.map(e => e[1]), backgroundColor: color(1), borderRadius: 6 }] }, options: baseChartOpts(false) });
+    } };
+  }
+
+  function rankingWidget(tab) {
+    const p = tab.profile;
+    if (!p.entities.length || !p.metrics.length) return null;
+    const ent = p.entities[0];
+    const metric = p.metrics.find(m => !m.isPercent) || p.metrics[0];
+    return { title: 'อันดับ', render(host) {
+      const map = new Map();
+      for (const r of tab.rows) { const k = r[ent.key]; if (k == null || k === '') continue; map.set(k, (map.get(k) || 0) + (typeof r[metric.key] === 'number' ? r[metric.key] : 0)); }
+      const top = [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+      if (!top.length || top.every(e => e[1] === 0)) return;
+      const card = makeCard(`Top ${ent.label} · ${metric.label}`, 'จัดอันดับอัตโนมัติ');
+      const trs = top.map((e, i) => `<tr><td style="width:34px;color:var(--text-muted)">${i + 1}</td><td><strong>${esc(e[0])}</strong></td><td class="text-right text-mono">${esc(fmtNum(e[1]))}</td></tr>`).join('');
+      card.body.innerHTML = `<div class="table-wrap" style="max-height:340px;overflow:auto;"><table class="data-table"><thead><tr><th>#</th><th>${esc(ent.label)}</th><th class="text-right">${esc(metric.label)}</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+      host.appendChild(card.el);
+    } };
+  }
+
+  function explorerWidget(tab) {
+    return { title: 'Data Explorer', render(host) {
+      const cols = tab.columns, CAP = 500;
+      const rows = tab.rows.slice(0, CAP);
+      const head = cols.map(c => { const right = (c.type === 'number' || c.type === 'percent'); return `<th class="${right ? 'text-right' : ''}">${esc(c.label)}<span style="display:block;font-weight:400;font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${esc(c.type)}</span></th>`; }).join('');
+      const body = rows.map(r => `<tr>${cols.map(c => { const right = (c.type === 'number' || c.type === 'percent'); return `<td class="${right ? 'text-right text-mono' : ''}">${esc(fmtCell(r[c.key], c.type))}</td>`; }).join('')}</tr>`).join('');
+      const note = tab.rows.length > CAP ? `<div style="padding:8px 12px;color:var(--text-muted);font-size:11.5px">แสดง ${CAP.toLocaleString()} จาก ${tab.rows.length.toLocaleString()} แถว</div>` : '';
+      const card = makeCard('Data Explorer · ตารางข้อมูลดิบ', `${cols.length} คอลัมน์ · ${tab.rows.length.toLocaleString()} แถว`);
+      card.body.innerHTML = `<div class="table-wrap" style="max-height:60vh;overflow:auto;"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${note}`;
+      host.appendChild(card.el);
+    } };
+  }
+
+  function buildWidgets(tab) {
+    const list = [];
+    [kpiStrip(tab), trendWidget(tab), breakdownWidget(tab), rankingWidget(tab), explorerWidget(tab)]
+      .forEach(w => { if (w) list.push(w); });
+    return list;
+  }
+
+  /* ========================================================================
+   * 4. RUNTIME TAB INJECTOR
+   * ======================================================================*/
+  const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>';
+
+  function safeKey(name, i) {
+    const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return 'dyn-' + (slug || 'sheet') + '-' + i;
+  }
+  function currentTabIsDyn() {
+    const a = document.querySelector('.tab-btn.active');
+    return !!(a && a.dataset && a.dataset.tab && a.dataset.tab.indexOf('dyn-') === 0);
+  }
+
+  function createTab(dataset, opts) {
+    opts = opts || {};
+    const index = opts.index || 0;
+    const displayNum = opts.displayNum || (index + 1);
+    const refLabel = opts.refLabel || null;            // non-null => reference sheet (debug only)
+    const key = safeKey(dataset.name, index);
+    const prof = profile(dataset.columns, dataset.rows);
+    TABS[key] = { key, name: dataset.name, columns: dataset.columns, rows: dataset.rows, profile: prof, intent: dataset.intent || null };
+
+    const refBadge = refLabel
+      ? `<span style="margin-left:6px;font-size:9px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px">${esc(refLabel)}</span>`
+      : '';
+
+    // tab button (numbered after the 5 fixed tabs: 06, 07, ...)
+    const nav = document.getElementById('tabsNav');
+    if (nav && !nav.querySelector('[data-tab="' + key + '"]')) {
+      const btn = document.createElement('button');
+      btn.className = 'tab-btn'; btn.dataset.tab = key; btn.dataset.dyn = '1';
+      if (refLabel) btn.style.opacity = '0.72';
+      btn.innerHTML = `<span class="tab-btn-num">${String(displayNum).padStart(2, '0')}</span>${ICON}${esc(dataset.name)}${refBadge}`;
+      btn.addEventListener('click', () => { if (typeof switchTab === 'function') switchTab(key); });
+      nav.appendChild(btn);
+    }
+
+    // tab pane (appended to the same container the fixed panes live in)
+    const container = document.getElementById('snapshotTarget') || document.querySelector('.container') || document.body;
+    if (!document.getElementById('tab-' + key)) {
+      const pane = document.createElement('div');
+      pane.className = 'tab-pane'; pane.id = 'tab-' + key; pane.dataset.dyn = '1';
+      const tag = refLabel
+        ? `ข้อมูลอ้างอิง · ${esc(refLabel)} (debug only — ไม่นับเป็น business dataset)`
+        : 'ตารางอัตโนมัติ (Auto-generated)';
+      pane.innerHTML = `<div class="tab-section-title" style="border-left:3px solid var(--bu-summary,#13C2C2); padding-left:10px;">${esc(dataset.name)} · <span style="color:var(--text-dim);font-weight:500">${tag}</span></div><div id="dyn-body-${key}"></div>`;
+      container.appendChild(pane);
+    }
+
+    // page title/subtitle so the existing switchTab() works unchanged
+    if (typeof TAB_TITLES !== 'undefined') {
+      TAB_TITLES[key] = { title: dataset.name, sub: `${refLabel ? 'Reference (debug) · ' : 'Auto-generated · '}${prof.rowCount.toLocaleString()} แถว · ${dataset.columns.length} คอลัมน์` };
+    }
+    return key;
+  }
+
+  function renderTab(key) {
+    const tab = TABS[key];
+    const host = document.getElementById('dyn-body-' + key);
+    if (!tab || !host) return;
+    destroyTabCharts(key);
+    host.innerHTML = '';
+    let rendered = 0;
+    for (const w of buildWidgets(tab)) {
+      try { w.render(host); rendered++; }
+      catch (e) { host.appendChild(errorNode('Widget: ' + w.title, e)); }
+    }
+    if (!rendered) host.appendChild(emptyNode());
+  }
+
+  /* ========================================================================
+   * 5. PUBLIC API (consumed by renderActiveTab + the import pipeline)
+   * ======================================================================*/
+  function clearTabs() {
+    destroyAllCharts();
+    const wasDyn = currentTabIsDyn();
+    document.querySelectorAll('.tab-btn[data-dyn="1"]').forEach(b => b.remove());
+    document.querySelectorAll('.tab-pane[data-dyn="1"]').forEach(p => p.remove());
+    for (const k in TABS) { if (typeof TAB_TITLES !== 'undefined') delete TAB_TITLES[k]; delete TABS[k]; }
+    // If a now-deleted dynamic tab was active, fall back to Home so the app stays valid.
+    if (wasDyn) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'home'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-home'));
+    }
+  }
+
+  function rebuild(report) {
+    clearTabs();
+    const business = (report && report.unclassified) || [];
+    const reference = (report && report.referenceSheets) || [];
+    const debug = !!(root.dashboardDebug);
+    let num = 5;                       // fixed tabs are 01–05; dynamic continue at 06
+    const result = { business: 0, reference: 0, suppressed: 0 };
+
+    business.forEach((ds, i) => {
+      try { createTab(ds, { index: i, displayNum: ++num }); result.business++; }
+      catch (e) { console.warn('createTab failed:', ds && ds.name, e); }
+    });
+
+    // Support/reference/doc sheets: never tabbed in normal mode; surfaced only
+    // in debug mode so the data is inspectable but never clutters the dashboard.
+    reference.forEach((ds, i) => {
+      if (debug) {
+        try { createTab(ds, { index: 1000 + i, displayNum: ++num, refLabel: (ds.intent && ds.intent.datasetIntent) || 'ref' }); result.reference++; }
+        catch (e) { console.warn('createTab(ref) failed:', ds && ds.name, e); }
+      } else {
+        result.suppressed++;
+      }
+    });
+
+    return result;
+  }
+
+  function render(key) {
+    try { renderTab(key); }
+    catch (e) {
+      const host = document.getElementById('dyn-body-' + key);
+      if (host) { host.innerHTML = ''; host.appendChild(errorNode('ไม่สามารถแสดงแท็บนี้ได้', e)); }
+      console.warn('renderTab failed:', key, e);
+    }
+  }
+
+  root.DynamicTabs = { rebuild, render, clear: clearTabs, profile, _state: { TABS, CHARTS } };
+})(typeof window !== 'undefined' ? window : this);
 </script>
 </body>
 </html>
