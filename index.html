@@ -1237,6 +1237,32 @@ input[type="file"] { display: none; }
 }
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); } }
 
+/* V9 upgrade · Sections 11 & 12 — data freshness / source status + smart refresh */
+.header-status-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.data-status-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border-radius: 999px;
+  background: var(--card-elev); border: 1px solid var(--border);
+  font-size: 11px; color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.02em;
+}
+.data-status-pill .data-status-sep { opacity: 0.4; }
+.data-status-fresh { color: var(--text); }
+.data-status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-dim); box-shadow: 0 0 8px transparent;
+}
+.data-status-pill[data-src="gsheets"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.data-status-pill[data-src="gsheets"] .data-status-dot { background: #34A853; box-shadow: 0 0 8px #34A853; }
+.data-status-pill[data-src="excel"]  { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 35%, transparent); }
+.data-status-pill[data-src="excel"]  .data-status-dot { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.data-status-pill[data-src="demo"]   .data-status-dot { background: var(--warning); box-shadow: 0 0 8px var(--warning); }
+.data-status-pill.stale { border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.data-status-pill.stale .data-status-fresh { color: var(--warning); }
+.btn-refresh svg { width: 15px; height: 15px; }
+.btn-refresh.spinning svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ===================== CARD ===================== */
 .card {
   background: var(--card);
@@ -1330,10 +1356,11 @@ input[type="file"] { display: none; }
   line-height: 1;
 }
 .gauge-actual {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-dim);
   margin-top: 8px;
   font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
 }
 .gauge-target {
   font-size: 10.5px;
@@ -1477,8 +1504,9 @@ input[type="file"] { display: none; }
   font-size: 12.5px;
 }
 .data-table thead th {
-  text-align: left;
-  padding: 9px 12px;
+  text-align: center;
+  vertical-align: middle;
+  padding: 11px 14px;
   font-weight: 600;
   font-size: 10.5px;
   text-transform: uppercase;
@@ -1488,12 +1516,22 @@ input[type="file"] { display: none; }
   background: var(--card-elev);
   position: sticky;
   top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--border);
 }
+/* Section 8 alignment rules: text/dates/percent center · currency/numbers right */
+.data-table thead th.text-right,
+.data-table tbody td.text-right { text-align: right; }
+.data-table thead th.text-left,
+.data-table tbody td.text-left  { text-align: left; }
 .data-table tbody td {
-  padding: 9px 12px;
+  padding: 11px 14px;
+  text-align: center;
+  vertical-align: middle;
   border-bottom: 1px solid var(--border);
   color: var(--text);
 }
+.data-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--card-elev) 45%, transparent); }
 .data-table tbody tr:hover td { background: var(--card-elev); }
 .data-table tbody tr:last-child td { border-bottom: none; }
 
@@ -1877,6 +1915,18 @@ input[type="file"] { display: none; }
   color: var(--text-muted);
   font-size: 12.5px;
 }
+/* V9 · Sections 10/20 — centered empty-state inside a chart wrap */
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  line-height: 1.5;
+}
 
 /* ===================== UI POLISH ===================== */
 .card {
@@ -2244,7 +2294,34 @@ input[type="file"] { display: none; }
 .hero-right > .card { flex: 1; display: flex; flex-direction: column; margin: 0; }
 .hero-right .ms-chart-wrap { flex: 1; min-height: 180px; position: relative; }
 .hero-right .ms-table-wrap { max-height: 168px; overflow: auto; margin-top: 10px; }
-@media (max-width: 900px) { .hero-right .ms-chart-wrap { min-height: 220px; } }
+@media (max-width: 900px) { .hero-right .ms-chart-wrap { min-height: 200px; max-height: 240px; } }
+
+/* V9 · Section 1 & 19 — Monthly Summary as a lighter secondary analytics module.
+ * Reduced visual weight so it no longer competes with the KPI hero. */
+.analytics-card {
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+}
+.analytics-card .card-title { font-size: 13px; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.analytics-card .card-subtitle { font-size: 11px; }
+.ms-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.analytics-tag {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 5px;
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--cyan); border: 1px solid color-mix(in srgb, var(--cyan) 30%, transparent);
+}
+.ms-range-select {
+  font-size: 11px; padding: 4px 8px; border-radius: 7px;
+  background: var(--card-elev); color: var(--text-dim);
+  border: 1px solid var(--border); cursor: pointer; flex-shrink: 0;
+}
+.ms-note {
+  margin-top: 9px; font-size: 10.5px; line-height: 1.5;
+  color: var(--text-muted); opacity: 0.85;
+  padding-top: 8px; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+}
 
 .hero-card {
   padding: 22px 24px;
@@ -2655,11 +2732,6 @@ input[type="file"] { display: none; }
   <div class="topbar-actions">
     <select id="filterMonth" class="btn" title="กรองรายเดือน">
       <option value="all">ทุกเดือน</option>
-      <option value="2026-01">มกราคม 2026</option>
-      <option value="2026-02">กุมภาพันธ์ 2026</option>
-      <option value="2026-03">มีนาคม 2026</option>
-      <option value="2026-04">เมษายน 2026</option>
-      <option value="2026-05" selected>พฤษภาคม 2026</option>
     </select>
 
     <select id="filterCustomer" class="btn" title="กรองตามลูกค้า">
@@ -2668,9 +2740,6 @@ input[type="file"] { display: none; }
 
     <select id="filterGrade" class="btn" title="กรองตาม Grade">
       <option value="all">ทุก Grade</option>
-      <option value="A">Grade A</option>
-      <option value="B">Grade B</option>
-      <option value="C">Grade C</option>
     </select>
 
     <label for="fileInput" class="btn btn-primary">
@@ -2744,9 +2813,21 @@ input[type="file"] { display: none; }
       <h1 class="page-title" id="pageTitle">Summary</h1>
       <p class="page-subtitle" id="pageSubtitle">Executive Command Center · เป้า <span class="text-cyan" style="font-weight:600;">10 ล้านบาท / เดือน</span></p>
     </div>
-    <div class="live-indicator">
-      <span class="pulse-dot"></span>
-      <span id="liveTime">SYSTEM ONLINE</span>
+    <div class="header-status-group">
+      <div class="data-status-pill" id="dataStatusPill" title="แหล่งข้อมูล / ความสดของข้อมูล">
+        <span class="data-status-dot" id="dataStatusDot"></span>
+        <span id="dataStatusSource">Demo Data</span>
+        <span class="data-status-sep">·</span>
+        <span id="dataStatusFresh" class="data-status-fresh">—</span>
+      </div>
+      <button class="btn btn-refresh" id="refreshDataBtn" title="รีเฟรชข้อมูลล่าสุด (ไม่รีโหลดหน้า · คง filter และแท็บไว้)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span>รีเฟรช</span>
+      </button>
+      <div class="live-indicator">
+        <span class="pulse-dot"></span>
+        <span id="liveTime">SYSTEM ONLINE</span>
+      </div>
     </div>
   </div>
 
@@ -2791,7 +2872,7 @@ input[type="file"] { display: none; }
           <div class="hero-progress"><div class="hero-progress-bar" id="heroProgBar" style="width:0%"></div></div>
           <div class="hero-progress-labels">
             <span><span id="heroProgPct">0.0</span>% ของเป้า</span>
-            <span>เป้า ฿10.0M</span>
+            <span>เป้า ฿10,000,000</span>
           </div>
         </div>
 
@@ -2802,7 +2883,7 @@ input[type="file"] { display: none; }
             <canvas id="chartGauge"></canvas>
             <div class="gauge-center">
               <div class="gauge-percent" id="gaugePercent">0%</div>
-              <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10M</div>
+              <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10,000,000</div>
               <div class="gauge-target" id="gaugeStatus">—</div>
             </div>
           </div>
@@ -2810,15 +2891,25 @@ input[type="file"] { display: none; }
       </div>
 
       <div class="hero-right">
-        <div class="card" id="cardMonthlySummary">
-          <div class="card-header">
+        <div class="card analytics-card" id="cardMonthlySummary">
+          <div class="card-header ms-header">
             <div>
-              <div class="card-title">Monthly Summary · รายได้ vs เป้า</div>
-              <div class="card-subtitle" id="msSubtitle">รายเดือนเทียบเป้า ฿10M</div>
+              <div class="card-title">
+                <span class="analytics-tag">Analytics</span>
+                Monthly Summary · รายได้ vs เป้า
+              </div>
+              <div class="card-subtitle" id="msSubtitle">รายเดือนเทียบเป้า ฿10,000,000</div>
             </div>
+            <select id="msRangeSelect" class="ms-range-select" title="ช่วงเวลา (เฉพาะกราฟนี้ · ไม่ขึ้นกับ filter ด้านบน)">
+              <option value="3">3 เดือน</option>
+              <option value="6">6 เดือน</option>
+              <option value="12" selected>12 เดือน</option>
+              <option value="all">ทั้งหมด</option>
+            </select>
           </div>
           <div class="ms-chart-wrap"><canvas id="chartMonthlySummary"></canvas></div>
           <div class="ms-table-wrap" id="monthlySummaryTable"></div>
+          <div class="ms-note">📊 ข้อมูลย้อนหลัง (historical) · ใช้ตัวกรองช่วงเวลาเฉพาะกราฟนี้ ไม่ขึ้นกับ filter ด้านบน</div>
         </div>
       </div>
     </div>
@@ -3567,13 +3658,50 @@ function generateSampleData() {
 }
 
 /* ============== HELPERS ============== */
+/* V9 upgrade · Section 7 — Number Formatting System
+ * Full Thai-Baht comma formatting everywhere (KPI cards, tables, tooltips,
+ * modals, exports). Compact "13.61M" notation is retired from value displays.
+ * The only place compact notation survives is the chart Y-AXIS tick scale
+ * (fmtAxis) for legibility — chart tooltips still show the full number. */
 function fmtCurrency(n) {
-  if (!n) return '0';
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
-  return Math.round(n).toLocaleString();
+  return Math.round(n || 0).toLocaleString('th-TH');
 }
-function fmtFull(n) { return Math.round(n || 0).toLocaleString(); }
+function fmtFull(n) { return Math.round(n || 0).toLocaleString('th-TH'); }
+/* Compact formatter — chart AXIS ticks ONLY (kept short so axes stay readable). */
+function fmtAxis(n) {
+  const a = Math.abs(n || 0);
+  if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1) + ' ล้าน';
+  if (a >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  return Math.round(n || 0).toLocaleString('th-TH');
+}
+
+/* V9 · Sections 10 & 20 — clean chart empty-state.
+ * Differentiates "no dataset available" from "valid dataset, zero in this view".
+ * Returns true when an empty state was shown (caller should skip chart creation). */
+function chartEmptyState(canvasId, message) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return false;
+  const wrap = canvas.parentElement;
+  if (!wrap) return false;
+  canvas.style.display = 'none';
+  let box = wrap.querySelector('.chart-empty');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'empty-state chart-empty';
+    wrap.appendChild(box);
+  }
+  box.textContent = message;
+  box.style.display = '';
+  return true;
+}
+/* Restore a canvas previously hidden by chartEmptyState. */
+function chartRestore(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  canvas.style.display = '';
+  const box = canvas.parentElement && canvas.parentElement.querySelector('.chart-empty');
+  if (box) box.style.display = 'none';
+}
 function getCSSVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
 function applyFilters(rows, dateField = 'date', custField = 'customer') {
@@ -3843,7 +3971,7 @@ function renderHome() {
       },
       scales: {
         x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
-        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtCurrency(v), color: getCSSVar('--text-dim') } }
+        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } }
       }
     }
   }));
@@ -3961,15 +4089,17 @@ function renderMonthlySummaryPanel() {
     return;
   }
 
-  const last = rows.slice(-12);
-  const labels = last.map(r => r.month.slice(2).replace('-', '/'));   // YY/MM
-  const actual = last.map(r => r.actual);
-  const target = last.map(r => r.target);
-
   const mlabel = (m) => {
     const [y, mo] = m.split('-');
     return ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][(+mo) - 1] + ' ' + String(+y + 543).slice(-2);
   };
+
+  // Section 1 — local (independent) range filter for the historical analytics panel.
+  const range = window.MS_RANGE || 12;
+  const last = (range === 'all') ? rows : rows.slice(-range);
+  const labels = last.map(r => mlabel(r.month));     // Thai: "พ.ค. 68"
+  const actual = last.map(r => r.actual);
+  const target = last.map(r => r.target);
 
   const ctxM = canvas.getContext('2d');
   CHARTS.monthlySummary = registerChart('monthlySummary', new Chart(ctxM, {
@@ -3988,7 +4118,7 @@ function renderMonthlySummaryPanel() {
       },
       scales: {
         x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim'), maxRotation: 0, autoSkip: true } },
-        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtCurrency(v), color: getCSSVar('--text-dim') }, beginAtZero: true }
+        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true }
       }
     }
   }));
@@ -4000,10 +4130,10 @@ function renderMonthlySummaryPanel() {
       return `<tr>
         <td>${mlabel(r.month)}</td>
         <td class="text-right text-mono">฿${fmtCurrency(r.actual)}</td>
-        <td class="text-right text-mono" style="color:${cls}">${pct.toFixed(0)}%</td>
+        <td class="text-center text-mono" style="color:${cls}">${pct.toFixed(0)}%</td>
       </tr>`;
     }).join('');
-    tableBox.innerHTML = `<table class="data-table"><thead><tr><th>เดือน</th><th class="text-right">รายได้จริง</th><th class="text-right">% เป้า</th></tr></thead><tbody>${body}</tbody></table>`;
+    tableBox.innerHTML = `<table class="data-table"><thead><tr><th>เดือน</th><th class="text-right">รายได้จริง</th><th class="text-center">% เป้า</th></tr></thead><tbody>${body}</tbody></table>`;
   }
 }
 
@@ -4063,7 +4193,7 @@ function renderSolar() {
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.y)}` } } },
       scales: {
         x: { grid: { display: false } },
-        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtCurrency(v) } }
+        y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtAxis(v) } }
       },
       onClick: (evt, els) => {
         if (els.length) {
@@ -4224,7 +4354,7 @@ function renderCleaning() {
       responsive: true, maintainAspectRatio: false, indexAxis: 'y',
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.x)}` } } },
       scales: {
-        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtCurrency(v) } },
+        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtAxis(v) } },
         y: { grid: { display: false } }
       }
     }
@@ -4300,7 +4430,16 @@ function renderOM() {
   // Alarm Distribution Chart
   const levels = ['Critical', 'Major', 'Minor', 'Warning'];
   const lcount = levels.map(l => rl.alarms.filter(a => a.level === l).length);
-  const aCtx = document.getElementById('chartAlarms').getContext('2d');
+
+  // Section 10 — distinguish "no dataset" from "valid dataset, zero in this view".
+  const hasAlarmDataset = Array.isArray(DATA.alarm_status) && DATA.alarm_status.length > 0;
+  if (!hasAlarmDataset) {
+    chartEmptyState('chartAlarms', 'ยังไม่มีข้อมูล Alarm — อัปโหลด/ซิงค์ Sheet "Alarm Status"');
+  } else if (rl.alarms.length === 0) {
+    chartEmptyState('chartAlarms', 'ไม่มี Alarm สำหรับช่วง/ลูกค้าที่เลือก');
+  } else {
+    chartRestore('chartAlarms');
+    const aCtx = document.getElementById('chartAlarms').getContext('2d');
   CHARTS.alarms = registerChart('alarms', new Chart(aCtx, {
     type: 'bar',
     data: { labels: levels, datasets: [{
@@ -4336,6 +4475,7 @@ function renderOM() {
       }
     }
   }));
+  }
 
   // Critical alarms table
   const critList = rl.alarms.filter(a => a.level === 'Critical' || a.level === 'Major').slice(0, 30);
@@ -4457,7 +4597,7 @@ function renderPermit() {
       responsive: true, maintainAspectRatio: false, indexAxis: 'y',
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.x)}` } } },
       scales: {
-        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtCurrency(v) } },
+        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtAxis(v) } },
         y: { grid: { display: false } }
       },
       onClick: (evt, els) => {
@@ -4797,12 +4937,16 @@ function safeClick(id) {
 /* Thai month labels for dynamic month dropdown */
 const _THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
   'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+/* V9 upgrade · Section 9 — readable Thai business date format. */
+const _THAI_MONTHS_ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.',
+  'ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function _thaiMonthLabel(ym) {
-  // ym = 'YYYY-MM' (Gregorian). Show Buddhist-friendly Thai month + Gregorian year.
+  // ym = 'YYYY-MM' (Gregorian) → "พ.ค. 68" (abbrev. month + 2-digit Buddhist year).
   const m = /^(\d{4})-(\d{2})$/.exec(ym);
   if (!m) return ym;
   const idx = parseInt(m[2], 10) - 1;
-  return (_THAI_MONTHS[idx] || ('เดือน ' + m[2])) + ' ' + m[1];
+  const beYear = String(parseInt(m[1], 10) + 543).slice(-2);
+  return (_THAI_MONTHS_ABBR[idx] || ('เดือน ' + m[2])) + ' ' + beYear;
 }
 /* Pull a 'YYYY-MM' key from any date-ish value without throwing */
 function _ymOf(v) {
@@ -4856,8 +5000,31 @@ function populateFilters() {
         FILTERS.month = months[months.length - 1];
       }
       monSel.value = FILTERS.month;
+    } else {
+      // Section 2 — no real periods → show only "all" (never fake/hardcoded months)
+      monSel.innerHTML = '<option value="all">ทุกเดือน</option>';
+      FILTERS.month = 'all';
+      monSel.value = 'all';
     }
-    // If no months at all, leave the existing (hardcoded) options untouched.
+  }
+
+  /* ---- Grade dropdown (Section 2: derived ONLY from grades present in data) ---- */
+  const gradeSel = document.getElementById('filterGrade');
+  if (gradeSel) {
+    const gradeSet = new Set();
+    (DATA.customer_master || []).forEach(c => { if (c && c.grade) gradeSet.add(String(c.grade)); });
+    const grades = [...gradeSet].sort();
+    if (grades.length) {
+      const prevGrade = FILTERS.grade;
+      gradeSel.innerHTML = '<option value="all">ทุก Grade</option>' +
+        grades.map(g => `<option value="${g}">Grade ${g}</option>`).join('');
+      if (prevGrade !== 'all' && !grades.includes(prevGrade)) FILTERS.grade = 'all';
+      gradeSel.value = FILTERS.grade;
+    } else {
+      gradeSel.innerHTML = '<option value="all">ทุก Grade</option>';
+      FILTERS.grade = 'all';
+      gradeSel.value = 'all';
+    }
   }
 }
 
@@ -4940,6 +5107,7 @@ function hideImportOverlay() {
 }
 
 function loadExcelFile(file) {
+  window.__importMode = 'excel';
   showImportOverlay();
   const reader = new FileReader();
   reader.onerror = () => { hideImportOverlay(); showToast('อ่านไฟล์ไม่สำเร็จ — ไฟล์อาจเสียหาย', 'error'); };
@@ -5076,6 +5244,9 @@ async function runUniversalImport(arrayBuffer) {
 
     renderActiveTab();
 
+    // V9 · Section 11 — record active source + freshness once real data is in.
+    setDataSource(window.__importMode === 'gsheets' ? 'gsheets' : 'excel', new Date());
+
     setImportStage('done', 'สำเร็จ ✓', 100);
     await tick(280);
     hideImportOverlay();
@@ -5139,10 +5310,12 @@ async function syncFromGoogleSheets() {
       throw new Error(`HTTP ${res.status} — Sheet ต้องตั้ง "Anyone with link" ก่อน`);
     }
     const buffer = await res.arrayBuffer();
+    window.__importMode = 'gsheets';
     processWorkbook(buffer);
 
     const now = new Date();
     localStorage.setItem(GSHEETS_KEY_LAST, now.toISOString());
+    setDataSource('gsheets', now);
     label.textContent = `Synced ${now.toLocaleTimeString('th-TH', {hour:'2-digit',minute:'2-digit'})}`;
     setTimeout(() => { label.textContent = 'Sync Sheets'; }, 5000);
   } catch (err) {
@@ -5214,6 +5387,87 @@ function setupAutoSync() {
   const min = parseInt(localStorage.getItem('gsheets_auto_min') || '0');
   if (min > 0 && localStorage.getItem(GSHEETS_KEY_URL)) {
     _autoSyncTimer = setInterval(syncFromGoogleSheets, min * 60 * 1000);
+  }
+}
+
+/* ============== V9 · DATA SOURCE STATUS + SMART REFRESH (Sections 11 & 12) ==============
+ * Lightweight, runtime-safe. Tracks the active data lifecycle mode and last-updated
+ * time, renders a freshness pill, and provides a no-reload refresh that preserves
+ * filters + active tab + runtime session state. */
+window.DATA_SOURCE = { mode: 'demo', updatedAt: null };
+
+function setDataSource(mode, when) {
+  window.DATA_SOURCE = { mode, updatedAt: when || new Date() };
+  try {
+    if (mode !== 'demo') {
+      localStorage.setItem('dashboard_src_mode', mode);
+      localStorage.setItem('dashboard_src_updated', window.DATA_SOURCE.updatedAt.toISOString());
+    }
+  } catch (e) { /* storage may be unavailable */ }
+  updateDataStatus();
+}
+
+function _agoText(dt) {
+  if (!dt) return '—';
+  const mins = Math.floor((Date.now() - dt.getTime()) / 60000);
+  if (mins < 1) return 'อัปเดตเมื่อสักครู่';
+  if (mins < 60) return `อัปเดต ${mins} นาทีที่แล้ว`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `อัปเดต ${hrs} ชม.ที่แล้ว`;
+  return `อัปเดต ${Math.floor(hrs / 24)} วันที่แล้ว`;
+}
+
+function updateDataStatus() {
+  const pill = document.getElementById('dataStatusPill');
+  if (!pill) return;
+  const srcEl = document.getElementById('dataStatusSource');
+  const freshEl = document.getElementById('dataStatusFresh');
+  const { mode, updatedAt } = window.DATA_SOURCE;
+
+  const meta = {
+    gsheets: '🟢 Google Sheets Sync',
+    excel:   '📁 Uploaded Excel Snapshot',
+    demo:    '🧪 Demo Data (Development)',
+  }[mode] || mode;
+
+  pill.setAttribute('data-src', mode);
+  if (srcEl) srcEl.textContent = meta;
+
+  if (freshEl) {
+    if (mode === 'demo') {
+      freshEl.textContent = 'ข้อมูลตัวอย่าง';
+    } else {
+      const stamp = updatedAt ? updatedAt.toLocaleString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+      freshEl.textContent = `${_agoText(updatedAt)} · ${stamp}`;
+    }
+  }
+
+  // Stale warning: a synced/uploaded dataset older than 24h is flagged.
+  const staleMins = updatedAt ? (Date.now() - updatedAt.getTime()) / 60000 : 0;
+  pill.classList.toggle('stale', mode !== 'demo' && staleMins > 60 * 24);
+}
+
+/* Smart refresh — no full reload. Re-fetches the connected source when possible,
+ * otherwise re-renders runtime state. Preserves FILTERS, active tab, MS_RANGE. */
+async function refreshData() {
+  const btn = document.getElementById('refreshDataBtn');
+  if (btn) btn.classList.add('spinning');
+  try {
+    const hasSheet = localStorage.getItem(GSHEETS_KEY_URL);
+    if (window.DATA_SOURCE.mode === 'gsheets' || hasSheet) {
+      // Live mode: re-pull latest connected Google Sheet (preserves filters/tab inside).
+      await syncFromGoogleSheets();
+    } else {
+      // Snapshot/demo mode: re-render current runtime state without resetting UI.
+      try { populateFilters(); } catch (e) {}
+      renderActiveTab();
+      showToast('รีเฟรชหน้าจอแล้ว · คง filter และแท็บไว้', 'success');
+    }
+  } catch (e) {
+    showToast('รีเฟรชไม่สำเร็จ: ' + (e && e.message ? e.message : e), 'error');
+  } finally {
+    if (btn) setTimeout(() => btn.classList.remove('spinning'), 500);
+    updateDataStatus();
   }
 }
 
@@ -5588,6 +5842,38 @@ function init() {
 
   // Theme
   document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+
+  // V9 · Sections 11 & 12 — data source status + smart refresh wiring
+  const refreshBtn = document.getElementById('refreshDataBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', refreshData);
+  // Restore last-known real source (so a browser refresh doesn't look like "demo")
+  try {
+    const savedMode = localStorage.getItem('dashboard_src_mode');
+    const savedUpd  = localStorage.getItem('dashboard_src_updated');
+    if (savedUrl && savedMode === 'gsheets') {
+      window.DATA_SOURCE = { mode: 'gsheets', updatedAt: savedUpd ? new Date(savedUpd) : (lastSync ? new Date(lastSync) : null) };
+    } else if (savedMode === 'excel' && savedUpd) {
+      // Excel is a snapshot mode: file cannot be re-read after reload, so we keep demo
+      // data live but still show the previous snapshot timestamp as context.
+      window.DATA_SOURCE = { mode: 'demo', updatedAt: null };
+    } else {
+      window.DATA_SOURCE = { mode: 'demo', updatedAt: null };
+    }
+  } catch (e) { window.DATA_SOURCE = { mode: 'demo', updatedAt: null }; }
+  updateDataStatus();
+  // Keep "x นาทีที่แล้ว" fresh without re-fetching.
+  setInterval(updateDataStatus, 60000);
+
+  // Local range selector for the Monthly Analytics panel (independent of global filters)
+  const msRangeSel = document.getElementById('msRangeSelect');
+  if (msRangeSel) {
+    window.MS_RANGE = window.MS_RANGE || 12;
+    msRangeSel.addEventListener('change', e => {
+      const v = e.target.value;
+      window.MS_RANGE = (v === 'all') ? 'all' : parseInt(v, 10);
+      if (getActiveTab() === 'home') renderMonthlySummaryPanel();
+    });
+  }
 
   // Live time
   updateLiveTime();
