@@ -159,7 +159,12 @@
       return isNaN(d.getTime()) ? null : d;
     },
     _mk(y, mo, d, hh, mm, ss) {
-      const dt = new Date(y, (mo || 1) - 1, d || 1, hh || 0, mm || 0, ss || 0);
+      mo = mo || 1; d = d || 1;
+      // Edge-case guard: an impossible month/day (e.g. an ambiguous MM/DD value
+      // read as DD/MM) must return null instead of silently overflowing into the
+      // wrong month/year. All genuinely valid dates parse exactly as before.
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+      const dt = new Date(y, mo - 1, d, hh || 0, mm || 0, ss || 0);
       return isNaN(dt.getTime()) ? null : dt;
     },
 
@@ -3675,6 +3680,22 @@ function fmtAxis(n) {
   return Math.round(n || 0).toLocaleString('th-TH');
 }
 
+/* Escape a dynamic string that is interpolated as a single-quoted JS argument
+ * inside an inline onclick attribute (double-quoted HTML-attribute context).
+ * Fixes runtime-broken handlers when Excel-derived names contain quotes or
+ * backslashes (e.g. O'Brien) and closes the attribute-injection vector.
+ * The browser's entity decoding + JS unescaping restore the ORIGINAL string,
+ * so exact-match drill-down lookups keep working unchanged. */
+function escJsArg(s) {
+  return String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /* V9 · Sections 10 & 20 — clean chart empty-state.
  * Differentiates "no dataset available" from "valid dataset, zero in this view".
  * Returns true when an empty state was shown (caller should skip chart creation). */
@@ -3719,8 +3740,19 @@ function applyFilters(rows, dateField = 'date', custField = 'customer') {
 }
 
 function destroyCharts() {
-  Object.values(CHARTS).forEach(c => c && c.destroy());
+  // Throw-safe: one corrupted instance must never abort an entire tab render.
+  Object.values(CHARTS).forEach(c => { try { c && c.destroy(); } catch (e) {} });
   CHARTS = {};
+  // Keep the parallel registry in sync so destroyed instances are not retained.
+  try { if (typeof _CHART_REGISTRY !== 'undefined') _CHART_REGISTRY.clear(); } catch (e) {}
+  // Release charts owned by the DynamicTabs module (isolated registry) so
+  // leaving a dynamic tab does not keep live off-screen Chart instances.
+  // Dynamic tabs fully rebuild their charts on each render, so this is safe.
+  try {
+    if (window.DynamicTabs && typeof window.DynamicTabs.destroyCharts === 'function') {
+      window.DynamicTabs.destroyCharts();
+    }
+  } catch (e) {}
 }
 
 function showToast(msg, type='success') {
@@ -3747,15 +3779,26 @@ const TAB_TITLES = {
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
-  document.getElementById('pageTitle').textContent = TAB_TITLES[tab].title;
-  document.getElementById('pageSubtitle').innerHTML = TAB_TITLES[tab].sub;
-  // Each tab requires re-renders that depend on canvas being visible
-  setTimeout(renderActiveTab, 50);
+  // Null-safe: a tab key removed mid-rebuild (dynamic tabs) must not throw and
+  // blank the page; title/subtitle simply keep their previous values.
+  const meta = TAB_TITLES[tab];
+  if (meta) {
+    const titleEl = document.getElementById('pageTitle');
+    const subEl = document.getElementById('pageSubtitle');
+    if (titleEl) titleEl.textContent = meta.title;
+    if (subEl) subEl.innerHTML = meta.sub;
+  }
+  // Each tab requires re-renders that depend on canvas being visible.
+  // Coalesce rapid clicks: only the latest queued render runs.
+  if (window.__tabRenderTimer) clearTimeout(window.__tabRenderTimer);
+  window.__tabRenderTimer = setTimeout(renderActiveTab, 50);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function getActiveTab() {
-  return document.querySelector('.tab-btn.active').dataset.tab;
+  // Null-safe: during dynamic-tab teardown there may be no active button.
+  const btn = document.querySelector('.tab-btn.active');
+  return (btn && btn.dataset && btn.dataset.tab) ? btn.dataset.tab : 'home';
 }
 
 function renderActiveTab() {
@@ -4014,7 +4057,7 @@ function renderHome() {
       icon: '💰', title: `${cust} · ค้างชำระ`,
       sub: `${d.cnt} ใบ · สูงสุด ${d.maxDays} วัน`,
       amount: d.amt, color: 'var(--critical)',
-      onclick: `openCustomerDrill('${cust}')`
+      onclick: `openCustomerDrill('${escJsArg(cust)}')`
     });
   });
 
@@ -4255,7 +4298,7 @@ function renderSolar() {
   const sortedProvs = Object.entries(provTotals).sort((a,b) => b[1].rev - a[1].rev);
   document.getElementById('solarProvBody').innerHTML = sortedProvs.length
     ? sortedProvs.map(([prov, d]) => `
-        <tr style="cursor:pointer;" onclick="openProvinceDrill('${prov}')">
+        <tr style="cursor:pointer;" onclick="openProvinceDrill('${escJsArg(prov)}')">
           <td><strong>${prov}</strong></td>
           <td>${d.region}</td>
           <td class="text-right">${d.count}</td>
@@ -4310,7 +4353,7 @@ function renderCleaning() {
   // Table
   document.getElementById('clBody').innerHTML = monthCl.length
     ? monthCl.slice(0, 80).map((c, idx) => `
-      <tr style="cursor:pointer;" onclick="openCleaningRowDrill(${idx})">
+      <tr style="cursor:pointer;" onclick="openCleaningRowDrill(${DATA.cleaning.indexOf(c)})">
         <td class="text-mono">${c.planDate}</td>
         <td><strong>${c.customer}</strong></td>
         <td>${c.site}</td>
@@ -5779,6 +5822,11 @@ function updateLiveTime() {
 
 /* ============== INIT ============== */
 function init() {
+  // Re-entry guard: init() wires listeners and starts intervals; running it
+  // twice would duplicate every handler and stack timers. Idempotent by flag.
+  if (window.__dashboardInitDone) return;
+  window.__dashboardInitDone = true;
+
   // ---- Debug mode bootstrap ----------------------------------------------
   // Enable via URL (?debug=1 / #debug) or persisted localStorage flag.
   // When on, window.DataEngine logs detailed parse/mapping diagnostics and
@@ -5816,6 +5864,9 @@ function init() {
   // File upload
   document.getElementById('fileInput').addEventListener('change', (e) => {
     if (e.target.files[0]) loadExcelFile(e.target.files[0]);
+    // Edge case: reset so selecting the SAME file again re-fires 'change'.
+    // The File object is already captured above, so the read is unaffected.
+    e.target.value = '';
   });
 
   // Google Sheets sync — split-button: main = sync, gear = settings
@@ -6244,7 +6295,7 @@ document.addEventListener('DOMContentLoaded', init);
     }
   }
 
-  root.DynamicTabs = { rebuild, render, clear: clearTabs, profile, _state: { TABS, CHARTS } };
+  root.DynamicTabs = { rebuild, render, clear: clearTabs, destroyCharts: destroyAllCharts, profile, _state: { TABS, CHARTS } };
 })(typeof window !== 'undefined' ? window : this);
 </script>
 </body>
