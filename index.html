@@ -311,7 +311,7 @@
       strong: ['inverterId', 'downtimeHrs', 'type'],
       fields: {
         time:         { type: 'date',     syn: S(['เวลาแจ้งเตือน', 'alarm time', 'timestamp', 'เวลา', 'time', 'วันที่เวลา']) },
-        site:         { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'หน้างาน', 'plant']) },
+        site:         { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'หน้างาน', 'plant', 'ชื่อโครงการ site', 'ชื่อโครงการ']) },
         customer:     { type: 'text',     syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
         level:        { type: 'text',     syn: S(['ระดับ alarm', 'severity', 'ระดับ', 'level', 'alarm level']) },
         type:         { type: 'text',     syn: S(['ประเภท alarm', 'alarm type', 'ประเภท', 'fault type']) },
@@ -343,7 +343,7 @@
       strong: ['customer', 'site', 'status'],
       fields: {
         customer:   { type: 'text', syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
-        site:       { type: 'text', syn: S(['site', 'ไซต์', 'สถานที่']) },
+        site:       { type: 'text', syn: S(['site', 'ไซต์', 'สถานที่', 'ชื่อโครงการ site', 'ชื่อโครงการ']) },
         planDate:   { type: 'date', syn: S(['วันที่ตามแผน', 'plan date', 'planned date', 'แผน', 'scheduled date']) },
         actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
         status:     { type: 'text', syn: S(['สถานะ', 'status']) },
@@ -358,7 +358,7 @@
       strong: ['customer', 'site', 'status'],
       fields: {
         customer:   { type: 'text', syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
-        site:       { type: 'text', syn: S(['site', 'ไซต์', 'สถานที่']) },
+        site:       { type: 'text', syn: S(['site', 'ไซต์', 'สถานที่', 'ชื่อโครงการ site', 'ชื่อโครงการ']) },
         planDate:   { type: 'date', syn: S(['วันที่ตามแผน', 'plan date', 'planned date', 'แผน', 'scheduled date']) },
         actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
         status:     { type: 'text', syn: S(['สถานะ', 'status']) },
@@ -373,7 +373,7 @@
       strong: ['startDate', 'endDate', 'fee', 'site'],
       fields: {
         customer:  { type: 'text',     syn: S(['ลูกค้า', 'customer', 'ชื่อลูกค้า']) },
-        site:      { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่']) },
+        site:      { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'ชื่อโครงการ site', 'ชื่อโครงการ']) },
         startDate: { type: 'date',     syn: S(['วันเริ่มสัญญา', 'start date', 'contract start', 'วันเริ่ม']) },
         endDate:   { type: 'date',     syn: S(['วันหมดสัญญา', 'end date', 'contract end', 'วันสิ้นสุด', 'expiry']) },
         sla:       { type: 'number',   syn: S(['sla', 'sla %', 'service level']) },
@@ -633,8 +633,13 @@
       }
       const t = T.detectType(samples);
       col.type = (t === 'empty') ? 'text' : t;   // empty cols safely fall back to text
+      // V10.1 (additive) — per-column quality counters consumed by the
+      // Data Quality engine. filled = non-empty raw cells; invalid = raw cell
+      // present but not parseable as the column's detected type.
+      col.filled = 0; col.invalid = 0; col.invalidRows = [];
     }
     // 2. Typed, null-safe row extraction. Skip fully-empty rows.
+    const INVALID_ROW_CAP = 200;           // keep drill-down lists bounded
     const rows = [];
     for (let r = header.dataStart; r < grid.length; r++) {
       const raw = grid[r]; if (!raw) continue;
@@ -646,9 +651,56 @@
         try { obj[col.key] = parseGeneric(col.type, cv); }
         catch (e) { obj[col.key] = null; }
       }
-      if (any) rows.push(obj);
+      if (any) {
+        // Quality counters are tracked against the OUTPUT row index so the
+        // DQ engine can link an invalid cell straight back to its record.
+        const outIdx = rows.length;
+        for (const col of cols) {
+          const cv = raw[col.idx];
+          if (cv === null || cv === undefined || cv === '') continue;
+          col.filled++;
+          if ((col.type === 'number' || col.type === 'percent' || col.type === 'date') && obj[col.key] === null) {
+            col.invalid++;
+            if (col.invalidRows.length < INVALID_ROW_CAP) col.invalidRows.push(outIdx);
+          }
+        }
+        rows.push(obj);
+      }
     }
     return { columns: cols, rows };
+  }
+
+  /* ---------------------------------------------------------------------------
+   * @META PARSER (V10.1, additive) — several workbook templates carry a
+   * machine-readable metadata row above the header, e.g.
+   *   "@META datasetType=revenue;datasetRole=business;primaryKey=recordId"
+   * When present it is parsed into a plain {key:value} object and attached to
+   * the sheet report. It is a HINT layer only: nothing in classification or
+   * extraction depends on it, so workbooks without @META behave exactly as
+   * before (no hardcoded sheet names / template coupling).
+   * -------------------------------------------------------------------------*/
+  function parseSheetMeta(grid, headerRow) {
+    try {
+      const limit = Math.min(grid.length, Math.max(headerRow, 8));
+      for (let r = 0; r < limit; r++) {
+        const row = grid[r]; if (!row) continue;
+        for (const cell of row) {
+          if (cell === null || cell === undefined) continue;
+          const s = String(cell).trim();
+          if (!/^@META\b/i.test(s)) continue;
+          const meta = {};
+          s.replace(/^@META\s*/i, '').split(/[;,]/).forEach(pair => {
+            const m = pair.split('=');
+            if (m.length >= 2) {
+              const k = m[0].trim(), v = m.slice(1).join('=').trim();
+              if (k) meta[k] = v;
+            }
+          });
+          return Object.keys(meta).length ? meta : null;
+        }
+      }
+    } catch (e) { /* meta is optional — never fatal */ }
+    return null;
   }
 
   /* ---------------------------------------------------------------------------
@@ -863,14 +915,23 @@
 
     // --- Stage A: detect headers per sheet -------------------------------
     if (onStage) onStage('parsing', 'กำลังสแกนตาราง...');
+    // V10.1 (additive): expose per-sheet @META hints + raw grid references so
+    // downstream modules (Data Quality & Audit Center) can inspect sheets that
+    // the canonical pipeline does not surface (lookup lists, key/value sheets).
+    // Grid entries are references to already-built arrays — no copies made.
+    report.sheetMeta = {};
+    report.grids = {};
     const detected = [];
     for (const name in sheetMap) {
       report.sheetsScanned++;
       try {
         const grid = sheetMap[name];
         const header = detectHeader(grid, 16);
+        const meta = parseSheetMeta(grid, header ? header.row : 8);
+        if (meta) report.sheetMeta[name] = meta;
+        report.grids[name] = grid;
         if (!header) { report.skippedSheets.push({ name, reason: 'no header detected' }); continue; }
-        detected.push({ name, grid, header });
+        detected.push({ name, grid, header, meta });
         Debug.log(`Header "${name}" @row ${header.row}:`, header.cols.map(c => c.raw));
       } catch (e) {
         report.skippedSheets.push({ name, reason: String(e) });
@@ -905,6 +966,21 @@
         report.sheetsAssigned++;
         report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2) };
         report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2) });
+        // V10.1 (additive): keep a FULL-FIDELITY generic table of every
+        // classified sheet (all columns incl. record ids / audit stamps that
+        // the canonical derive step intentionally drops). Consumed by the
+        // Data Quality & Audit Center; the canonical DATA contract and every
+        // existing consumer are untouched.
+        try {
+          report.datasetTables = report.datasetTables || {};
+          const full = extractGeneric(sh.grid, sh.header);
+          if (full && full.rows.length) {
+            full.name = a.sheet;
+            full.dsKey = ds.key;
+            full.meta = sh.meta || null;
+            report.datasetTables[ds.key] = full;
+          }
+        } catch (e) { report.warnings.push(`datasetTable ${a.sheet} failed: ${e}`); }
         Debug.log(`✔ ${a.sheet} → ${ds.key} (${derived.length} rows, score ${a.total.toFixed(2)})`);
       } catch (e) {
         report.warnings.push(`extract ${a.sheet}->${a.dsKey} failed: ${e}`);
@@ -930,6 +1006,7 @@
           const generic = extractGeneric(sh.grid, sh.header);
           if (generic && generic.rows.length) {
             generic.name = sh.name;
+            generic.meta = sh.meta || null;          // V10.1: @META hint pass-through
             generic.intent = classifyIntent(generic);
             if (generic.intent.datasetIntent === 'business') {
               report.unclassified.push(generic);
@@ -980,7 +1057,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -2620,6 +2697,63 @@ input[type="file"] { display: none; }
   opacity: 0; transition: opacity .22s ease;
 }
 #importOverlay.show { display: flex; opacity: 1; }
+
+/* ===================== DATA QUALITY & AUDIT CENTER (V10.1) =====================
+ * Built ONLY on existing design tokens (--card, --border, --text-dim, badge/
+ * table/kpi vocabulary) so the page inherits both themes automatically. */
+.dq-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.dq-field { display: flex; flex-direction: column; gap: 4px; min-width: 130px; flex: 1 1 130px; }
+.dq-field label {
+  font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.dq-field select, .dq-field input {
+  padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card-elev); color: var(--text);
+  font-family: inherit; font-size: 12px; width: 100%;
+}
+.dq-field select:focus, .dq-field input:focus { outline: none; border-color: var(--border-bright); }
+.dq-search-input {
+  width: 100%; padding: 11px 14px 11px 38px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--card-elev); color: var(--text);
+  font-family: inherit; font-size: 13.5px;
+}
+.dq-search-input:focus { outline: none; border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--cyan-glow); }
+.dq-search-shell { position: relative; }
+.dq-search-shell svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted); pointer-events: none; }
+.dq-result-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.dq-result-item:hover { background: var(--card-elev); border-color: var(--border); }
+.dq-result-tag {
+  flex-shrink: 0; font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 4px; background: color-mix(in srgb, var(--cyan) 15%, transparent); color: var(--cyan-bright);
+}
+.dq-result-tag.audit { background: color-mix(in srgb, var(--purple) 15%, transparent); color: var(--purple); }
+.dq-result-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.dq-result-sub { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.dq-expand-btn { background: none; border: none; color: var(--cyan); cursor: pointer; font-family: inherit; font-size: 11.5px; padding: 2px 6px; }
+.dq-detail-row td { background: color-mix(in srgb, var(--card-elev) 70%, transparent) !important; }
+.dq-changes { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.dq-changes th, .dq-changes td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--grid-line); }
+.dq-changes th { color: var(--text-muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.dq-prev { color: var(--critical); text-decoration: line-through; opacity: 0.85; }
+.dq-next { color: var(--success); }
+.dq-timeline { position: relative; display: flex; flex-direction: column; gap: 0; max-height: 460px; overflow-y: auto; padding-right: 4px; }
+.dq-timeline::-webkit-scrollbar { width: 5px; }
+.dq-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.dq-tl-date {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim);
+  padding: 10px 0 6px; letter-spacing: 0.04em; position: sticky; top: 0;
+  background: var(--card); z-index: 1;
+}
+.dq-tl-item { display: flex; gap: 10px; padding: 7px 0 7px 4px; border-left: 2px solid var(--border); margin-left: 5px; position: relative; }
+.dq-tl-item::before {
+  content: ''; position: absolute; left: -5px; top: 13px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dq-dot, var(--cyan)); box-shadow: 0 0 6px var(--dq-dot, var(--cyan));
+}
+.dq-tl-body { flex: 1; min-width: 0; padding-left: 8px; cursor: pointer; }
+.dq-tl-body:hover .dq-tl-title { color: var(--cyan-bright); }
+.dq-tl-title { font-size: 12.5px; color: var(--text); }
+.dq-tl-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+@media (max-width: 720px) { .dq-field { flex-basis: 100%; } }
 .import-card {
   width: min(440px, 90vw);
   background: var(--card);
@@ -2806,6 +2940,11 @@ input[type="file"] { display: none; }
     <span class="tab-btn-num">05</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
     Permit
+  </button>
+  <button class="tab-btn" data-tab="dq">
+    <span class="tab-btn-num">06</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+    Data Quality &amp; Audit
   </button>
 </nav>
 
@@ -3297,6 +3436,23 @@ input[type="file"] { display: none; }
     </div>
   </div>
 
+  <!-- ============================================================ -->
+  <!-- ============== TAB 6: DATA QUALITY & AUDIT CENTER ========== -->
+  <!-- All content is rendered by the DQAudit module (isolated,      -->
+  <!-- additive — mirrors the DynamicTabs pattern). The skeleton     -->
+  <!-- below only provides stable host containers.                   -->
+  <!-- ============================================================ -->
+  <div class="tab-pane" id="tab-dq">
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-summary); padding-left:10px;">Data Quality &amp; Audit Center · ศูนย์ตรวจสอบคุณภาพข้อมูล</div>
+    <div id="dqSearchHost"></div>
+    <div id="dqHealthHost"></div>
+    <div id="dqKpiHost"></div>
+    <div id="dqFilterHost"></div>
+    <div id="dqValidationHost"></div>
+    <div id="dqAuditHost"></div>
+    <div id="dqTimelineHost"></div>
+  </div>
+
   </div>
 
 <!-- ===================== MODAL ===================== -->
@@ -3753,6 +3909,12 @@ function destroyCharts() {
       window.DynamicTabs.destroyCharts();
     }
   } catch (e) {}
+  // Same lifecycle rule for the Data Quality & Audit module's charts.
+  try {
+    if (window.DQAudit && typeof window.DQAudit.destroyCharts === 'function') {
+      window.DQAudit.destroyCharts();
+    }
+  } catch (e) {}
 }
 
 function showToast(msg, type='success') {
@@ -3774,6 +3936,7 @@ const TAB_TITLES = {
   cleaning: { title: 'Cleaning',         sub: 'แผนงาน Cleaning · รายได้ · ความคืบหน้า' },
   om:       { title: 'O&M',              sub: 'Operations + Maintenance · Service / Inspection / Time-Specific Revenue Loss' },
   permit:   { title: 'Permit',           sub: 'Revenue Delay Management · Heatmap · เงินจม' },
+  dq:       { title: 'Data Quality & Audit', sub: 'Data Quality Score · Business Rule Validation · Audit Log · Activity Timeline' },
 };
 
 function switchTab(tab) {
@@ -3808,6 +3971,8 @@ function renderActiveTab() {
   else if (tab === 'cleaning') renderCleaning();
   else if (tab === 'om') renderOM();
   else if (tab === 'permit') renderPermit();
+  // V10.1: Data Quality & Audit Center (isolated module, DynamicTabs pattern).
+  else if (tab === 'dq') { if (window.DQAudit && typeof window.DQAudit.render === 'function') window.DQAudit.render(); }
   // V9 Phase 1: runtime-generated tabs (unknown sheets) dispatch through the registry.
   else if (window.DynamicTabs && typeof window.DynamicTabs.render === 'function') {
     window.DynamicTabs.render(tab);
@@ -5285,6 +5450,16 @@ async function runUniversalImport(arrayBuffer) {
       if (window.DynamicTabs) dyn = window.DynamicTabs.rebuild(report) || dyn;
     } catch (e) { console.warn('DynamicTabs.rebuild failed (non-fatal):', e); }
 
+    // V10.1: feed the import into the Data Quality & Audit Center — computes
+    // quality metrics and diffs this import against the previous snapshot to
+    // extend the audit log. Isolated + additive: a failure here must never
+    // block the known dashboard (same guarantee as DynamicTabs).
+    try {
+      if (window.DQAudit && typeof window.DQAudit.ingest === 'function') {
+        window.DQAudit.ingest(report, DATA, window.__importMode === 'gsheets' ? 'gsheets' : 'excel');
+      }
+    } catch (e) { console.warn('DQAudit.ingest failed (non-fatal):', e); }
+
     renderActiveTab();
 
     // V9 · Section 11 — record active source + freshness once real data is in.
@@ -5849,6 +6024,12 @@ function init() {
   bindFilters();
   attachCardClicks();
 
+  // V10.1: bootstrap the Data Quality & Audit Center (restores the persisted
+  // audit log; heavy work only happens when its tab is opened). Guarded so a
+  // module failure can never block dashboard startup.
+  try { if (window.DQAudit && typeof window.DQAudit.init === 'function') window.DQAudit.init(); }
+  catch (e) { console.warn('DQAudit.init failed (non-fatal):', e); }
+
   // Tab navigation
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -6264,7 +6445,9 @@ document.addEventListener('DOMContentLoaded', init);
     const business = (report && report.unclassified) || [];
     const reference = (report && report.referenceSheets) || [];
     const debug = !!(root.dashboardDebug);
-    let num = 5;                       // fixed tabs are 01–05; dynamic continue at 06
+    // Number dynamic tabs after the FIXED tabs, counted from the DOM so new
+    // fixed tabs (e.g. Data Quality & Audit = 06) shift the sequence correctly.
+    let num = document.querySelectorAll('#tabsNav .tab-btn:not([data-dyn])').length || 5;
     const result = { business: 0, reference: 0, suppressed: 0 };
 
     business.forEach((ds, i) => {
@@ -6298,5 +6481,1349 @@ document.addEventListener('DOMContentLoaded', init);
   root.DynamicTabs = { rebuild, render, clear: clearTabs, destroyCharts: destroyAllCharts, profile, _state: { TABS, CHARTS } };
 })(typeof window !== 'undefined' ? window : this);
 </script>
+
+<!-- ============================================================
+     DATA QUALITY & AUDIT CENTER MODULE (V10.1) — additive layer
+     ------------------------------------------------------------
+     Renders the fixed "Data Quality & Audit" tab (06). Follows the
+     DynamicTabs isolation pattern exactly:
+       - Own chart registry (never touches CHARTS/_CHART_REGISTRY).
+       - Reads app globals defensively (typeof guards); writes nothing
+         into the canonical DATA contract.
+       - Every section render is wrapped in try/catch — a failure
+         degrades to an inline error card, never breaks the dashboard.
+
+     Data flow:
+       ingest(report, DATA, source)   <- runUniversalImport (per import)
+         · collectTables()   uniform tables from report.datasetTables +
+                             unclassified business sheets (full fidelity,
+                             incl. recordId / lastUpdated columns)
+         · parseLookups()    dropdown lists from reference sheets (grids)
+         · runRules()        registry-driven business-rule validation
+         · diffSnapshot()    Create/Update/Delete audit events vs the
+                             previous import (field-level, localStorage)
+       render()              <- renderActiveTab when tab-dq is active
+       Demo mode (no import yet) builds pseudo-tables from DATA so the
+       quality dashboard works before the first upload; the audit log
+       restores from localStorage.
+
+     NOTHING here hardcodes sheet names / column indexes: all semantic
+     column lookup reuses window.DataEngine._internal (Normalize,
+     headerScore, mapColumns, DATASETS synonyms) plus optional @META
+     hints parsed generically by the engine.
+     ============================================================ -->
+<script id="dq-audit-module">
+(function (root) {
+  'use strict';
+
+  /* ---------- configuration (tunable, documented — not business logic) --- */
+  const CFG = {
+    MAX_ISSUE_ROWS_PER_RULE: 500,     // linked rows kept per rule/table (counts stay exact)
+    MAX_EVENTS: 3000,                 // audit events retained (oldest pruned)
+    MAX_EVENTS_PER_SHEET: 300,        // per sheet per import (summary event beyond)
+    MAX_RENDER_ISSUES: 400,
+    MAX_RENDER_EVENTS: 300,
+    MAX_RENDER_TIMELINE: 250,
+    SEARCH_MIN_CHARS: 2,
+    SEARCH_LIMIT_RECORDS: 30,
+    SEARCH_LIMIT_AUDIT: 20,
+    SEARCH_DEBOUNCE_MS: 160,
+    SCORE_WEIGHT: { critical: 1.0, warning: 0.4, info: 0.15 },
+    SCORE_HEALTHY: 90, SCORE_WATCH: 70,   // Data Quality Score bands
+    KPI_WARN_PCT: 0.02, KPI_CRIT_PCT: 0.08, // per-KPI health vs total records
+    LS_EVENTS: 'dq_audit_events_v1',
+    LS_SNAPSHOT: 'dq_snapshot_v1',
+  };
+
+  /* ---------- small self-contained helpers (mirror app conventions) ------ */
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function cssVar(n) { try { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); } catch (e) { return ''; } }
+  function fmtInt(n) { return Math.round(n || 0).toLocaleString('th-TH'); }
+  function toISO(d) {
+    if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function cellToStr(v, type) {
+    if (v === null || v === undefined || v === '') return '';
+    if (v instanceof Date) return toISO(v);
+    if (typeof v === 'number') return (type === 'number' || type === 'percent') ? String(Math.round(v * 10000) / 10000) : String(v);
+    return String(v);
+  }
+  function dateKeyOf(v) {                 // record cell -> 'YYYY-MM-DD' or ''
+    if (v instanceof Date) return toISO(v);
+    const s = String(v == null ? '' : v);
+    const m = s.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+    return m ? `${m[1]}-${m[2]}-${m[3] || '01'}` : '';
+  }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+  function lsRemove(k) { try { localStorage.removeItem(k); } catch (e) {} }
+  function fnv1a(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+    return h.toString(36);
+  }
+
+  /* ---------- bridges to app globals (defensive, DynamicTabs-style) ------ */
+  function EI() { return (root.DataEngine && root.DataEngine._internal) || null; }
+  function appData() { return (typeof DATA !== 'undefined') ? DATA : null; }
+  function appToday() { return (typeof today !== 'undefined' && today instanceof Date) ? today : new Date(); }
+  function drill(title, sub, rows, columns, summary) {
+    if (typeof openDrill === 'function') { openDrill(title, sub, rows, columns, summary); return true; }
+    return false;
+  }
+
+  /* ---------- isolated state --------------------------------------------- */
+  const CHARTS = {};                       // canvasId -> Chart (own registry)
+  const STATE = {
+    tables: [],        // uniform tables (see collectTables)
+    lookups: [],       // dropdown lists parsed from reference sheets
+    issues: [],        // validation issues (see runRules)
+    quality: null,     // computed KPI summary
+    events: [],        // audit log (persisted)
+    snapshot: null,    // previous-import snapshot (persisted)
+    filters: { from: '', to: '', user: 'all', sheet: 'all', customer: 'all', project: 'all', province: 'all', action: 'all', status: 'all' },
+    searchIndex: null, // lazy — rebuilt after data changes
+    expanded: {},      // audit event id -> bool
+    lastReport: null,
+    sourceMode: 'demo',
+    user: '',
+    dirty: true,
+  };
+
+  /* ========================================================================
+   * 1. SEMANTIC ROLES — column lookup driven by the ENGINE's own synonym
+   *    registry (DATASETS). No sheet names or column letters involved.
+   * ======================================================================*/
+  const ROLE_FIELDS = {
+    customer:    ['customer', 'name'],
+    project:     ['project', 'site'],
+    province:    ['province'],
+    status:      ['status', 'jobStatus', 'paymentStatus'],
+    responsible: ['responsible'],
+  };
+  const PK_SYNONYMS = ['record id', 'recordid', 'id'];
+  let _roleSyn = null;
+  function roleSynonyms() {
+    if (_roleSyn) return _roleSyn;
+    const ei = EI(); _roleSyn = {};
+    for (const role in ROLE_FIELDS) _roleSyn[role] = [];
+    if (ei && ei.DATASETS) {
+      for (const ds of ei.DATASETS) {
+        for (const role in ROLE_FIELDS) {
+          for (const f of ROLE_FIELDS[role]) {
+            if (ds.fields[f] && ds.fields[f].syn) _roleSyn[role].push(...ds.fields[f].syn);
+          }
+        }
+      }
+      for (const role in _roleSyn) _roleSyn[role] = [...new Set(_roleSyn[role])];
+    }
+    return _roleSyn;
+  }
+  function findRoleCol(table, role) {
+    const ei = EI(); if (!ei) return -1;
+    const syns = roleSynonyms()[role] || [];
+    let best = -1, bestScore = 0;
+    table.columns.forEach((c, i) => {
+      if (role !== 'status' && c.type !== 'text') return;
+      const sc = ei.headerScore(ei.Normalize.header(c.label), syns);
+      if (sc > bestScore) { bestScore = sc; best = i; }
+    });
+    return bestScore >= 0.72 ? best : -1;
+  }
+  function findPkCol(table) {
+    const ei = EI(); if (!ei) return -1;
+    const wanted = [];
+    if (table.meta && table.meta.primaryKey) wanted.push(ei.Normalize.header(table.meta.primaryKey));
+    for (const s of PK_SYNONYMS) wanted.push(ei.Normalize.header(s));
+    let found = -1;
+    table.columns.forEach((c, i) => {
+      if (found >= 0) return;
+      const n = ei.Normalize.header(c.label);
+      if (wanted.includes(n)) found = i;
+    });
+    return found;
+  }
+  function findDateCol(table) {
+    let found = -1;
+    table.columns.forEach((c, i) => { if (found < 0 && c.type === 'date') found = i; });
+    return found;
+  }
+  /** hcols shape consumed by the engine's own mapColumns (reuse, no fork). */
+  function hcolsOf(table) {
+    const ei = EI(); if (!ei) return [];
+    return table.columns.map((c, i) => ({ idx: i, raw: c.label, norm: ei.Normalize.header(c.label) }));
+  }
+  function canonicalMap(table) {
+    if (table._cmap !== undefined) return table._cmap;
+    const ei = EI();
+    const ds = (ei && table.dsKey) ? ei.DATASETS.find(d => d.key === table.dsKey) : null;
+    table._cmap = ds ? { ds, map: ei.mapColumns(hcolsOf(table), ds).map } : null;
+    return table._cmap;
+  }
+
+  /* ========================================================================
+   * 2. TABLE COLLECTOR — one uniform shape for every data source
+   *    {key, dsKey?, label, sheet, columns:[{key,label,type,invalid?,invalidRows?}],
+   *     rows:[{colKey:val}], meta?, roles:{customer,project,province,status,date,pk}}
+   * ======================================================================*/
+  function decorate(table) {
+    table.roles = {
+      customer: findRoleCol(table, 'customer'),
+      project: findRoleCol(table, 'project'),
+      province: findRoleCol(table, 'province'),
+      status: findRoleCol(table, 'status'),
+      responsible: findRoleCol(table, 'responsible'),
+      date: findDateCol(table),
+      pk: findPkCol(table),
+    };
+    // Substantive-row mask: pre-formatted templates carry thousands of filler
+    // rows (e.g. a single lingering formula "0"). A row counts as REAL data
+    // when its primary key is present or ≥2 cells are non-empty. All quality
+    // metrics / snapshots / search operate on substantive rows only.
+    const sub = new Array(table.rows.length);
+    const pkI = table.roles.pk;
+    let n = 0;
+    table.rows.forEach((row, r) => {
+      let filled = 0;
+      for (const c of table.columns) {
+        const v = row[c.key];
+        if (v !== null && v !== undefined && v !== '') { filled++; if (filled >= 2) break; }
+      }
+      const pkOk = pkI >= 0 && cellToStr(row[table.columns[pkI].key]) !== '';
+      const ok = pkOk || filled >= 2;
+      sub[r] = ok; if (ok) n++;
+    });
+    table.sub = sub; table.subCount = n;
+    return table;
+  }
+  function roleVal(table, row, role) {
+    const i = table.roles ? table.roles[role] : -1;
+    if (i < 0) return '';
+    const col = table.columns[i];
+    return cellToStr(row[col.key], col.type);
+  }
+
+  function collectTables(report, data) {
+    const out = [];
+    const dsLabel = {};
+    const ei = EI();
+    if (ei && ei.DATASETS) for (const ds of ei.DATASETS) dsLabel[ds.key] = ds.label;
+
+    if (report && report.datasetTables) {
+      for (const dsKey in report.datasetTables) {
+        const t = report.datasetTables[dsKey];
+        out.push(decorate({ key: dsKey, dsKey, label: dsLabel[dsKey] || dsKey, sheet: t.name, columns: t.columns, rows: t.rows, meta: t.meta || null }));
+      }
+      (report.unclassified || []).forEach((u, i) => {
+        out.push(decorate({ key: 'gen-' + i, dsKey: null, label: u.name, sheet: u.name, columns: u.columns, rows: u.rows, meta: u.meta || null }));
+      });
+      return out;
+    }
+
+    // Demo / pre-import fallback: pseudo-tables straight from the canonical
+    // DATA contract so the quality dashboard works before the first upload.
+    if (!data) return out;
+    for (const dsKey in data) {
+      const rows = data[dsKey];
+      if (!Array.isArray(rows) || !rows.length) continue;
+      const keys = Object.keys(rows[0]);
+      const columns = keys.map(k => {
+        let num = 0, date = 0, tot = 0;
+        for (let i = 0; i < rows.length && i < 50; i++) {
+          const v = rows[i][k];
+          if (v === null || v === undefined || v === '') continue;
+          tot++;
+          if (typeof v === 'number') num++;
+          else if (/^\d{4}-\d{2}(-\d{2})?/.test(String(v))) date++;
+        }
+        const type = tot && date / tot > 0.6 ? 'date' : (tot && num / tot > 0.6 ? 'number' : 'text');
+        return { key: k, label: k, type };
+      });
+      out.push(decorate({ key: dsKey, dsKey, label: dsLabel[dsKey] || dsKey, sheet: dsLabel[dsKey] || dsKey, columns, rows, meta: null }));
+    }
+    return out;
+  }
+
+  /* ========================================================================
+   * 3. LOOKUP PARSER — dropdown lists from reference sheets (raw grids).
+   *    Block pattern (template-agnostic): a header cell reading "ค่า"/"value"
+   *    (optionally with an adjacent active-flag column), a title row above,
+   *    values below until a blank streak.
+   * ======================================================================*/
+  function parseLookups(report) {
+    const ei = EI();
+    const lists = [];
+    if (!report || !report.grids || !ei) return lists;
+    const refNames = new Set([
+      ...((report.referenceSheets || []).map(s => s.name)),
+      ...((report.skippedSheets || []).map(s => s.name)),
+    ]);
+    for (const name of refNames) {
+      const grid = report.grids[name]; if (!grid) continue;
+      try {
+        for (let r = 0; r < grid.length; r++) {
+          const row = grid[r]; if (!row) continue;
+          for (let c = 0; c < row.length; c++) {
+            const cell = row[c]; if (cell === null || cell === undefined) continue;
+            const n = ei.Normalize.header(cell);
+            if (!/^(ค่า|value|ค่า value)$/.test(n)) continue;
+            // active-flag column right next to the value column (optional)
+            const flagCell = row[c + 1];
+            const hasFlag = flagCell != null && /active|ใช้งาน|enable/i.test(String(flagCell));
+            // title: nearest non-empty string above (within 4 rows, cols <= c)
+            let title = '';
+            for (let tr = r - 1; tr >= Math.max(0, r - 4) && !title; tr--) {
+              const trow = grid[tr]; if (!trow) continue;
+              for (let tc = 0; tc <= c && tc < trow.length; tc++) {
+                const tv = trow[tc];
+                if (tv != null && String(tv).trim().length > 1 && typeof tv === 'string') { title = String(tv); break; }
+              }
+            }
+            if (!title) continue;
+            title = title.split(/[▸»:–—-]/)[0];
+            // collect values below until 2 consecutive blanks
+            const values = []; let blanks = 0;
+            for (let vr = r + 1; vr < grid.length && blanks < 2 && values.length < 400; vr++) {
+              const vrow = grid[vr];
+              const v = vrow ? vrow[c] : null;
+              if (v === null || v === undefined || String(v).trim() === '') { blanks++; continue; }
+              blanks = 0;
+              const active = hasFlag ? !/^(no|n|false|0|-|ไม่)/i.test(String(vrow[c + 1] == null ? 'yes' : vrow[c + 1]).trim()) : true;
+              values.push({ v: String(v).trim(), active });
+            }
+            if (values.length < 2) continue;
+            // map list title -> canonical dataset fields via the engine registry
+            const titleNorm = ei.Normalize.header(title);
+            const targets = [];
+            for (const ds of ei.DATASETS) {
+              for (const f in ds.fields) {
+                if (ds.fields[f].type !== 'text') continue;
+                const sc = ei.headerScore(titleNorm, ds.fields[f].syn);
+                if (sc >= 0.62) targets.push({ dsKey: ds.key, field: f, score: sc });
+              }
+            }
+            lists.push({ sheet: name, title: title.trim(), titleNorm, values, targets });
+          }
+        }
+      } catch (e) { /* one malformed reference sheet must never break parsing */ }
+    }
+    return lists;
+  }
+
+  /* ========================================================================
+   * 4. BUSINESS RULE VALIDATION — registry-driven, no hardcoded sheets.
+   *    issue = {rule, label, severity, tIdx, sheet, rowIdx, recordId,
+   *             customer, field, value, detail}
+   * ======================================================================*/
+  const SEV = { critical: 'critical', warning: 'warning', info: 'info' };
+
+  function pushIssue(issues, capMap, table, tIdx, rule, label, severity, rowIdx, field, value, detail) {
+    const capKey = rule + '|' + tIdx;
+    capMap[capKey] = (capMap[capKey] || 0) + 1;
+    if (capMap[capKey] > CFG.MAX_ISSUE_ROWS_PER_RULE) return;
+    const row = rowIdx != null && rowIdx >= 0 ? table.rows[rowIdx] : null;
+    issues.push({
+      rule, label, severity, tIdx, sheet: table.sheet, dsKey: table.dsKey, rowIdx,
+      recordId: row && table.roles.pk >= 0 ? cellToStr(row[table.columns[table.roles.pk].key]) : '',
+      customer: row ? roleVal(table, row, 'customer') : '',
+      field: field || '', value: value == null ? '' : String(value), detail: detail || '',
+    });
+  }
+
+  function runRules(tables, lookups) {
+    const issues = [];
+    const capMap = {};
+    const todayISO = toISO(appToday());
+    const counts = {
+      missingRequired: 0, duplicates: 0, invalidValues: 0, invalidDates: 0,
+      invalidDropdown: 0, expiredContracts: 0, expiredPermits: 0,
+    };
+
+    tables.forEach((table, tIdx) => {
+      const cmap = canonicalMap(table);
+      const cols = table.columns;
+
+      /* R1 · Missing required fields (dataset signature = definition of the
+         dataset per the engine registry; generic tables: primary key). */
+      try {
+        const reqIdx = [];
+        if (cmap) {
+          for (const f of (cmap.ds.signature || [])) if (cmap.map[f] !== undefined) reqIdx.push({ i: cmap.map[f], name: cols[cmap.map[f]].label });
+        } else if (table.roles.pk >= 0) {
+          reqIdx.push({ i: table.roles.pk, name: cols[table.roles.pk].label });
+        }
+        if (reqIdx.length) {
+          table.rows.forEach((row, r) => {
+            if (!table.sub[r]) return;               // filler rows are not data
+            for (const q of reqIdx) {
+              const v = row[cols[q.i].key];
+              if (v === null || v === undefined || v === '') {
+                counts.missingRequired++;
+                pushIssue(issues, capMap, table, tIdx, 'missing-required', 'Missing Required Field', SEV.critical, r, q.name, '', `ค่าว่างในคอลัมน์จำเป็น "${q.name}"`);
+              }
+            }
+          });
+        }
+      } catch (e) {}
+
+      /* R2 · Duplicate primary key (recordId ซ้ำ). */
+      try {
+        if (table.roles.pk >= 0) {
+          const pkKey = cols[table.roles.pk].key, seen = new Map();
+          table.rows.forEach((row, r) => {
+            const v = cellToStr(row[pkKey]); if (!v) return;
+            if (seen.has(v)) {
+              counts.duplicates++;
+              pushIssue(issues, capMap, table, tIdx, 'duplicate-pk', 'Duplicate Record ID', SEV.critical, r, cols[table.roles.pk].label, v, `พบ ${cols[table.roles.pk].label} ซ้ำกับแถวก่อนหน้า`);
+            } else seen.set(v, r);
+          });
+        }
+      } catch (e) {}
+
+      /* R3 · Duplicate natural key — signature fields + first date + first
+         currency (จับ Duplicate Contract / Invoice / Permit ต่อ dataset). */
+      try {
+        if (cmap) {
+          const parts = [];
+          for (const f of (cmap.ds.signature || [])) if (cmap.map[f] !== undefined) parts.push(cmap.map[f]);
+          for (const f in cmap.ds.fields) {
+            if (cmap.ds.fields[f].type === 'date' && cmap.map[f] !== undefined) { parts.push(cmap.map[f]); break; }
+          }
+          for (const f in cmap.ds.fields) {
+            if (cmap.ds.fields[f].type === 'currency' && cmap.map[f] !== undefined) { parts.push(cmap.map[f]); break; }
+          }
+          if (parts.length >= 2) {
+            const seen = new Map();
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const vals = parts.map(i => cellToStr(row[cols[i].key]).toLowerCase().trim());
+              if (vals.filter(Boolean).length < 2) return;   // need a real natural key
+              const key = vals.join('␟');
+              if (seen.has(key)) {
+                counts.duplicates++;
+                pushIssue(issues, capMap, table, tIdx, 'duplicate-natural', `Duplicate — ${cmap.ds.label}`, SEV.warning, r, '', '', `ข้อมูลซ้ำกับแถวที่มีค่าเหมือนกัน (${parts.map(i => cols[i].label).join(' + ')})`);
+              } else seen.set(key, r);
+            });
+          }
+        }
+      } catch (e) {}
+
+      /* R4 · Invalid typed cells — raw value present but unparseable for the
+         column's detected type (นับจาก engine ระดับเซลล์). */
+      try {
+        cols.forEach(col => {
+          if (!col.invalid) return;
+          const isDate = col.type === 'date';
+          if (isDate) counts.invalidDates += col.invalid; else counts.invalidValues += col.invalid;
+          (col.invalidRows || []).forEach(r => {
+            pushIssue(issues, capMap, table, tIdx, isDate ? 'invalid-date' : 'invalid-value',
+              isDate ? 'Invalid Date' : 'Invalid Value', SEV.warning, r, col.label, '',
+              `ค่าที่กรอกไม่ใช่ ${isDate ? 'วันที่' : 'ตัวเลข'} ที่อ่านได้ (คอลัมน์ "${col.label}")`);
+          });
+        });
+      } catch (e) {}
+
+      /* R5 · Date order — end/due before start (registry field pairs). */
+      try {
+        if (cmap) {
+          const s = cmap.map.startDate;
+          const e2 = cmap.map.endDate !== undefined ? cmap.map.endDate : cmap.map.dueDate;
+          if (s !== undefined && e2 !== undefined) {
+            table.rows.forEach((row, r) => {
+              const a = dateKeyOf(row[cols[s].key]), b = dateKeyOf(row[cols[e2].key]);
+              if (a && b && b < a) {
+                counts.invalidDates++;
+                pushIssue(issues, capMap, table, tIdx, 'date-order', 'End Date ก่อน Start Date', SEV.critical, r, cols[e2].label, b, `${cols[e2].label} (${b}) มาก่อน ${cols[s].label} (${a})`);
+              }
+            });
+          }
+        }
+      } catch (e) {}
+
+      /* R6 · Negative currency values (เช่น Negative Revenue). */
+      try {
+        if (cmap) {
+          for (const f in cmap.ds.fields) {
+            if (cmap.ds.fields[f].type !== 'currency' || cmap.map[f] === undefined) continue;
+            const col = cols[cmap.map[f]];
+            table.rows.forEach((row, r) => {
+              const v = row[col.key];
+              if (typeof v === 'number' && v < 0) {
+                counts.invalidValues++;
+                pushIssue(issues, capMap, table, tIdx, 'negative-currency', 'Negative ' + col.label, SEV.warning, r, col.label, v, `ค่าติดลบในคอลัมน์เงิน "${col.label}"`);
+              }
+            });
+          }
+        }
+      } catch (e) {}
+
+      /* R7 · Invalid dropdown values — validated against lookup lists parsed
+         from the workbook's own reference sheets (Master Data ฯลฯ).
+         Guards against false positives:
+           · free-text fields (customer/project/contact ฯลฯ) are never
+             dropdown-validated,
+           · per field only the BEST-scoring list applies (score ≥ 0.75),
+           · a genuine dropdown column has low cardinality — columns with far
+             more unique values than the list are skipped. */
+      try {
+        if (cmap) {
+          const FREE_TEXT = { customer: 1, name: 1, project: 1, site: 1, contact: 1, inverterId: 1 };
+          const bestByField = {};
+          for (const list of lookups) {
+            for (const tgt of list.targets) {
+              if (tgt.dsKey !== table.dsKey || cmap.map[tgt.field] === undefined) continue;
+              if (FREE_TEXT[tgt.field] || tgt.score < 0.75) continue;
+              const cur = bestByField[tgt.field];
+              if (!cur || tgt.score > cur.score) bestByField[tgt.field] = { list, score: tgt.score };
+            }
+          }
+          for (const field in bestByField) {
+            const list = bestByField[field].list;
+            const col = cols[cmap.map[field]];
+            const allowed = new Set(list.values.filter(x => x.active).map(x => x.v.toLowerCase().trim()));
+            if (!allowed.size) continue;
+            const uniq = new Set();
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const v = cellToStr(row[col.key]).trim().toLowerCase();
+              if (v) uniq.add(v);
+            });
+            if (uniq.size > Math.max(30, list.values.length * 3)) continue;
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const v = cellToStr(row[col.key]).trim();
+              if (!v) return;
+              if (!allowed.has(v.toLowerCase())) {
+                counts.invalidDropdown++;
+                pushIssue(issues, capMap, table, tIdx, 'invalid-dropdown', 'Invalid Dropdown — ' + list.title, SEV.warning, r, col.label, v, `"${v}" ไม่อยู่ในรายการ "${list.title}" (${list.sheet})`);
+              }
+            });
+          }
+        }
+      } catch (e) {}
+
+      /* R8/R9 · Expired — endDate < today (สัญญา) / dueDate < today (permit).
+         Driven by which canonical date fields the dataset registry defines. */
+      try {
+        if (cmap) {
+          if (cmap.map.endDate !== undefined) {
+            const col = cols[cmap.map.endDate];
+            table.rows.forEach((row, r) => {
+              const d = dateKeyOf(row[col.key]);
+              if (d && d < todayISO) {
+                counts.expiredContracts++;
+                pushIssue(issues, capMap, table, tIdx, 'expired-contract', 'Expired — ' + cmap.ds.label, SEV.warning, r, col.label, d, `${col.label} (${d}) ผ่านมาแล้ว`);
+              }
+            });
+          }
+          if (cmap.map.dueDate !== undefined) {
+            const col = cols[cmap.map.dueDate];
+            table.rows.forEach((row, r) => {
+              const d = dateKeyOf(row[col.key]);
+              if (d && d < todayISO) {
+                counts.expiredPermits++;
+                pushIssue(issues, capMap, table, tIdx, 'expired-permit', 'Overdue — ' + cmap.ds.label, SEV.warning, r, col.label, d, `${col.label} (${d}) เลยกำหนดแล้ว`);
+              }
+            });
+          }
+        }
+      } catch (e) {}
+    });
+
+    return { issues, counts };
+  }
+
+  function computeQuality(tables, ruleResult) {
+    const totalRecords = tables.reduce((s, t) => s + (t.subCount != null ? t.subCount : t.rows.length), 0);
+    const flagged = new Set();
+    let weighted = 0;
+    for (const it of ruleResult.issues) {
+      if (it.rowIdx != null && it.rowIdx >= 0) flagged.add(it.tIdx + ':' + it.rowIdx);
+      weighted += CFG.SCORE_WEIGHT[it.severity] || 0.2;
+    }
+    const c = ruleResult.counts;
+    const totalIssues = c.missingRequired + c.duplicates + c.invalidValues + c.invalidDates + c.invalidDropdown;
+    const errorRate = totalRecords ? (flagged.size / totalRecords) * 100 : 0;
+    const score = totalRecords ? Math.max(0, Math.round(100 * (1 - Math.min(1, weighted / totalRecords)))) : 100;
+    const status = score >= CFG.SCORE_HEALTHY ? 'healthy' : score >= CFG.SCORE_WATCH ? 'watch' : 'critical';
+    return { totalRecords, ...c, totalIssues, flaggedRows: flagged.size, errorRate, score, status };
+  }
+
+  /* ========================================================================
+   * 5. AUDIT ENGINE — snapshot diff per import → Create/Update/Delete with
+   *    field-level changes. Snapshot + events persisted in localStorage with
+   *    graceful quota degradation (values dropped per largest sheet first;
+   *    hash-only rows still detect Create/Update/Delete on later imports).
+   * ======================================================================*/
+  function snapshotOf(tables, source) {
+    const sheets = {};
+    for (const t of tables) {
+      const key = t.dsKey || t.sheet;
+      const pkIdx = t.roles.pk;
+      const colLabels = t.columns.map(c => c.label);
+      const rows = {};
+      const occur = {};
+      t.rows.forEach((row, ri) => {
+        if (t.sub && !t.sub[ri]) return;             // never snapshot filler rows
+        const vals = t.columns.map(c => cellToStr(row[c.key], c.type));
+        const h = fnv1a(vals.join('␟'));
+        let k = pkIdx >= 0 ? vals[pkIdx] : '';
+        if (!k) k = '#' + h;
+        if (occur[k]) { occur[k]++; k = k + '~' + occur[k]; } else occur[k] = 1;
+        rows[k] = { h, v: vals };
+      });
+      sheets[key] = { sheet: t.sheet, pk: pkIdx >= 0 ? colLabels[pkIdx] : null, cols: colLabels, rows };
+    }
+    return { ver: 1, at: new Date().toISOString(), source, sheets };
+  }
+
+  function diffSnapshots(prev, cur, user) {
+    const events = [];
+    const now = new Date();
+    let seq = 0;
+    const mk = (sheetKey, sheetName, action, recordId, changes, extra) => ({
+      id: now.getTime() + '-' + (seq++),
+      ts: now.toISOString(),
+      user, source: cur.source, sheet: sheetName, dsKey: sheetKey,
+      recordId: recordId || '', action,
+      customer: (extra && extra.customer) || '', project: (extra && extra.project) || '',
+      changes: changes || [], n: (extra && extra.n) || undefined,
+    });
+    const roleFromVals = (sheetEntry, vals, roleLabelIdx) =>
+      roleLabelIdx >= 0 && vals ? (vals[roleLabelIdx] || '') : '';
+
+    for (const key in cur.sheets) {
+      const c = cur.sheets[key];
+      const p = prev && prev.sheets ? prev.sheets[key] : null;
+      // role columns (by label) for customer/project enrichment
+      const tbl = STATE.tables.find(t => (t.dsKey || t.sheet) === key);
+      const custIdx = tbl && tbl.roles.customer >= 0 ? tbl.roles.customer : -1;
+      const projIdx = tbl && tbl.roles.project >= 0 ? tbl.roles.project : -1;
+
+      if (!p) {
+        events.push(mk(key, c.sheet, 'Import', '', [], { n: Object.keys(c.rows).length }));
+        continue;
+      }
+      // label -> index alignment (schema may evolve between imports)
+      const pIdx = {}; p.cols.forEach((l, i) => { pIdx[l] = i; });
+      let count = 0, truncated = 0;
+      const emit = ev => { if (count < CFG.MAX_EVENTS_PER_SHEET) { events.push(ev); count++; } else truncated++; };
+
+      for (const k in c.rows) {
+        const cr = c.rows[k], pr = p.rows[k];
+        const customer = roleFromVals(c, cr.v, custIdx), project = roleFromVals(c, cr.v, projIdx);
+        if (!pr) { emit(mk(key, c.sheet, 'Create', k.startsWith('#') ? '' : k, [], { customer, project })); continue; }
+        if (pr.h === cr.h) continue;
+        const changes = [];
+        if (pr.v && cr.v) {
+          c.cols.forEach((label, i) => {
+            const pv = pIdx[label] !== undefined ? (pr.v[pIdx[label]] || '') : '';
+            const nv = cr.v[i] || '';
+            if (pv !== nv) changes.push({ field: label, prev: pv, next: nv });
+          });
+        }
+        emit(mk(key, c.sheet, 'Update', k.startsWith('#') ? '' : k, changes, { customer, project }));
+      }
+      for (const k in p.rows) {
+        if (c.rows[k]) continue;
+        const pr = p.rows[k];
+        const customer = roleFromVals(p, pr.v, custIdx), project = roleFromVals(p, pr.v, projIdx);
+        emit(mk(key, c.sheet, 'Delete', k.startsWith('#') ? '' : k, [], { customer, project }));
+      }
+      if (truncated > 0) events.push(mk(key, c.sheet, 'Update', '', [], { n: truncated }));
+    }
+    return events;
+  }
+
+  function persistEvents() {
+    if (STATE.events.length > CFG.MAX_EVENTS) STATE.events = STATE.events.slice(-CFG.MAX_EVENTS);
+    lsSet(CFG.LS_EVENTS, JSON.stringify(STATE.events));
+  }
+  function persistSnapshot(snap) {
+    let attempt = JSON.parse(JSON.stringify(snap));
+    for (let i = 0; i <= Object.keys(attempt.sheets).length; i++) {
+      if (lsSet(CFG.LS_SNAPSHOT, JSON.stringify(attempt))) return true;
+      // quota hit → drop stored VALUES from the largest remaining sheet
+      // (hashes kept: Create/Update/Delete still detected; field detail
+      // becomes unavailable for that sheet only).
+      let biggest = null, size = -1;
+      for (const k in attempt.sheets) {
+        const rows = attempt.sheets[k].rows;
+        let withVals = 0; for (const rk in rows) { if (rows[rk].v) withVals++; }
+        if (withVals > size) { size = withVals; biggest = k; }
+      }
+      if (!biggest || size <= 0) break;
+      for (const rk in attempt.sheets[biggest].rows) delete attempt.sheets[biggest].rows[rk].v;
+    }
+    lsRemove(CFG.LS_SNAPSHOT);
+    return false;
+  }
+  function loadPersisted() {
+    try { const e = lsGet(CFG.LS_EVENTS); if (e) STATE.events = JSON.parse(e) || []; } catch (err) { STATE.events = []; }
+    try { const s = lsGet(CFG.LS_SNAPSHOT); if (s) STATE.snapshot = JSON.parse(s); } catch (err) { STATE.snapshot = null; }
+  }
+
+  /** Audit actor: generic key/value scan of reference grids (updatedBy/owner/
+   *  user/author) → else the import source label. Never hardcodes a sheet. */
+  function resolveUser(report, source) {
+    try {
+      if (report && report.grids) {
+        for (const name in report.grids) {
+          const grid = report.grids[name];
+          for (let r = 0; r < Math.min(grid.length, 60); r++) {
+            const row = grid[r]; if (!row) continue;
+            for (let c = 0; c < row.length - 1; c++) {
+              const k = String(row[c] == null ? '' : row[c]).trim().toLowerCase();
+              if (/^(updated ?by|owner|author|user|ผู้บันทึก|ผู้แก้ไข)$/.test(k) && row[c + 1] != null && String(row[c + 1]).trim()) {
+                return String(row[c + 1]).trim();
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    return source === 'gsheets' ? 'Google Sheets Sync' : source === 'excel' ? 'Excel Upload' : 'Dashboard';
+  }
+
+  /* ========================================================================
+   * 6. GLOBAL FILTERS — one state, applied consistently to records (issues,
+   *    KPI scope) and audit events (log + timeline + chart).
+   * ======================================================================*/
+  function recordPasses(table, rowIdx) {
+    const f = STATE.filters;
+    if (f.sheet !== 'all' && table.sheet !== f.sheet) return false;
+    const row = table.rows[rowIdx];
+    if (!row) return true;
+    if (f.customer !== 'all' && roleVal(table, row, 'customer') !== f.customer) return false;
+    if (f.project !== 'all' && roleVal(table, row, 'project') !== f.project) return false;
+    if (f.province !== 'all' && roleVal(table, row, 'province') !== f.province) return false;
+    if (f.status !== 'all' && roleVal(table, row, 'status') !== f.status) return false;
+    if ((f.from || f.to) && table.roles.date >= 0) {
+      const d = dateKeyOf(row[table.columns[table.roles.date].key]);
+      if (d) {
+        if (f.from && d < f.from) return false;
+        if (f.to && d > f.to) return false;
+      }
+    }
+    if (f.user !== 'all') {
+      const resp = roleVal(table, row, 'responsible');
+      if (resp && resp !== f.user) return false;
+    }
+    return true;
+  }
+  function filteredIssues() {
+    return STATE.issues.filter(it => {
+      const t = STATE.tables[it.tIdx];
+      if (!t) return false;
+      if (it.rowIdx == null || it.rowIdx < 0) return STATE.filters.sheet === 'all' || t.sheet === STATE.filters.sheet;
+      return recordPasses(t, it.rowIdx);
+    });
+  }
+  function eventPasses(ev) {
+    const f = STATE.filters;
+    if (f.sheet !== 'all' && ev.sheet !== f.sheet) return false;
+    if (f.user !== 'all' && ev.user !== f.user) return false;
+    if (f.action !== 'all' && ev.action !== f.action) return false;
+    if (f.customer !== 'all' && ev.customer !== f.customer) return false;
+    if (f.project !== 'all' && ev.project !== f.project) return false;
+    const d = String(ev.ts || '').slice(0, 10);
+    if (f.from && d && d < f.from) return false;
+    if (f.to && d && d > f.to) return false;
+    return true;
+  }
+  function filteredEvents() { return STATE.events.filter(eventPasses); }
+  function filteredRecordTotal() {
+    let n = 0;
+    for (const t of STATE.tables) {
+      if (STATE.filters.sheet !== 'all' && t.sheet !== STATE.filters.sheet) continue;
+      const noRecFilters = STATE.filters.customer === 'all' && STATE.filters.project === 'all' &&
+        STATE.filters.province === 'all' && STATE.filters.status === 'all' &&
+        !STATE.filters.from && !STATE.filters.to && STATE.filters.user === 'all';
+      if (noRecFilters) { n += (t.subCount != null ? t.subCount : t.rows.length); continue; }
+      for (let r = 0; r < t.rows.length; r++) if (t.sub[r] && recordPasses(t, r)) n++;
+    }
+    return n;
+  }
+
+  /* ========================================================================
+   * 7. GLOBAL SEARCH — lazy index, debounced, records + audit log.
+   * ======================================================================*/
+  function buildSearchIndex() {
+    const idx = [];
+    STATE.tables.forEach((t, ti) => {
+      const roleCols = ['customer', 'project', 'province', 'status'].map(r => t.roles[r]).filter(i => i >= 0);
+      const pk = t.roles.pk;
+      const textCols = t.columns.map((c, i) => ({ c, i })).filter(x => x.c.type === 'text').slice(0, 8).map(x => x.i);
+      const colSet = [...new Set([pk, ...roleCols, ...textCols])].filter(i => i >= 0);
+      t.rows.forEach((row, r) => {
+        if (t.sub && !t.sub[r]) return;
+        let s = '';
+        for (const i of colSet) s += cellToStr(row[t.columns[i].key]) + ' ';
+        idx.push({ kind: 'record', t: ti, r, text: s.toLowerCase() });
+      });
+    });
+    STATE.events.forEach((ev, ei2) => {
+      const s = [ev.user, ev.sheet, ev.customer, ev.project, ev.recordId, ev.action,
+        ...(ev.changes || []).map(ch => ch.field + ' ' + ch.prev + ' ' + ch.next)].join(' ');
+      idx.push({ kind: 'audit', e: ei2, text: s.toLowerCase() });
+    });
+    STATE.searchIndex = idx;
+  }
+  function doSearch(q) {
+    q = String(q || '').trim().toLowerCase();
+    if (q.length < CFG.SEARCH_MIN_CHARS) return { records: [], audit: [] };
+    if (!STATE.searchIndex) buildSearchIndex();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const records = [], audit = [];
+    for (const entry of STATE.searchIndex) {
+      let ok = true;
+      for (const tk of tokens) { if (entry.text.indexOf(tk) < 0) { ok = false; break; } }
+      if (!ok) continue;
+      if (entry.kind === 'record') { if (records.length < CFG.SEARCH_LIMIT_RECORDS) records.push(entry); }
+      else if (audit.length < CFG.SEARCH_LIMIT_AUDIT) audit.push(entry);
+      if (records.length >= CFG.SEARCH_LIMIT_RECORDS && audit.length >= CFG.SEARCH_LIMIT_AUDIT) break;
+    }
+    return { records, audit };
+  }
+
+  /* ========================================================================
+   * 8. INGEST + COMPUTE PIPELINE
+   * ======================================================================*/
+  function computeAll() {
+    const rr = runRules(STATE.tables, STATE.lookups);
+    STATE.issues = rr.issues;
+    STATE.quality = computeQuality(STATE.tables, rr);
+    STATE.searchIndex = null;
+    STATE.dirty = false;
+  }
+
+  function ingest(report, data, source) {
+    STATE.lastReport = report || null;
+    STATE.sourceMode = source || 'excel';
+    STATE.tables = collectTables(report, data);
+    STATE.lookups = parseLookups(report);
+    STATE.user = resolveUser(report, STATE.sourceMode);
+    computeAll();
+
+    // ---- audit diff vs previous snapshot --------------------------------
+    try {
+      const cur = snapshotOf(STATE.tables, STATE.sourceMode);
+      const events = diffSnapshots(STATE.snapshot, cur, STATE.user);
+      if (events.length) {
+        STATE.events = STATE.events.concat(events);
+        persistEvents();
+      }
+      STATE.snapshot = cur;
+      persistSnapshot(cur);
+      STATE.searchIndex = null;
+    } catch (e) { if (root.console) console.warn('DQAudit snapshot diff failed (non-fatal):', e); }
+  }
+
+  function ensureComputed() {
+    if (!STATE.tables.length || STATE.dirty) {
+      STATE.tables = collectTables(STATE.lastReport, appData());
+      STATE.lookups = parseLookups(STATE.lastReport);
+      computeAll();
+    }
+  }
+
+  /* ========================================================================
+   * 9. RENDERERS — reuse existing card / kpi / table / badge vocabulary.
+   * ======================================================================*/
+  function destroyAllCharts() {
+    for (const id in CHARTS) { try { CHARTS[id].destroy(); } catch (e) {} delete CHARTS[id]; }
+  }
+  function makeChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !root.Chart) return;
+    try { const ex = root.Chart.getChart(canvas); if (ex) ex.destroy(); } catch (e) {}
+    try { CHARTS[canvasId] = new root.Chart(canvas.getContext('2d'), config); } catch (e) {}
+  }
+  function host(id) { return document.getElementById(id); }
+  function sevBadge(sev) {
+    const cls = sev === 'critical' ? 'badge-overdue' : sev === 'warning' ? 'badge-pending' : 'badge-partial';
+    return `<span class="badge ${cls}">${esc(sev)}</span>`;
+  }
+  function actionColor(a) {
+    return a === 'Create' ? 'var(--success)' : a === 'Delete' ? 'var(--critical)' : a === 'Import' ? 'var(--cyan)' : 'var(--info)';
+  }
+  function tsParts(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return { d: String(iso).slice(0, 10), t: String(iso).slice(11, 16) };
+    return { d: toISO(d), t: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` };
+  }
+
+  /** Drill helpers — always escape before handing HTML-capable openDrill. */
+  function drillRecord(tIdx, rowIdx) {
+    const t = STATE.tables[tIdx]; if (!t) return;
+    const row = t.rows[rowIdx]; if (!row) return;
+    const cols = t.columns.slice(0, 14).map(c => ({
+      key: c.key, label: esc(c.label),
+      fmt: v => esc(cellToStr(v, c.type)) || '—',
+      right: c.type === 'number' || c.type === 'percent',
+    }));
+    drill(`Record · ${esc(t.sheet)}`,
+      `${t.roles.pk >= 0 ? 'Record ID: ' + esc(cellToStr(row[t.columns[t.roles.pk].key])) : 'แถวที่ ' + (rowIdx + 1)}`,
+      [row], cols,
+      [{ label: 'Sheet', value: esc(t.sheet) }, { label: 'Dataset', value: esc(t.label) }]);
+  }
+  function drillIssues(list, title, sub) {
+    drill(title, sub, list.slice(0, 300), [
+      { key: 'sheet', label: 'Sheet', fmt: v => esc(v) },
+      { key: 'recordId', label: 'Record ID', fmt: v => esc(v) || '—' },
+      { key: 'customer', label: 'ลูกค้า', fmt: v => esc(v) || '—' },
+      { key: 'field', label: 'Field', fmt: v => esc(v) || '—' },
+      { key: 'value', label: 'ค่า', fmt: v => esc(v) || '—' },
+      { key: 'detail', label: 'รายละเอียด', fmt: v => esc(v) },
+    ], [{ label: 'จำนวนที่พบ', value: fmtInt(list.length) }]);
+  }
+  function drillEvent(ev) {
+    const p = tsParts(ev.ts);
+    drill(`Audit · ${esc(ev.action)} · ${esc(ev.recordId || ev.sheet)}`,
+      `${p.d} ${p.t} · ${esc(ev.user)} · ${esc(ev.sheet)}`,
+      (ev.changes && ev.changes.length ? ev.changes : [{ field: '—', prev: '', next: '' }]),
+      [
+        { key: 'field', label: 'Field ที่เปลี่ยน', fmt: v => esc(v) },
+        { key: 'prev', label: 'ค่าเดิม', fmt: v => `<span class="dq-prev">${esc(v) || '—'}</span>` },
+        { key: 'next', label: 'ค่าใหม่', fmt: v => `<span class="dq-next">${esc(v) || '—'}</span>` },
+      ],
+      [
+        { label: 'Action', value: esc(ev.action) },
+        { label: 'Record', value: esc(ev.recordId) || '—' },
+        { label: 'ลูกค้า', value: esc(ev.customer) || '—' },
+        { label: 'Fields เปลี่ยน', value: fmtInt((ev.changes || []).length) },
+      ]);
+  }
+
+  /* ---------- section: global search ------------------------------------ */
+  function ensureSearchCard() {
+    const h = host('dqSearchHost'); if (!h) return;
+    if (document.getElementById('dqSearchInput')) return;   // persistent — keep value/focus
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Global Search · ค้นหาทั้งแดชบอร์ด</div>
+          <div class="card-subtitle">ลูกค้า · โครงการ · Sheet · Record ID · Audit Log</div>
+        </div></div>
+        <div class="dq-search-shell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="dqSearchInput" class="dq-search-input" type="text" placeholder="พิมพ์อย่างน้อย ${CFG.SEARCH_MIN_CHARS} ตัวอักษร เช่น ชื่อลูกค้า, REV-2026..." autocomplete="off" />
+        </div>
+        <div id="dqSearchResults" style="margin-top:8px;"></div>
+      </div>`;
+    const input = document.getElementById('dqSearchInput');
+    let timer = null;
+    input.addEventListener('input', () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => renderSearchResults(input.value), CFG.SEARCH_DEBOUNCE_MS);
+    });
+    const box = document.getElementById('dqSearchResults');
+    box.addEventListener('click', (e2) => {
+      const item = e2.target.closest('[data-sr]');
+      if (!item) return;
+      const [kind, a, b] = item.dataset.sr.split(':');
+      if (kind === 'r') drillRecord(+a, +b);
+      else { const ev = STATE.events[+a]; if (ev) drillEvent(ev); }
+    });
+  }
+  function renderSearchResults(q) {
+    const box = document.getElementById('dqSearchResults'); if (!box) return;
+    const query = String(q || '').trim();
+    if (query.length < CFG.SEARCH_MIN_CHARS) { box.innerHTML = ''; return; }
+    const { records, audit } = doSearch(query);
+    if (!records.length && !audit.length) {
+      box.innerHTML = `<div class="empty-state">ไม่พบ "${esc(query)}" ในข้อมูลหรือ audit log</div>`;
+      return;
+    }
+    const rows = [];
+    for (const r of records) {
+      const t = STATE.tables[r.t]; const row = t && t.rows[r.r]; if (!row) continue;
+      const pk = t.roles.pk >= 0 ? cellToStr(row[t.columns[t.roles.pk].key]) : '';
+      const cust = roleVal(t, row, 'customer'), proj = roleVal(t, row, 'project');
+      rows.push(`<div class="dq-result-item" data-sr="r:${r.t}:${r.r}">
+        <span class="dq-result-tag">Record</span>
+        <span class="dq-result-main">${esc([pk, cust, proj].filter(Boolean).join(' · ') || '(แถวที่ ' + (r.r + 1) + ')')}</span>
+        <span class="dq-result-sub">${esc(t.sheet)}</span></div>`);
+    }
+    for (const a of audit) {
+      const ev = STATE.events[a.e]; if (!ev) continue;
+      const p = tsParts(ev.ts);
+      rows.push(`<div class="dq-result-item" data-sr="a:${a.e}">
+        <span class="dq-result-tag audit">Audit</span>
+        <span class="dq-result-main">${esc(ev.action)} · ${esc(ev.recordId || ev.sheet)}${ev.customer ? ' · ' + esc(ev.customer) : ''}</span>
+        <span class="dq-result-sub">${esc(p.d)} ${esc(p.t)}</span></div>`);
+    }
+    box.innerHTML = rows.join('');
+  }
+
+  /* ---------- section: health banner + KPI grid -------------------------- */
+  function renderHealth() {
+    const h = host('dqHealthHost'); if (!h) return;
+    const q = STATE.quality; if (!q) { h.innerHTML = ''; return; }
+    const cls = q.status === 'healthy' ? 'healthy' : q.status === 'watch' ? 'watch' : 'critical';
+    const icon = cls === 'healthy' ? '✓' : cls === 'watch' ? '⚠' : '✕';
+    const label = cls === 'healthy' ? 'คุณภาพข้อมูลดี' : cls === 'watch' ? 'คุณภาพข้อมูลต้องเฝ้าระวัง' : 'คุณภาพข้อมูลต้องแก้ไขด่วน';
+    h.innerHTML = `
+      <div class="health-banner ${cls}" style="margin-top:14px;">
+        <div class="health-banner-left">
+          <div class="health-banner-icon">${icon}</div>
+          <div class="health-banner-text">
+            <div class="health-banner-label">Data Quality Health · แหล่งข้อมูล: ${esc(STATE.sourceMode === 'demo' ? 'Demo Data' : STATE.sourceMode)}</div>
+            <div class="health-banner-status">${label}</div>
+            <div class="health-banner-detail">${fmtInt(q.totalRecords)} records · ${fmtInt(q.totalIssues)} issues · Error Rate ${q.errorRate.toFixed(2)}%</div>
+          </div>
+        </div>
+        <div class="health-banner-score">${q.score}/100</div>
+      </div>`;
+  }
+
+  function kpiState(count, total) {
+    if (!count) return { cls: 'up', word: 'Healthy' };
+    const pct = total ? count / total : 0;
+    if (pct >= CFG.KPI_CRIT_PCT) return { cls: 'down', word: 'Critical' };
+    return { cls: 'neutral', word: 'Warning' };
+  }
+  function renderKpis() {
+    const h = host('dqKpiHost'); if (!h) return;
+    const q = STATE.quality; if (!q) { h.innerHTML = ''; return; }
+    const fi = filteredIssues();
+    const byRule = pre => fi.filter(it => it.rule.indexOf(pre) === 0);
+    const missing = byRule('missing-required');
+    const dups = fi.filter(it => it.rule === 'duplicate-pk' || it.rule === 'duplicate-natural');
+    const invVal = fi.filter(it => it.rule === 'invalid-value' || it.rule === 'negative-currency');
+    const invDate = fi.filter(it => it.rule === 'invalid-date' || it.rule === 'date-order');
+    const invDrop = byRule('invalid-dropdown');
+    const expC = byRule('expired-contract');
+    const expP = byRule('expired-permit');
+    const totalRec = filteredRecordTotal();
+    const flaggedSet = new Set(fi.filter(x => x.rowIdx >= 0).map(x => x.tIdx + ':' + x.rowIdx));
+    const errRate = totalRec ? (flaggedSet.size / totalRec * 100) : 0;
+
+    const KPIS = [
+      { id: 'total', label: 'Total Records', value: fmtInt(totalRec), state: { cls: 'neutral', word: STATE.tables.length + ' datasets' } },
+      { id: 'missing', label: 'Missing Required Fields', value: fmtInt(missing.length), list: missing, state: kpiState(missing.length, totalRec) },
+      { id: 'dup', label: 'Duplicate Records', value: fmtInt(dups.length), list: dups, state: kpiState(dups.length, totalRec) },
+      { id: 'invval', label: 'Invalid Values', value: fmtInt(invVal.length), list: invVal, state: kpiState(invVal.length, totalRec) },
+      { id: 'invdate', label: 'Invalid Dates', value: fmtInt(invDate.length), list: invDate, state: kpiState(invDate.length, totalRec) },
+      { id: 'invdrop', label: 'Invalid Dropdown Values', value: fmtInt(invDrop.length), list: invDrop, state: kpiState(invDrop.length, totalRec) },
+      { id: 'expc', label: 'Expired Contracts', value: fmtInt(expC.length), list: expC, state: kpiState(expC.length, totalRec) },
+      { id: 'expp', label: 'Expired Permits', value: fmtInt(expP.length), list: expP, state: kpiState(expP.length, totalRec) },
+      { id: 'err', label: 'Error Rate', value: errRate.toFixed(2) + '%', state: kpiState(flaggedSet.size, totalRec) },
+      { id: 'score', label: 'Data Quality Score', value: q.score + '/100', state: { cls: q.status === 'healthy' ? 'up' : q.status === 'watch' ? 'neutral' : 'down', word: q.status } },
+    ];
+    h.innerHTML = `<div class="kpi-mini-grid" style="margin-top:14px;">` + KPIS.map(k => `
+      <div class="kpi-mini" data-kpi="${k.id}" style="cursor:pointer;">
+        <div class="kpi-mini-label">${esc(k.label)}</div>
+        <div class="kpi-mini-value" style="color:${k.state.cls === 'down' ? 'var(--critical)' : k.state.cls === 'up' ? 'var(--success)' : 'var(--cyan)'}">${k.value}</div>
+        <div class="kpi-mini-trend ${k.state.cls}">${esc(k.state.word)}</div>
+      </div>`).join('') + `</div>`;
+    h.onclick = (e2) => {
+      const card = e2.target.closest('[data-kpi]'); if (!card) return;
+      const k = KPIS.find(x => x.id === card.dataset.kpi); if (!k) return;
+      if (k.id === 'total') {
+        drill('Total Records · แยกตาม Sheet', 'จำนวนแถวข้อมูลต่อ dataset (ตาม filter)', STATE.tables.map(t => ({
+          sheet: t.sheet, dataset: t.label, rows: t.subCount != null ? t.subCount : t.rows.length,
+        })), [
+          { key: 'sheet', label: 'Sheet', fmt: v => esc(v) },
+          { key: 'dataset', label: 'Dataset', fmt: v => esc(v) },
+          { key: 'rows', label: 'Records', fmt: v => fmtInt(v), right: true },
+        ], [{ label: 'รวม', value: fmtInt(totalRec) }]);
+      } else if (k.id === 'err' || k.id === 'score') {
+        drillIssues(fi, k.label, k.id === 'score'
+          ? `คะแนน = 100 × (1 − Σ(น้ำหนักตาม severity) ÷ records) · critical=1, warning=0.4, info=0.15`
+          : `Error Rate = แถวที่มีปัญหา ÷ records ทั้งหมด = ${fmtInt(flaggedSet.size)} ÷ ${fmtInt(totalRec)}`);
+      } else if (k.list) {
+        drillIssues(k.list, k.label, 'รายการ record ที่เกี่ยวข้องทั้งหมด (คลิกจากตาราง Validation เพื่อดูรายแถว)');
+      }
+    };
+  }
+
+  /* ---------- section: filter bar ---------------------------------------- */
+  function optionSet(getter) {
+    const s = new Set();
+    for (const t of STATE.tables) {
+      const i = getter(t);
+      if (i < 0) continue;
+      const col = t.columns[i];
+      for (const row of t.rows) { const v = cellToStr(row[col.key]); if (v) s.add(v); }
+    }
+    return s;
+  }
+  function ensureFilterBar() {
+    const h = host('dqFilterHost'); if (!h) return;
+    const f = STATE.filters;
+    const users = new Set(STATE.events.map(e2 => e2.user).filter(Boolean));
+    optionSet(t => t.roles.responsible).forEach(u => users.add(u));
+    const sheets = new Set(STATE.tables.map(t => t.sheet));
+    STATE.events.forEach(e2 => { if (e2.sheet) sheets.add(e2.sheet); });
+    const opts = {
+      user: [...users].sort(),
+      sheet: [...sheets].sort(),
+      customer: [...optionSet(t => t.roles.customer)].sort().slice(0, 400),
+      project: [...optionSet(t => t.roles.project)].sort().slice(0, 400),
+      province: [...optionSet(t => t.roles.province)].sort(),
+      action: ['Create', 'Update', 'Delete', 'Import'],
+      status: [...optionSet(t => t.roles.status)].sort().slice(0, 200),
+    };
+    const sel = (name, label, list) => `
+      <div class="dq-field"><label>${esc(label)}</label>
+        <select data-dqf="${name}">
+          <option value="all">ทั้งหมด</option>
+          ${list.map(o => `<option value="${esc(o)}"${f[name] === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+        </select></div>`;
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Global Filters · ตัวกรองรวม</div>
+          <div class="card-subtitle">กรองทุกตาราง ทุกกราฟ และ Audit Log ในหน้านี้พร้อมกัน</div>
+        </div>
+        <button class="btn" id="dqFilterReset" type="button">ล้างตัวกรอง</button></div>
+        <div class="dq-controls">
+          <div class="dq-field"><label>จากวันที่</label><input type="date" data-dqf="from" value="${esc(f.from)}"></div>
+          <div class="dq-field"><label>ถึงวันที่</label><input type="date" data-dqf="to" value="${esc(f.to)}"></div>
+          ${sel('user', 'User', opts.user)}
+          ${sel('sheet', 'Sheet', opts.sheet)}
+          ${sel('customer', 'ลูกค้า', opts.customer)}
+          ${sel('project', 'โครงการ / Site', opts.project)}
+          ${sel('province', 'จังหวัด', opts.province)}
+          ${sel('action', 'Action', opts.action)}
+          ${sel('status', 'สถานะ', opts.status)}
+        </div>
+      </div>`;
+    h.querySelectorAll('[data-dqf]').forEach(el => {
+      el.addEventListener('change', () => {
+        STATE.filters[el.dataset.dqf] = el.value;
+        renderDynamic();
+      });
+    });
+    const reset = document.getElementById('dqFilterReset');
+    if (reset) reset.addEventListener('click', () => {
+      STATE.filters = { from: '', to: '', user: 'all', sheet: 'all', customer: 'all', project: 'all', province: 'all', action: 'all', status: 'all' };
+      ensureFilterBar();
+      renderDynamic();
+    });
+  }
+
+  /* ---------- section: by-sheet chart ------------------------------------ */
+  function renderChart() {
+    const h = host('dqValidationHost'); if (!h) return null;   // chart card lives above validation table
+    return null;
+  }
+  function renderChartCard(fi) {
+    let card = document.getElementById('dqChartCard');
+    const h = host('dqValidationHost'); if (!h) return;
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'dqChartCard';
+      card.className = 'card';
+      card.style.marginTop = '14px';
+      card.innerHTML = `<div class="card-header"><div>
+          <div class="card-title">Issues by Sheet · ปัญหาแยกตาม Sheet และความรุนแรง</div>
+          <div class="card-subtitle">อัปเดตตาม Global Filters</div>
+        </div></div><div class="chart-wrap"><canvas id="dqchart-bysheet"></canvas></div>`;
+      h.parentNode.insertBefore(card, h);
+    }
+    const bySheet = {};
+    for (const it of fi) {
+      if (!bySheet[it.sheet]) bySheet[it.sheet] = { critical: 0, warning: 0, info: 0 };
+      bySheet[it.sheet][it.severity] = (bySheet[it.sheet][it.severity] || 0) + 1;
+    }
+    const labels = Object.keys(bySheet).sort((a, b) =>
+      (bySheet[b].critical + bySheet[b].warning + bySheet[b].info) - (bySheet[a].critical + bySheet[a].warning + bySheet[a].info)).slice(0, 12);
+    const wrap = card.querySelector('.chart-wrap');
+    if (!labels.length) {
+      wrap.innerHTML = '<div class="empty-state">ไม่มีปัญหาในขอบเขตที่กรอง ✓</div>';
+      return;
+    }
+    if (!document.getElementById('dqchart-bysheet')) wrap.innerHTML = '<canvas id="dqchart-bysheet"></canvas>';
+    makeChart('dqchart-bysheet', {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Critical', data: labels.map(l => bySheet[l].critical), backgroundColor: cssVar('--critical') || '#EF4444', borderRadius: 4 },
+          { label: 'Warning', data: labels.map(l => bySheet[l].warning), backgroundColor: cssVar('--warning') || '#F59E0B', borderRadius: 4 },
+          { label: 'Info', data: labels.map(l => bySheet[l].info), backgroundColor: cssVar('--info') || '#3B82F6', borderRadius: 4 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, color: cssVar('--text-dim') } } },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { color: cssVar('--text-dim'), autoSkip: true, maxRotation: 0 } },
+          y: { stacked: true, grid: { color: cssVar('--grid-line') }, ticks: { color: cssVar('--text-dim') }, beginAtZero: true },
+        },
+      },
+    });
+  }
+
+  /* ---------- section: validation table ---------------------------------- */
+  function renderValidation() {
+    const h = host('dqValidationHost'); if (!h) return;
+    const fi = filteredIssues();
+    renderChartCard(fi);
+    const shown = fi.slice(0, CFG.MAX_RENDER_ISSUES);
+    const rows = shown.map((it, i) => `
+      <tr style="cursor:${it.rowIdx >= 0 ? 'pointer' : 'default'};" data-issue="${i}">
+        <td>${sevBadge(it.severity)}</td>
+        <td>${esc(it.label)}</td>
+        <td>${esc(it.sheet)}</td>
+        <td class="text-mono">${esc(it.recordId) || '—'}</td>
+        <td>${esc(it.customer) || '—'}</td>
+        <td>${esc(it.field) || '—'}</td>
+        <td>${esc(it.detail)}</td>
+      </tr>`).join('');
+    const note = fi.length > shown.length ? `<div style="padding:8px 12px;color:var(--text-muted);font-size:11.5px">แสดง ${fmtInt(shown.length)} จาก ${fmtInt(fi.length)} รายการ — ใช้ filter เพื่อลดขอบเขต</div>` : '';
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Business Rule Validation · ผลตรวจกฎธุรกิจ</div>
+          <div class="card-subtitle">${fmtInt(fi.length)} ปัญหา · คลิกแถวเพื่อดู record เต็ม</div>
+        </div></div>
+        ${fi.length ? `<div class="table-wrap" style="max-height:420px;"><table class="data-table"><thead><tr>
+          <th>Severity</th><th>Rule</th><th>Sheet</th><th>Record ID</th><th>ลูกค้า</th><th>Field</th><th>รายละเอียด</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>${note}`
+        : '<div class="empty-state">ไม่พบปัญหาตามกฎธุรกิจในขอบเขตที่เลือก ✓</div>'}
+      </div>`;
+    h.onclick = (e2) => {
+      const tr = e2.target.closest('[data-issue]'); if (!tr) return;
+      const it = shown[+tr.dataset.issue];
+      if (it && it.rowIdx >= 0) drillRecord(it.tIdx, it.rowIdx);
+    };
+  }
+
+  /* ---------- section: audit log table ------------------------------------ */
+  function renderAudit() {
+    const h = host('dqAuditHost'); if (!h) return;
+    const fe = filteredEvents().slice().reverse();          // newest first
+    const shown = fe.slice(0, CFG.MAX_RENDER_EVENTS);
+    const rows = shown.map((ev, i) => {
+      const p = tsParts(ev.ts);
+      const nCh = (ev.changes || []).length;
+      const expanded = !!STATE.expanded[ev.id];
+      const main = `
+        <tr data-aud="${i}" style="cursor:pointer;">
+          <td class="text-mono">${esc(p.d)}</td>
+          <td class="text-mono">${esc(p.t)}</td>
+          <td>${esc(ev.user)}</td>
+          <td>${esc(ev.sheet)}</td>
+          <td>${esc(ev.customer) || '—'}</td>
+          <td>${esc(ev.project) || '—'}</td>
+          <td class="text-mono">${esc(ev.recordId) || '—'}</td>
+          <td><span class="badge" style="background:color-mix(in srgb, ${actionColor(ev.action)} 18%, transparent);color:${actionColor(ev.action)}">${esc(ev.action)}</span></td>
+          <td>${ev.action === 'Import' ? esc(fmtInt(ev.n || 0)) + ' rows (baseline)' : nCh ? esc(nCh + ' field' + (nCh > 1 ? 's' : '')) : (ev.n ? '+' + esc(fmtInt(ev.n)) + ' รายการ (เกิน cap)' : '—')}
+            ${nCh ? `<button class="dq-expand-btn" type="button">${expanded ? '▾ ซ่อน' : '▸ ดูรายละเอียด'}</button>` : ''}</td>
+        </tr>`;
+      const detail = (nCh && expanded) ? `
+        <tr class="dq-detail-row"><td colspan="9">
+          <table class="dq-changes"><thead><tr><th>Field ที่เปลี่ยน</th><th>ค่าเดิม</th><th>ค่าใหม่</th></tr></thead>
+          <tbody>${ev.changes.map(ch => `<tr><td>${esc(ch.field)}</td><td><span class="dq-prev">${esc(ch.prev) || '—'}</span></td><td><span class="dq-next">${esc(ch.next) || '—'}</span></td></tr>`).join('')}</tbody>
+          </table></td></tr>` : '';
+      return main + detail;
+    }).join('');
+    const note = fe.length > shown.length ? `<div style="padding:8px 12px;color:var(--text-muted);font-size:11.5px">แสดง ${fmtInt(shown.length)} จาก ${fmtInt(fe.length)} เหตุการณ์ — ใช้ filter/ค้นหาเพื่อลดขอบเขต</div>` : '';
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Audit Center · ประวัติการเปลี่ยนแปลงข้อมูล</div>
+          <div class="card-subtitle">${fmtInt(fe.length)} เหตุการณ์ · เทียบจาก snapshot ของการ import แต่ละครั้ง (Create / Update / Delete ระดับ field)</div>
+        </div></div>
+        ${fe.length ? `<div class="table-wrap" style="max-height:440px;"><table class="data-table"><thead><tr>
+          <th>Date</th><th>Time</th><th>User</th><th>Sheet</th><th>ลูกค้า</th><th>โครงการ</th><th>Record ID</th><th>Action</th><th>การเปลี่ยนแปลง</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>${note}`
+        : '<div class="empty-state">ยังไม่มีประวัติ audit — จะเริ่มบันทึกอัตโนมัติเมื่อ import/sync ข้อมูลตั้งแต่ครั้งแรกเป็นต้นไป</div>'}
+      </div>`;
+    h.onclick = (e2) => {
+      const tr = e2.target.closest('[data-aud]'); if (!tr) return;
+      const ev = shown[+tr.dataset.aud]; if (!ev) return;
+      if (e2.target.closest('.dq-expand-btn')) {
+        STATE.expanded[ev.id] = !STATE.expanded[ev.id];
+        renderAudit();
+      } else {
+        drillEvent(ev);
+      }
+    };
+  }
+
+  /* ---------- section: activity timeline ---------------------------------- */
+  function renderTimeline() {
+    const h = host('dqTimelineHost'); if (!h) return;
+    const fe = filteredEvents().slice().reverse().slice(0, CFG.MAX_RENDER_TIMELINE);
+    const groups = new Map();                                  // date -> user -> items
+    for (const ev of fe) {
+      const p = tsParts(ev.ts);
+      if (!groups.has(p.d)) groups.set(p.d, new Map());
+      const byUser = groups.get(p.d);
+      if (!byUser.has(ev.user)) byUser.set(ev.user, []);
+      byUser.get(ev.user).push(ev);
+    }
+    let html = '';
+    let gi = 0;
+    for (const [date, byUser] of groups) {
+      for (const [user, items] of byUser) {
+        html += `<div class="dq-tl-date">${esc(date)} · ${esc(user)} · ${fmtInt(items.length)} เหตุการณ์</div>`;
+        html += items.map(ev => {
+          const p = tsParts(ev.ts);
+          const what = ev.action === 'Import'
+            ? `Import baseline · ${esc(ev.sheet)} (${fmtInt(ev.n || 0)} รายการ)`
+            : `${esc(ev.action)} · ${esc(ev.recordId || ev.sheet)}${ev.customer ? ' · ' + esc(ev.customer) : ''}`;
+          const meta = `${esc(p.t)} · ${esc(ev.sheet)}${(ev.changes || []).length ? ' · ' + fmtInt(ev.changes.length) + ' fields' : ''}`;
+          return `<div class="dq-tl-item" style="--dq-dot:${actionColor(ev.action)}"><div class="dq-tl-body" data-tl="${esc(ev.id)}">
+            <div class="dq-tl-title">${what}</div><div class="dq-tl-meta">${meta}</div></div></div>`;
+        }).join('');
+        gi++;
+      }
+    }
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Activity Timeline · ไทม์ไลน์กิจกรรม</div>
+          <div class="card-subtitle">เรียงเหตุการณ์ล่าสุดก่อน · จัดกลุ่มตามวันและผู้ใช้ · คลิกเพื่อดูรายละเอียด</div>
+        </div></div>
+        ${html ? `<div class="dq-timeline">${html}</div>` : '<div class="empty-state">ยังไม่มีกิจกรรมในขอบเขตที่เลือก</div>'}
+      </div>`;
+    h.onclick = (e2) => {
+      const el = e2.target.closest('[data-tl]'); if (!el) return;
+      const ev = STATE.events.find(x => String(x.id) === el.dataset.tl);
+      if (ev) drillEvent(ev);
+    };
+  }
+
+  /* ---------- orchestration ----------------------------------------------- */
+  function renderDynamic() {
+    try { renderKpis(); } catch (e) { console.warn('DQ kpis failed:', e); }
+    try { renderValidation(); } catch (e) { console.warn('DQ validation failed:', e); }
+    try { renderAudit(); } catch (e) { console.warn('DQ audit failed:', e); }
+    try { renderTimeline(); } catch (e) { console.warn('DQ timeline failed:', e); }
+  }
+  function render() {
+    const pane = document.getElementById('tab-dq');
+    if (!pane || !pane.classList.contains('active')) return;
+    try { ensureComputed(); } catch (e) { console.warn('DQ compute failed:', e); }
+    try { ensureSearchCard(); } catch (e) {}
+    try { renderHealth(); } catch (e) {}
+    try { ensureFilterBar(); } catch (e) {}
+    renderDynamic();
+  }
+  function ingestPublic(report, data, source) {
+    ingest(report, data, source);
+    // invalidate persistent sections so they rebuild with new options/data
+    const sh = host('dqSearchHost'); if (sh) sh.innerHTML = '';
+    const cc = document.getElementById('dqChartCard'); if (cc) { try { destroyAllCharts(); } catch (e) {} cc.remove(); }
+    STATE.dirty = false;
+  }
+  function init() {
+    loadPersisted();
+  }
+
+  root.DQAudit = {
+    init, render, destroyCharts: destroyAllCharts,
+    ingest: ingestPublic, search: doSearch,
+    _internal: { CFG, STATE, collectTables, parseLookups, runRules, computeQuality, snapshotOf, diffSnapshots, resolveUser, fnv1a, buildSearchIndex },
+  };
+})(typeof window !== 'undefined' ? window : this);
+</script>
+
 </body>
 </html>
