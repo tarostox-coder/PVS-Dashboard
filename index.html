@@ -2704,6 +2704,58 @@ input[type="file"] { display: none; }
 .qstat.critical { border-left: 3px solid var(--critical); }
 .qstat.critical .qstat-icon { background: rgba(239,68,68,0.15); color: var(--critical); }
 
+/* ============ V11 FULL-COLOR HERO KPI TILES (Style A) ============
+ * Revenue MTD = the largest, most prominent tile (teal gradient); the 4
+ * cash KPIs become vibrant gradient tiles with white glass icon badges.
+ * Gradients are theme-independent, so light & dark both look intentional. */
+.hero-card {
+  background: linear-gradient(135deg, #14C9C9 0%, #0787A8 100%);
+  border: none; color: #fff; box-shadow: var(--card-shadow);
+}
+.hero-card::after { background: radial-gradient(circle, #ffffff 0%, transparent 60%); opacity: 0.14; }
+.hero-card:hover { border: none; box-shadow: 0 16px 40px rgba(8,135,168,0.30); }
+.hero-card .hero-label { color: rgba(255,255,255,0.85); }
+.hero-card .hero-label-dot { background: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.7); }
+.hero-card .hero-amount { color: #fff; font-size: 48px; }
+.hero-card .hero-amount .currency { color: rgba(255,255,255,0.82); }
+.hero-card .hero-sub { color: rgba(255,255,255,0.92); }
+.hero-card .hero-trend-pill.up,
+.hero-card .hero-trend-pill.down { background: rgba(255,255,255,0.24); color: #fff; }
+.hero-card .hero-progress { background: rgba(255,255,255,0.22); }
+.hero-card .hero-progress-bar { background: #fff; }
+.hero-card .hero-progress-labels { color: rgba(255,255,255,0.82); }
+.hero-ic {
+  position: absolute; top: 20px; right: 22px;
+  width: 48px; height: 48px; border-radius: 14px;
+  background: rgba(255,255,255,0.20);
+  display: flex; align-items: center; justify-content: center;
+}
+.hero-ic svg { width: 26px; height: 26px; stroke: #fff; fill: none; stroke-width: 2.2; }
+
+.quick-stats { gap: 14px; }
+.qstat {
+  padding: 17px 18px; border-radius: 16px; border: none; color: #fff;
+  box-shadow: var(--card-shadow); overflow: hidden;
+}
+.qstat::after {
+  content: ''; position: absolute; right: -28px; bottom: -30px;
+  width: 104px; height: 104px; border-radius: 50%;
+  background: rgba(255,255,255,0.10); pointer-events: none;
+}
+.qstat .qstat-row { gap: 11px; margin-bottom: 9px; }
+.qstat .qstat-icon {
+  width: 42px; height: 42px; border-radius: 12px;
+  background: rgba(255,255,255,0.22) !important; color: #fff !important; font-size: 0;
+}
+.qstat .qstat-icon svg { width: 22px; height: 22px; stroke: #fff; fill: none; stroke-width: 2.2; }
+.qstat .qstat-label { color: rgba(255,255,255,0.92); font-size: 12px; font-weight: 600; }
+.qstat .qstat-value { color: #fff; font-size: 24px; }
+.qstat .qstat-meta { color: rgba(255,255,255,0.85); }
+.qstat.success  { background: linear-gradient(135deg, #10B981 0%, #047857 100%); border-left: none; }
+.qstat.warning  { background: linear-gradient(135deg, #FBBF24 0%, #F97316 100%); border-left: none; }
+.qstat.cyan     { background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%); border-left: none; }
+.qstat.critical { background: linear-gradient(135deg, #FB7185 0%, #DC2626 100%); border-left: none; }
+
 /* Dept Cards V2 — simpler */
 .dept-grid-v2 {
   display: grid;
@@ -3168,6 +3220,7 @@ input[type="file"] { display: none; }
     <div class="hero-row">
       <div class="hero-left">
         <div class="hero-card" id="cardHeroRevenue">
+          <div class="hero-ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
           <div class="hero-label"><span class="hero-label-dot"></span>Revenue MTD · รายได้สะสมเดือนนี้</div>
           <div class="hero-amount"><span class="currency">฿</span><span id="heroRevVal">0</span></div>
           <div class="hero-sub">
@@ -3229,7 +3282,7 @@ input[type="file"] { display: none; }
     <div class="quick-stats">
       <div class="qstat success" id="qsCollected">
         <div class="qstat-row">
-          <div class="qstat-icon">💵</div>
+          <div class="qstat-icon"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
           <div class="qstat-label">Cash Collected</div>
         </div>
         <div class="qstat-value">฿<span id="qsCollectedVal">0</span></div>
@@ -3237,7 +3290,7 @@ input[type="file"] { display: none; }
       </div>
       <div class="qstat warning" id="qsAR">
         <div class="qstat-row">
-          <div class="qstat-icon">📥</div>
+          <div class="qstat-icon"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
           <div class="qstat-label">Outstanding AR</div>
         </div>
         <div class="qstat-value">฿<span id="qsARVal">0</span></div>
@@ -3245,7 +3298,7 @@ input[type="file"] { display: none; }
       </div>
       <div class="qstat cyan" id="qsGP">
         <div class="qstat-row">
-          <div class="qstat-icon">📈</div>
+          <div class="qstat-icon"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
           <div class="qstat-label">Gross Profit · Margin</div>
         </div>
         <div class="qstat-value">฿<span id="qsGPVal">0</span></div>
@@ -3253,7 +3306,7 @@ input[type="file"] { display: none; }
       </div>
       <div class="qstat critical" id="qsRisk">
         <div class="qstat-row">
-          <div class="qstat-icon">⚠️</div>
+          <div class="qstat-icon"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
           <div class="qstat-label">Revenue at Risk</div>
         </div>
         <div class="qstat-value">฿<span id="qsRiskVal">0</span></div>
