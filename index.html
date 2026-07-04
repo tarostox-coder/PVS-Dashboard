@@ -2255,6 +2255,80 @@ input[type="file"] { display: none; }
   pointer-events: none;
 }
 
+/* ===================== V11 SIDEBAR LAYOUT (redesign · theme-variable driven) =====================
+ * Converts the horizontal top tabs-nav into a fixed left sidebar. Pure layout
+ * restyle: every nav button is still a .tab-btn, so switchTab()/getActiveTab()/
+ * DynamicTabs keep working unchanged. All colors come from existing CSS vars,
+ * so light/dark theme continues to work. */
+:root { --sidebar-w: 244px; }
+
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; width: var(--sidebar-w);
+  z-index: 60; display: flex; flex-direction: column;
+  background: var(--card); border-right: 1px solid var(--border);
+  overflow-y: auto; overflow-x: hidden;
+}
+.sidebar::-webkit-scrollbar { width: 5px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; }
+.sidebar-brand .logo-box { height: 38px; flex-shrink: 0; }
+/* Reset the topbar brand-name gradient (white text would vanish on a light sidebar) */
+.sidebar-brand .brand-name {
+  font-size: 14px; line-height: 1.25;
+  background: none; -webkit-text-fill-color: currentColor; color: var(--text);
+}
+.sidebar-brand .brand-sub { font-size: 9px; line-height: 1.3; }
+
+.sidebar-section-label {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted); font-weight: 600; padding: 12px 22px 6px; user-select: none;
+}
+
+/* Vertical menu — overrides the horizontal .tabs-nav / .tab-btn rules above */
+.sidebar .tabs-nav {
+  position: static; flex-direction: column; gap: 3px;
+  padding: 2px 12px 10px; background: transparent; backdrop-filter: none;
+  border-bottom: none; overflow: visible; top: auto;
+}
+.sidebar .tab-btn {
+  width: 100%; justify-content: flex-start; gap: 12px;
+  padding: 10px 14px; border-radius: 10px; border-bottom: none; font-size: 13px;
+}
+.sidebar .tab-btn:hover { color: var(--text); background: var(--card-elev); }
+.sidebar .tab-btn.active {
+  color: var(--cyan-bright);
+  background: color-mix(in srgb, var(--cyan) 13%, transparent);
+  border-bottom: none;
+}
+/* Left accent bar replaces the underline indicator */
+.sidebar .tab-btn.active::before {
+  inset: auto; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 56%; border-radius: 0 3px 3px 0;
+  background: var(--cyan);
+}
+.sidebar .tab-btn-num { margin-left: auto; order: 3; opacity: 0.5; }
+#dynTabGroup.collapsed { display: none; }
+
+/* Main column sits to the right of the fixed sidebar */
+.app-main { margin-left: var(--sidebar-w); min-width: 0; }
+
+/* Mobile: collapsible off-canvas sidebar */
+.sidebar-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: 38px; height: 38px; padding: 0; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer;
+}
+.sidebar-toggle svg { width: 18px; height: 18px; }
+.sidebar-backdrop { display: none; position: fixed; inset: 0; z-index: 55; background: rgba(0,0,0,0.45); }
+@media (max-width: 960px) {
+  .sidebar { transform: translateX(-100%); transition: transform 0.22s ease; box-shadow: 0 0 40px rgba(0,0,0,0.35); }
+  body.sidebar-open .sidebar { transform: translateX(0); }
+  body.sidebar-open .sidebar-backdrop { display: block; }
+  .app-main { margin-left: 0; }
+  .sidebar-toggle { display: inline-flex; }
+}
+
 /* Smoother table rows */
 .data-table tbody tr {
   transition: background 0.12s;
@@ -2832,10 +2906,11 @@ input[type="file"] { display: none; }
 <body>
 
 <div class="deco-ring"></div>
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-<!-- ===================== TOP BAR ===================== -->
-<div class="topbar">
-  <div class="brand">
+<!-- ===================== SIDEBAR (left nav · V11 redesign) ===================== -->
+<aside class="sidebar" id="appSidebar">
+  <div class="sidebar-brand">
     <div class="logo-box" title="Powervault — อาณาจักรพลังงาน เพื่อ เมกะโปรเจค">
       <svg viewBox="0 0 280 80" xmlns="http://www.w3.org/2000/svg" style="height:100%; width:auto;">
         <!-- P shape · geometric facets -->
@@ -2865,6 +2940,50 @@ input[type="file"] { display: none; }
       <div class="brand-sub">#MegaEnergyEmpire · Power Service Business Operating Platform</div>
     </div>
   </div>
+  <div class="sidebar-section-label">Menu</div>
+  <nav class="tabs-nav" id="tabsNav">
+    <button class="tab-btn active" data-tab="home">
+      <span class="tab-btn-num">01</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Summary
+    </button>
+    <button class="tab-btn" data-tab="solar">
+      <span class="tab-btn-num">02</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
+      Home Solar &amp; SME
+    </button>
+    <button class="tab-btn" data-tab="cleaning">
+      <span class="tab-btn-num">03</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+      Cleaning
+    </button>
+    <button class="tab-btn" data-tab="om">
+      <span class="tab-btn-num">04</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      O&amp;M
+    </button>
+    <button class="tab-btn" data-tab="permit">
+      <span class="tab-btn-num">05</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      Permit
+    </button>
+    <button class="tab-btn" data-tab="dq">
+      <span class="tab-btn-num">06</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+      Data Quality &amp; Audit
+    </button>
+    <div class="sidebar-section-label" id="dynGroupLabel" style="display:none;cursor:pointer;" title="ย่อ/ขยาย">Uploaded sheets ▾</div>
+    <div id="dynTabGroup"></div>
+  </nav>
+</aside>
+
+<div class="app-main">
+
+<!-- ===================== TOP BAR ===================== -->
+<div class="topbar">
+  <button class="sidebar-toggle" id="sidebarToggle" aria-label="เปิด/ปิดเมนู" title="เมนู">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
 
   <div class="topbar-spacer"></div>
 
@@ -2914,39 +3033,6 @@ input[type="file"] { display: none; }
   </div>
 </div>
 
-<!-- ===================== TABS NAVIGATION (5 Business Units) ===================== -->
-<nav class="tabs-nav" id="tabsNav">
-  <button class="tab-btn active" data-tab="home">
-    <span class="tab-btn-num">01</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-    Summary
-  </button>
-  <button class="tab-btn" data-tab="solar">
-    <span class="tab-btn-num">02</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
-    Home Solar &amp; SME
-  </button>
-  <button class="tab-btn" data-tab="cleaning">
-    <span class="tab-btn-num">03</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
-    Cleaning
-  </button>
-  <button class="tab-btn" data-tab="om">
-    <span class="tab-btn-num">04</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    O&amp;M
-  </button>
-  <button class="tab-btn" data-tab="permit">
-    <span class="tab-btn-num">05</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-    Permit
-  </button>
-  <button class="tab-btn" data-tab="dq">
-    <span class="tab-btn-num">06</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
-    Data Quality &amp; Audit
-  </button>
-</nav>
 
 <!-- ===================== MAIN CONTAINER ===================== -->
 <div class="container" id="snapshotTarget">
@@ -3454,6 +3540,7 @@ input[type="file"] { display: none; }
   </div>
 
   </div>
+</div><!-- /.app-main -->
 
 <!-- ===================== MODAL ===================== -->
 <div class="modal-overlay" id="drillModal">
@@ -3956,6 +4043,8 @@ function switchTab(tab) {
   if (window.__tabRenderTimer) clearTimeout(window.__tabRenderTimer);
   window.__tabRenderTimer = setTimeout(renderActiveTab, 50);
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  // V11: on mobile, selecting a tab closes the off-canvas sidebar.
+  document.body.classList.remove('sidebar-open');
 }
 
 function getActiveTab() {
@@ -6075,6 +6164,19 @@ function init() {
   // Theme
   document.getElementById('themeBtn').addEventListener('click', toggleTheme);
 
+  // V11 sidebar: mobile toggle + backdrop + collapsible "Uploaded sheets" group
+  const sbToggle = document.getElementById('sidebarToggle');
+  const sbBackdrop = document.getElementById('sidebarBackdrop');
+  if (sbToggle) sbToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-open'));
+  if (sbBackdrop) sbBackdrop.addEventListener('click', () => document.body.classList.remove('sidebar-open'));
+  const dynLabel = document.getElementById('dynGroupLabel');
+  if (dynLabel) dynLabel.addEventListener('click', () => {
+    const grp = document.getElementById('dynTabGroup');
+    if (!grp) return;
+    grp.classList.toggle('collapsed');
+    dynLabel.textContent = 'Uploaded sheets ' + (grp.classList.contains('collapsed') ? '▸' : '▾');
+  });
+
   // V9 · Sections 11 & 12 — data source status + smart refresh wiring
   const refreshBtn = document.getElementById('refreshDataBtn');
   if (refreshBtn) refreshBtn.addEventListener('click', refreshData);
@@ -6380,15 +6482,20 @@ document.addEventListener('DOMContentLoaded', init);
       ? `<span style="margin-left:6px;font-size:9px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px">${esc(refLabel)}</span>`
       : '';
 
-    // tab button (numbered after the 5 fixed tabs: 06, 07, ...)
+    // tab button (numbered after the fixed tabs). In the V11 sidebar layout the
+    // dynamic tabs are grouped under a collapsible "Uploaded sheets" section
+    // (#dynTabGroup); falls back to the nav root if that container is absent.
     const nav = document.getElementById('tabsNav');
+    const dynHost = document.getElementById('dynTabGroup') || nav;
     if (nav && !nav.querySelector('[data-tab="' + key + '"]')) {
       const btn = document.createElement('button');
       btn.className = 'tab-btn'; btn.dataset.tab = key; btn.dataset.dyn = '1';
       if (refLabel) btn.style.opacity = '0.72';
       btn.innerHTML = `<span class="tab-btn-num">${String(displayNum).padStart(2, '0')}</span>${ICON}${esc(dataset.name)}${refBadge}`;
       btn.addEventListener('click', () => { if (typeof switchTab === 'function') switchTab(key); });
-      nav.appendChild(btn);
+      dynHost.appendChild(btn);
+      const label = document.getElementById('dynGroupLabel');
+      if (label) label.style.display = '';
     }
 
     // tab pane (appended to the same container the fixed panes live in)
@@ -6432,6 +6539,9 @@ document.addEventListener('DOMContentLoaded', init);
     const wasDyn = currentTabIsDyn();
     document.querySelectorAll('.tab-btn[data-dyn="1"]').forEach(b => b.remove());
     document.querySelectorAll('.tab-pane[data-dyn="1"]').forEach(p => p.remove());
+    // Hide the "Uploaded sheets" sidebar group when there are no dynamic tabs.
+    const dynLabel = document.getElementById('dynGroupLabel');
+    if (dynLabel) dynLabel.style.display = 'none';
     for (const k in TABS) { if (typeof TAB_TITLES !== 'undefined') delete TAB_TITLES[k]; delete TABS[k]; }
     // If a now-deleted dynamic tab was active, fall back to Home so the app stays valid.
     if (wasDyn) {
