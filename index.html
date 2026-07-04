@@ -2327,12 +2327,68 @@ input[type="file"] { display: none; }
 }
 .sidebar-toggle svg { width: 18px; height: 18px; }
 .sidebar-backdrop { display: none; position: fixed; inset: 0; z-index: 55; background: rgba(0,0,0,0.45); }
+/* Sidebar filter + tool sections (relocated from the topbar) */
+.sidebar-filters, .sidebar-tools { display: flex; flex-direction: column; gap: 8px; padding: 2px 14px 6px; }
+.sidebar-filters .btn, .sidebar-tools > .btn, .sidebar-tools > label.btn {
+  width: 100%; justify-content: flex-start; margin: 0;
+}
+.sidebar-filters select.btn { justify-content: space-between; }
+.sidebar-tools .split-btn-group { width: 100%; }
+.sidebar-tools .split-btn-group > #gsheetsSyncBtn { flex: 1; justify-content: flex-start; }
+.sidebar-foot {
+  margin-top: auto; display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-top: 1px solid var(--border);
+}
+.sidebar-foot .btn { flex-shrink: 0; }
+.sidebar-foot-label { font-size: 11.5px; color: var(--text-dim); }
+
+/* Desktop collapse button (top-right of the sidebar) */
+.sidebar-collapse {
+  position: absolute; top: 14px; right: 10px; z-index: 2;
+  width: 26px; height: 26px; padding: 0; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--card-elev);
+  color: var(--text-dim); cursor: pointer; transition: transform 0.2s, color 0.15s;
+}
+.sidebar-collapse:hover { color: var(--text); border-color: var(--border-bright); }
+.sidebar-collapse svg { width: 15px; height: 15px; }
+
+/* Topbar universal search (bridges to the existing Data Quality search) */
+.topbar-search { position: relative; flex: 1; max-width: 460px; }
+.topbar-search svg {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--text-muted); pointer-events: none;
+}
+.topbar-search input {
+  width: 100%; padding: 9px 12px 9px 36px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--card-elev); color: var(--text);
+  font-family: inherit; font-size: 13px;
+}
+.topbar-search input:focus { outline: none; border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--cyan-glow); }
+
+.sidebar, .app-main { transition: width 0.2s ease, margin-left 0.2s ease; }
+
+/* Desktop collapsed rail (icon-only). Scoped to desktop so mobile is unaffected. */
+@media (min-width: 961px) {
+  body.sidebar-collapsed { --sidebar-w: 68px; }
+  body.sidebar-collapsed .collapse-hide { display: none !important; }
+  body.sidebar-collapsed .sidebar-section-label { display: none; }
+  body.sidebar-collapsed .sidebar-brand { justify-content: center; padding: 16px 0 12px; }
+  body.sidebar-collapsed .sidebar-brand > div:last-child { display: none; }
+  body.sidebar-collapsed .sidebar .tab-btn { justify-content: center; gap: 0; padding: 11px 0; font-size: 0; }
+  body.sidebar-collapsed .sidebar .tab-btn svg { width: 18px; height: 18px; }
+  body.sidebar-collapsed .sidebar .tab-btn-num { display: none; }
+  body.sidebar-collapsed .sidebar-foot { justify-content: center; padding: 12px 0; }
+  body.sidebar-collapsed .sidebar-collapse svg { transform: rotate(180deg); }
+}
+
 @media (max-width: 960px) {
   .sidebar { transform: translateX(-100%); transition: transform 0.22s ease; box-shadow: 0 0 40px rgba(0,0,0,0.35); }
   body.sidebar-open .sidebar { transform: translateX(0); }
   body.sidebar-open .sidebar-backdrop { display: block; }
   .app-main { margin-left: 0; }
   .sidebar-toggle { display: inline-flex; }
+  .sidebar-collapse { display: none; }        /* mobile uses the hamburger instead */
 }
 
 /* Smoother table rows */
@@ -2916,6 +2972,9 @@ input[type="file"] { display: none; }
 
 <!-- ===================== SIDEBAR (left nav · V11 redesign) ===================== -->
 <aside class="sidebar" id="appSidebar">
+  <button class="sidebar-collapse" id="sidebarCollapse" title="ย่อ/ขยายเมนู" aria-label="ย่อ/ขยายเมนู">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
   <div class="sidebar-brand">
     <div class="logo-box" title="Powervault — อาณาจักรพลังงาน เพื่อ เมกะโปรเจค">
       <svg viewBox="0 0 280 80" xmlns="http://www.w3.org/2000/svg" style="height:100%; width:auto;">
@@ -2981,6 +3040,50 @@ input[type="file"] { display: none; }
     <div class="sidebar-section-label" id="dynGroupLabel" style="display:none;cursor:pointer;" title="ย่อ/ขยาย">Uploaded sheets ▾</div>
     <div id="dynTabGroup"></div>
   </nav>
+  <div class="sidebar-section-label collapse-hide">Filters</div>
+  <div class="sidebar-filters collapse-hide">
+    <select id="filterMonth" class="btn" title="กรองรายเดือน">
+      <option value="all">ทุกเดือน</option>
+    </select>
+    <select id="filterCustomer" class="btn" title="กรองตามลูกค้า">
+      <option value="all">ลูกค้าทั้งหมด</option>
+    </select>
+    <select id="filterGrade" class="btn" title="กรองตาม Grade">
+      <option value="all">ทุก Grade</option>
+    </select>
+  </div>
+  <div class="sidebar-section-label collapse-hide">Data</div>
+  <div class="sidebar-tools collapse-hide">
+    <label for="fileInput" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span>อัพโหลด Excel</span>
+    </label>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" />
+    <div class="split-btn-group" style="display:inline-flex;align-items:stretch;border-radius:8px;overflow:hidden">
+      <button id="gsheetsSyncBtn" class="btn" title="Sync ข้อมูลล่าสุดจาก Google Sheets" style="background:linear-gradient(135deg,#34A853 0%,#0F9D58 100%);color:white;border:none;border-radius:8px 0 0 8px;border-right:1px solid rgba(255,255,255,0.2);margin:0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span id="gsheetsSyncLabel">Sync Sheets</span>
+      </button>
+      <button id="gsheetsCfgBtn" class="btn" title="ตั้งค่า Google Sheets URL" style="background:linear-gradient(135deg,#34A853 0%,#0F9D58 100%);color:white;border:none;border-radius:0 8px 8px 0;padding:0 10px;margin:0" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <button id="exportExecBtn" class="btn" title="ส่งออก HTML สำหรับผู้บริหาร (ไม่มี filter / ไม่มี tips)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span>Export Exec</span>
+    </button>
+    <button id="snapshotBtn" class="btn" title="Snapshot ส่ง Line">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <span>Snapshot</span>
+    </button>
+  </div>
+  <div class="sidebar-foot">
+    <button id="themeBtn" class="btn" title="สลับ Theme">
+      <svg id="iconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <span class="sidebar-foot-label collapse-hide">สลับธีม (Light / Dark)</span>
+  </div>
 </aside>
 
 <div class="app-main">
@@ -2991,52 +3094,11 @@ input[type="file"] { display: none; }
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
 
-  <div class="topbar-spacer"></div>
-
-  <div class="topbar-actions">
-    <select id="filterMonth" class="btn" title="กรองรายเดือน">
-      <option value="all">ทุกเดือน</option>
-    </select>
-
-    <select id="filterCustomer" class="btn" title="กรองตามลูกค้า">
-      <option value="all">ลูกค้าทั้งหมด</option>
-    </select>
-
-    <select id="filterGrade" class="btn" title="กรองตาม Grade">
-      <option value="all">ทุก Grade</option>
-    </select>
-
-    <label for="fileInput" class="btn btn-primary">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <span>อัพโหลด Excel</span>
-    </label>
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" />
-
-    <div class="split-btn-group" style="display:inline-flex;align-items:stretch;border-radius:8px;overflow:hidden">
-      <button id="gsheetsSyncBtn" class="btn" title="Sync ข้อมูลล่าสุดจาก Google Sheets" style="background:linear-gradient(135deg,#34A853 0%,#0F9D58 100%);color:white;border:none;border-radius:8px 0 0 8px;border-right:1px solid rgba(255,255,255,0.2);margin:0">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        <span id="gsheetsSyncLabel">Sync Sheets</span>
-      </button>
-      <button id="gsheetsCfgBtn" class="btn" title="ตั้งค่า Google Sheets URL" style="background:linear-gradient(135deg,#34A853 0%,#0F9D58 100%);color:white;border:none;border-radius:0 8px 8px 0;padding:0 10px;margin:0" aria-label="Settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </button>
-    </div>
-
-    <button id="exportExecBtn" class="btn" title="ส่งออก HTML สำหรับผู้บริหาร (ไม่มี filter / ไม่มี tips)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-      <span>Export Exec</span>
-    </button>
-
-    <button id="snapshotBtn" class="btn" title="Snapshot ส่ง Line">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      <span>Snapshot</span>
-    </button>
-
-    <button id="themeBtn" class="btn" title="สลับ Theme">
-      <svg id="iconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-    </button>
+  <div class="topbar-search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input id="globalSearchInput" type="text" autocomplete="off" placeholder="ค้นหา ลูกค้า / โครงการ / Record ID / Sheet…" title="ค้นหาทั้งแดชบอร์ด (กด Enter)" />
   </div>
+  <div class="topbar-spacer"></div>
 </div>
 
 
@@ -6175,6 +6237,32 @@ function init() {
   const sbBackdrop = document.getElementById('sidebarBackdrop');
   if (sbToggle) sbToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-open'));
   if (sbBackdrop) sbBackdrop.addEventListener('click', () => document.body.classList.remove('sidebar-open'));
+
+  // V11 sidebar: desktop collapse (icon-only rail) — persisted
+  const sbCollapse = document.getElementById('sidebarCollapse');
+  try { if (localStorage.getItem('sidebar_collapsed') === '1') document.body.classList.add('sidebar-collapsed'); } catch (e) {}
+  if (sbCollapse) sbCollapse.addEventListener('click', () => {
+    const on = document.body.classList.toggle('sidebar-collapsed');
+    try { localStorage.setItem('sidebar_collapsed', on ? '1' : '0'); } catch (e) {}
+  });
+  // Tooltips on nav buttons so labels are readable in the collapsed rail
+  document.querySelectorAll('#tabsNav .tab-btn').forEach(b => { if (!b.title) b.title = b.textContent.trim(); });
+
+  // V11 topbar universal search — REUSES the Data Quality global search engine
+  // (does not rebuild search): jumps to the DQ tab and runs the query there.
+  const gSearch = document.getElementById('globalSearchInput');
+  if (gSearch) {
+    const runGlobalSearch = () => {
+      const q = gSearch.value.trim();
+      if (q.length < 2) return;
+      if (getActiveTab() !== 'dq') switchTab('dq');
+      setTimeout(() => {
+        const el = document.getElementById('dqSearchInput');
+        if (el) { el.value = q; el.dispatchEvent(new Event('input', { bubbles: true })); el.focus(); }
+      }, 140);
+    };
+    gSearch.addEventListener('keydown', e => { if (e.key === 'Enter') runGlobalSearch(); });
+  }
   const dynLabel = document.getElementById('dynGroupLabel');
   if (dynLabel) dynLabel.addEventListener('click', () => {
     const grp = document.getElementById('dynTabGroup');
@@ -6496,6 +6584,7 @@ document.addEventListener('DOMContentLoaded', init);
     if (nav && !nav.querySelector('[data-tab="' + key + '"]')) {
       const btn = document.createElement('button');
       btn.className = 'tab-btn'; btn.dataset.tab = key; btn.dataset.dyn = '1';
+      btn.title = dataset.name;   // tooltip for the collapsed sidebar rail
       if (refLabel) btn.style.opacity = '0.72';
       btn.innerHTML = `<span class="tab-btn-num">${String(displayNum).padStart(2, '0')}</span>${ICON}${esc(dataset.name)}${refBadge}`;
       btn.addEventListener('click', () => { if (typeof switchTab === 'function') switchTab(key); });
