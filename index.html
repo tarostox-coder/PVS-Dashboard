@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="th" data-theme="dark">
+<html lang="th" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,7 +7,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1096,29 +1096,34 @@
   --bu-cleaning: #10B981;    /* Green */
   --bu-om: #F59E0B;          /* Orange */
   --bu-permit: #A78BFA;      /* Purple */
+  /* V11 visual refresh — soft card elevation (per-theme) + radius scale */
+  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+  --card-radius: 16px;
 }
 
 [data-theme="light"] {
-  --bg: #F8FAFC;
-  --bg-grad: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(19, 194, 194, 0.06), transparent),
-             linear-gradient(180deg, #F8FAFC 0%, #EEF2F8 100%);
+  /* Airy blue-gray canvas + white soft-shadow cards (reference "Solar Admin" look) */
+  --bg: #EDF0F7;
+  --bg-grad: linear-gradient(180deg, #F2F4FB 0%, #E8ECF6 100%);
   --card: #FFFFFF;
-  --card-elev: #F8FAFC;
-  --border: rgba(203, 213, 225, 0.7);
-  --border-bright: rgba(19, 194, 194, 0.3);
-  --text: #0F172A;
-  --text-dim: #475569;
+  --card-elev: #F5F7FC;
+  --card-hover: #F8FAFF;
+  --border: rgba(224, 230, 242, 0.9);
+  --border-bright: rgba(19, 194, 194, 0.35);
+  --text: #1E293B;
+  --text-dim: #64748B;
   --text-muted: #94A3B8;
   --cyan: #0E9F9F;
   --cyan-bright: #0E9F9F;
-  --cyan-glow: rgba(19, 194, 194, 0.08);
-  --grid-line: rgba(15, 23, 42, 0.06);
+  --cyan-glow: rgba(19, 194, 194, 0.10);
+  --grid-line: rgba(15, 23, 42, 0.05);
+  --card-shadow: 0 1px 3px rgba(16, 24, 40, 0.04), 0 10px 28px rgba(16, 24, 40, 0.06);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  font-family: 'Prompt', 'Outfit', -apple-system, sans-serif;
+  font-family: 'Inter', 'IBM Plex Sans Thai', 'Outfit', -apple-system, sans-serif;
   background: var(--bg);
   background-image: var(--bg-grad);
   background-attachment: fixed;
@@ -1349,9 +1354,10 @@ input[type="file"] { display: none; }
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--card-radius, 16px);
   padding: 18px;
-  transition: border-color 0.2s ease, transform 0.15s ease;
+  box-shadow: var(--card-shadow, none);
+  transition: border-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
 }
 .card.clickable { cursor: pointer; }
 .card.clickable:hover { border-color: var(--border-bright); transform: translateY(-1px); }
@@ -1517,9 +1523,10 @@ input[type="file"] { display: none; }
 .kpi-mini {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
+  border-radius: 13px;
+  padding: 13px 15px;
   cursor: pointer;
+  box-shadow: var(--card-shadow, none);
   transition: all 0.15s ease;
 }
 .kpi-mini:hover { border-color: var(--border-bright); }
@@ -3079,8 +3086,8 @@ input[type="file"] { display: none; }
   </div>
   <div class="sidebar-foot">
     <button id="themeBtn" class="btn" title="สลับ Theme">
-      <svg id="iconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg id="iconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
     </button>
     <span class="sidebar-foot-label collapse-hide">สลับธีม (Light / Dark)</span>
   </div>
@@ -4138,7 +4145,7 @@ function renderActiveTab() {
 
 /* ============== CHART DEFAULTS ============== */
 function setupChartDefaults() {
-  Chart.defaults.font.family = "'Prompt', 'Outfit', sans-serif";
+  Chart.defaults.font.family = "'Inter', 'IBM Plex Sans Thai', sans-serif";
   Chart.defaults.font.size = 11;
   Chart.defaults.color = getCSSVar('--text-dim');
 }
@@ -6135,13 +6142,18 @@ function downloadDataUrl(dataUrl) {
 }
 
 /* ============== THEME ============== */
+function applyTheme(theme) {
+  const t = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+  const im = document.getElementById('iconMoon'), is = document.getElementById('iconSun');
+  if (im) im.style.display = t === 'dark' ? '' : 'none';
+  if (is) is.style.display = t === 'dark' ? 'none' : '';
+  return t;
+}
 function toggleTheme() {
-  const html = document.documentElement;
-  const cur = html.getAttribute('data-theme');
-  const next = cur === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  document.getElementById('iconMoon').style.display = next === 'dark' ? '' : 'none';
-  document.getElementById('iconSun').style.display = next === 'dark' ? 'none' : '';
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = applyTheme(cur === 'dark' ? 'light' : 'dark');
+  try { localStorage.setItem('dashboard_theme', next); } catch (e) {}
   setupChartDefaults();
   renderActiveTab();
 }
@@ -6158,6 +6170,9 @@ function init() {
   // twice would duplicate every handler and stack timers. Idempotent by flag.
   if (window.__dashboardInitDone) return;
   window.__dashboardInitDone = true;
+
+  // V11: restore saved theme (default light — matches the reference design).
+  try { applyTheme(localStorage.getItem('dashboard_theme') || 'light'); } catch (e) {}
 
   // ---- Debug mode bootstrap ----------------------------------------------
   // Enable via URL (?debug=1 / #debug) or persisted localStorage flag.
