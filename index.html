@@ -1547,6 +1547,20 @@ input[type="file"] { display: none; }
 .kpi-ic.om       { background: rgba(245,158,11,0.14); }  .kpi-ic.om svg       { stroke: var(--bu-om); }
 .kpi-ic.permit   { background: rgba(167,139,250,0.14); } .kpi-ic.permit svg   { stroke: var(--bu-permit); }
 .kpi-ic.cyan     { background: var(--cyan-glow); }       .kpi-ic.cyan svg     { stroke: var(--cyan); }
+.kpi-ic.critical { background: rgba(239,68,68,0.13); }   .kpi-ic.critical svg { stroke: var(--critical); }
+.kpi-ic.warning  { background: rgba(245,158,11,0.14); }  .kpi-ic.warning svg  { stroke: var(--warning); }
+.kpi-ic.success  { background: rgba(16,185,129,0.13); }  .kpi-ic.success svg  { stroke: var(--success); }
+
+/* Dept cards (Summary · section 3) — matching soft-icon badge, tinted per BU */
+.dept-card-v2 { position: relative; }
+.dept-card-v2 .dept-ic {
+  position: absolute; top: 14px; right: 14px;
+  width: 40px; height: 40px; border-radius: 12px;
+  background: color-mix(in srgb, var(--dept-color) 14%, transparent);
+  display: flex; align-items: center; justify-content: center;
+}
+.dept-card-v2 .dept-ic svg { width: 21px; height: 21px; stroke: var(--dept-color); fill: none; stroke-width: 2.1; }
+.dept-card-v2 .dept-name { padding-right: 46px; }
 .kpi-mini-label {
   font-size: 10.5px;
   color: var(--text-dim);
@@ -2726,8 +2740,9 @@ input[type="file"] { display: none; }
  * cash KPIs become vibrant gradient tiles with white glass icon badges.
  * Gradients are theme-independent, so light & dark both look intentional. */
 .hero-card {
-  background: linear-gradient(135deg, #14C9C9 0%, #0787A8 100%);
-  border: none; color: #fff; box-shadow: var(--card-shadow);
+  background: linear-gradient(135deg, #16D0D0 0%, #0787A8 100%);
+  border: none; color: #fff;
+  box-shadow: var(--card-shadow), inset 0 1px 0 rgba(255,255,255,0.20);
 }
 .hero-card::after { background: radial-gradient(circle, #ffffff 0%, transparent 60%); opacity: 0.14; }
 .hero-card:hover { border: none; box-shadow: 0 16px 40px rgba(8,135,168,0.30); }
@@ -2752,14 +2767,15 @@ input[type="file"] { display: none; }
 
 .quick-stats { gap: 14px; }
 .qstat {
-  padding: 17px 18px; border-radius: 16px; border: none; color: #fff;
-  box-shadow: var(--card-shadow); overflow: hidden;
+  padding: 18px 19px; border-radius: 16px; border: none; color: #fff;
+  box-shadow: var(--card-shadow), inset 0 1px 0 rgba(255,255,255,0.18); overflow: hidden;
 }
 .qstat::after {
-  content: ''; position: absolute; right: -28px; bottom: -30px;
-  width: 104px; height: 104px; border-radius: 50%;
-  background: rgba(255,255,255,0.10); pointer-events: none;
+  content: ''; position: absolute; right: -26px; bottom: -32px;
+  width: 116px; height: 116px; border-radius: 50%;
+  background: rgba(255,255,255,0.12); pointer-events: none;
 }
+.qstat .qstat-value { font-size: 26px; }
 .qstat .qstat-row { gap: 11px; margin-bottom: 9px; }
 .qstat .qstat-icon {
   width: 48px; height: 48px; border-radius: 14px;
@@ -2770,7 +2786,7 @@ input[type="file"] { display: none; }
 .qstat.success .qstat-icon, .qstat.warning .qstat-icon,
 .qstat.cyan .qstat-icon, .qstat.critical .qstat-icon { background: rgba(255,255,255,0.26) !important; color: #fff !important; }
 .qstat .qstat-label { color: rgba(255,255,255,0.92); font-size: 12px; font-weight: 600; }
-.qstat .qstat-value { color: #fff; font-size: 24px; }
+.qstat .qstat-value { color: #fff; font-size: 26px; }
 .qstat .qstat-meta { color: rgba(255,255,255,0.85); }
 .qstat.success  { background: linear-gradient(135deg, #10B981 0%, #047857 100%); border-left: none; }
 .qstat.warning  { background: linear-gradient(135deg, #FBBF24 0%, #F97316 100%); border-left: none; }
@@ -3344,25 +3360,29 @@ input[type="file"] { display: none; }
 
     <div class="dept-grid-v2">
       <div class="dept-card-v2" style="--dept-color:#3B82F6;" onclick="document.querySelector('[data-tab=solar]').click()">
-        <div class="dept-name"><span class="dept-name-icon">☀️</span> Home Solar &amp; SME</div>
+        <div class="dept-ic"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg></div>
+        <div class="dept-name">Home Solar &amp; SME</div>
         <div class="dept-num">฿<span id="dv2SolarRev">0</span></div>
         <div class="dept-status" id="dv2SolarStatus">— โครงการ · — kW</div>
         <div class="dept-link">เปิดแท็บ Solar →</div>
       </div>
       <div class="dept-card-v2" style="--dept-color:#10B981;" onclick="document.querySelector('[data-tab=cleaning]').click()">
-        <div class="dept-name"><span class="dept-name-icon">🧹</span> Cleaning</div>
+        <div class="dept-ic"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l1.8 3.7L19 8l-3.7 1.8L13 13l-1.8-3.7L7 8l3.7-1.8z"/><path d="M6 15l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg></div>
+        <div class="dept-name">Cleaning</div>
         <div class="dept-num">฿<span id="dv2ClRev">0</span></div>
         <div class="dept-status" id="dv2ClStatus">— งาน · เสร็จ 0/0</div>
         <div class="dept-link">เปิดแท็บ Cleaning →</div>
       </div>
       <div class="dept-card-v2" style="--dept-color:#F59E0B;" onclick="document.querySelector('[data-tab=om]').click()">
-        <div class="dept-name"><span class="dept-name-icon">🔧</span> O&amp;M</div>
+        <div class="dept-ic"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></div>
+        <div class="dept-name">O&amp;M</div>
         <div class="dept-num">฿<span id="dv2OMRev">0</span></div>
         <div class="dept-status" id="dv2OMStatus">— Service · — Critical</div>
         <div class="dept-link">เปิดแท็บ O&amp;M →</div>
       </div>
       <div class="dept-card-v2" style="--dept-color:#A78BFA;" onclick="document.querySelector('[data-tab=permit]').click()">
-        <div class="dept-name"><span class="dept-name-icon">📋</span> Permit</div>
+        <div class="dept-ic"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+        <div class="dept-name">Permit</div>
         <div class="dept-num">฿<span id="dv2PermitStuck">0</span></div>
         <div class="dept-status" id="dv2PermitStatus">— เอกสารดีเลย์</div>
         <div class="dept-link">เปิดแท็บ Permit →</div>
@@ -4446,9 +4466,15 @@ function renderHome() {
     ? '✓ เกินเป้า'
     : (g.pct >= 80 ? '⚠ ใกล้เป้า' : '⛔ ห่างเป้า ' + fmtCurrency(gap));
   const gaugeCtx = document.getElementById('chartGauge').getContext('2d');
-  // Semicircle speedometer: fixed red/amber/green zones (0-50 / 50-80 / 80-100)
-  // with a needle pointing at the achievement %. Reference "Solar Admin" style.
+  // Semicircle speedometer with a needle + tail pointing at the achievement %.
+  // Zones: 0-40 red · 40-70 amber · 70-100 green (green weighted so hitting the
+  // target reads as a reward). Reference "Solar Admin" style.
   const needleVal = Math.max(0, Math.min(100, g.pct));
+  const zoneColor = needleVal < 40 ? getCSSVar('--critical')
+                  : needleVal < 70 ? getCSSVar('--warning') : getCSSVar('--success');
+  // Center % takes the zone color (overrides the CSS gradient-text).
+  const gp = document.getElementById('gaugePercent');
+  if (gp) { gp.style.background = 'none'; gp.style.webkitTextFillColor = zoneColor; gp.style.color = zoneColor; }
   const needleColor = getCSSVar('--text') || '#334155';
   const cardBg = getCSSVar('--card') || '#ffffff';
   const gaugeNeedle = {
@@ -4456,21 +4482,21 @@ function renderHome() {
     afterDatasetsDraw(chart) {
       const arc = chart.getDatasetMeta(0).data[0]; if (!arc) return;
       const ctx = chart.ctx, cx = arc.x, cy = arc.y;
-      const len = ((arc.outerRadius + arc.innerRadius) / 2) * 1.02;
+      const len = ((arc.outerRadius + arc.innerRadius) / 2) * 1.04;
+      const tail = len * 0.17, half = 4.5;
       const ang = Math.PI + (needleVal / 100) * Math.PI;   // 0%→left, 50%→up, 100%→right
       ctx.save();
       ctx.translate(cx, cy); ctx.rotate(ang);
-      ctx.beginPath(); ctx.moveTo(0, -3.5); ctx.lineTo(len, 0); ctx.lineTo(0, 3.5); ctx.closePath();
+      ctx.beginPath();
+      ctx.moveTo(-tail, 0); ctx.lineTo(0, -half); ctx.lineTo(len, 0); ctx.lineTo(0, half); ctx.closePath();
       ctx.fillStyle = needleColor; ctx.fill();
       ctx.restore();
       ctx.save(); ctx.translate(cx, cy);
-      ctx.beginPath(); ctx.arc(0, 0, 8, 0, 2 * Math.PI); ctx.fillStyle = needleColor; ctx.fill();
-      ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, 2 * Math.PI); ctx.fillStyle = cardBg; ctx.fill();
-      // end scale labels
+      ctx.beginPath(); ctx.arc(0, 0, 10, 0, 2 * Math.PI); ctx.fillStyle = needleColor; ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, 4.5, 0, 2 * Math.PI); ctx.fillStyle = cardBg; ctx.fill();
       ctx.fillStyle = getCSSVar('--text-muted') || '#94A3B8';
       ctx.font = '600 10px Inter, sans-serif';
-      ctx.textBaseline = 'top';
-      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top'; ctx.textAlign = 'center';
       ctx.fillText('0', -arc.outerRadius * 0.92, 6);
       ctx.fillText('100', arc.outerRadius * 0.92, 6);
       ctx.restore();
@@ -4479,9 +4505,9 @@ function renderHome() {
   CHARTS.gauge = registerChart('gauge', new Chart(gaugeCtx, {
     type: 'doughnut',
     data: { datasets: [{
-      data: [50, 30, 20],
+      data: [40, 30, 30],
       backgroundColor: [getCSSVar('--critical'), getCSSVar('--warning'), getCSSVar('--success')],
-      borderWidth: 0, cutout: '68%', circumference: 180, rotation: 270,
+      borderWidth: 0, cutout: '64%', circumference: 180, rotation: 270,
     }]},
     options: {
       responsive: true, maintainAspectRatio: false, layout: { padding: 6 },
@@ -7823,6 +7849,18 @@ document.addEventListener('DOMContentLoaded', init);
     if (pct >= CFG.KPI_CRIT_PCT) return { cls: 'down', word: 'Critical' };
     return { cls: 'neutral', word: 'Warning' };
   }
+  const DQ_ICONS = {
+    total:   { t: 'cyan',     s: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>' },
+    missing: { t: 'critical', s: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
+    dup:     { t: 'critical', s: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' },
+    invval:  { t: 'warning',  s: '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>' },
+    invdate: { t: 'warning',  s: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9.5" y1="15" x2="14.5" y2="19"/><line x1="14.5" y1="15" x2="9.5" y2="19"/>' },
+    invdrop: { t: 'warning',  s: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>' },
+    expc:    { t: 'warning',  s: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/>' },
+    expp:    { t: 'warning',  s: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
+    err:     { t: 'critical', s: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' },
+    score:   { t: 'success',  s: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>' },
+  };
   function renderKpis() {
     const h = host('dqKpiHost'); if (!h) return;
     const q = STATE.quality; if (!q) { h.innerHTML = ''; return; }
@@ -7851,12 +7889,16 @@ document.addEventListener('DOMContentLoaded', init);
       { id: 'err', label: 'Error Rate', value: errRate.toFixed(2) + '%', state: kpiState(flaggedSet.size, totalRec) },
       { id: 'score', label: 'Data Quality Score', value: q.score + '/100', state: { cls: q.status === 'healthy' ? 'up' : q.status === 'watch' ? 'neutral' : 'down', word: q.status } },
     ];
-    h.innerHTML = `<div class="kpi-mini-grid" style="margin-top:14px;">` + KPIS.map(k => `
+    h.innerHTML = `<div class="kpi-mini-grid" style="margin-top:14px;">` + KPIS.map(k => {
+      const ic = DQ_ICONS[k.id];
+      const icHtml = ic ? `<div class="kpi-ic ${ic.t}"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">${ic.s}</svg></div>` : '';
+      return `
       <div class="kpi-mini" data-kpi="${k.id}" style="cursor:pointer;">
-        <div class="kpi-mini-label">${esc(k.label)}</div>
+        ${icHtml}<div class="kpi-mini-label">${esc(k.label)}</div>
         <div class="kpi-mini-value" style="color:${k.state.cls === 'down' ? 'var(--critical)' : k.state.cls === 'up' ? 'var(--success)' : 'var(--cyan)'}">${k.value}</div>
         <div class="kpi-mini-trend ${k.state.cls}">${esc(k.state.word)}</div>
-      </div>`).join('') + `</div>`;
+      </div>`;
+    }).join('') + `</div>`;
     h.onclick = (e2) => {
       const card = e2.target.closest('[data-kpi]'); if (!card) return;
       const k = KPIS.find(x => x.id === card.dataset.kpi); if (!k) return;
