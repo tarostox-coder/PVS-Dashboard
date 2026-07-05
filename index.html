@@ -1584,6 +1584,23 @@ input[type="file"] { display: none; }
 .exec-att-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-att-sub { font-size: 11.5px; color: var(--text-muted); }
 .exec-att-val { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 700; flex-shrink: 0; }
+
+/* ===================== EXPORT (snapshot) MODE (Phase 4) ===================== */
+.pvs-snapshot-banner {
+  position: sticky; top: 0; z-index: 45;
+  background: linear-gradient(90deg, #F59E0B, #F97316); color: #fff;
+  font-weight: 600; font-size: 12.5px; text-align: center;
+  padding: 8px 14px; letter-spacing: 0.01em;
+}
+.pvs-export .topbar { position: static; }
+/* Hide the features a baked snapshot doesn't offer (upload / sync / export /
+   snapshot / global search). Drill-down, filters and tabs remain. */
+.pvs-export .sidebar-tools,
+.pvs-export .topbar-search,
+.pvs-export #dynGroupLabel,
+.pvs-export #dynTabGroup,
+.pvs-export #exportExecBtn { display: none !important; }
+.pvs-export .sidebar-section-label:has(+ .sidebar-tools) { display: none; }
 .kpi-mini-label {
   font-size: 10.5px;
   color: var(--text-dim);
@@ -4424,6 +4441,11 @@ function renderExec() {
   // Data Quality score (reuse the DQ engine; safe if unavailable).
   let dqScore = null, dqStatus = '';
   try { const q = window.DQAudit && window.DQAudit.summary && window.DQAudit.summary(); if (q) { dqScore = q.score; dqStatus = q.status; } } catch (e) {}
+  // Export/snapshot mode: DQ engine is omitted, so use the baked score.
+  if (dqScore == null && typeof window.__EXPORT_DQ_SCORE === 'number') {
+    dqScore = window.__EXPORT_DQ_SCORE;
+    dqStatus = dqScore >= 90 ? 'healthy' : dqScore >= 70 ? 'watch' : 'critical';
+  }
 
   /* ---- 4 full-color hero tiles (reuse .quick-stats / .qstat styling) ---- */
   const tiles = [
@@ -6288,192 +6310,69 @@ async function refreshData() {
 
 /* ============== EXECUTIVE EXPORT — clean read-only HTML for management ============== */
 async function exportExecutiveReport() {
-  showToast('กำลังสร้าง Executive Report...', 'success');
-  await new Promise(r => setTimeout(r, 200));
-
   try {
-    // Capture all chart canvases as data URLs
-    const chartImages = {};
-    document.querySelectorAll('canvas').forEach(c => {
-      if (c.id) {
-        try { chartImages[c.id] = c.toDataURL('image/png'); } catch (e) {}
-      }
-    });
+    showToast('กำลังสร้างไฟล์ Executive Dashboard...', 'success');
+    await new Promise(r => setTimeout(r, 50));
 
-    // Build summary metrics (computed from DATA — no formulas exposed)
-    const totalRevenue   = DATA.revenue_actual.reduce((s,r) => s + (r.revenue||0), 0);
-    const totalProfit    = DATA.revenue_actual.reduce((s,r) => s + (r.profit||0), 0);
-    const paidCount      = DATA.revenue_actual.filter(r => r.paymentStatus === 'Paid').length;
-    const unpaidCount    = DATA.revenue_actual.filter(r => r.paymentStatus !== 'Paid').length;
-    const overdueAmount  = DATA.revenue_actual.filter(r => r.daysOverdue > 0).reduce((s,r) => s + (r.revenue||0), 0);
-    const customers      = DATA.customer_master.length;
-    const activeAlarms   = DATA.alarm_status.filter(a => a.status !== 'Resolved' && a.status !== 'Closed').length;
-    const criticalPermits= DATA.permit_jobs ? DATA.permit_jobs.filter(p => (p.daysRemaining||999) <= 30).length : 0;
-    const omActive       = DATA.om_contracts.filter(c => c.status === 'Active').length;
-    const totalForecast  = DATA.revenue_forecast.reduce((s,r) => s + (r.revenue * (r.probability||0) / 100), 0);
+    // --- Snapshot: canonical data + rolled-up context (no re-parse) --------
+    let dqScore = null;
+    try { const q = window.DQAudit && window.DQAudit.summary && window.DQAudit.summary(); if (q) dqScore = q.score; } catch (e) {}
+    const now = new Date();
+    const snap = {
+      version: 1,
+      generatedAt: now.toISOString(),
+      source: (window.DATA_SOURCE && window.DATA_SOURCE.mode) || 'excel',
+      dqScore,
+      monthly: window.MONTHLY || null,
+      filters: { month: FILTERS.month, customer: FILTERS.customer, grade: FILTERS.grade },
+      data: DATA,
+    };
 
-    const fmt = n => '฿' + Math.round(n).toLocaleString('th-TH');
-    const fmtNum = n => Number(n).toLocaleString('th-TH');
-    const today = new Date().toLocaleString('th-TH', {dateStyle:'long', timeStyle:'short'});
+    // --- Clone the live document; slim it (clone only, live view untouched).
+    //     Omit \u2014 by DOM node, NOT string regex (the main app script itself
+    //     contains "<script \u2026>" as text and would self-match) \u2014 the Data
+    //     Quality module, the Excel engine + dynamic-tab module, and the
+    //     Excel/snapshot libraries (unused by a baked snapshot). ------------
+    const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll('#universal-data-engine, #dq-audit-module, #dynamic-tabs-module, script[src*="xlsx"], script[src*="html2canvas"]').forEach(el => el.remove());
+    clone.querySelectorAll('.tab-pane[data-dyn], .tab-btn[data-dyn], .toast').forEach(el => el.remove());
+    clone.querySelectorAll('#execHero,#execGauges,#execCharts,#execBottom,#dqSearchHost,#dqHealthHost,#dqKpiHost,#dqFilterHost,#dqValidationHost,#dqAuditHost,#dqTimelineHost,#dqChartCard').forEach(el => { el.innerHTML = ''; });
+    let html = '<!doctype html>\n' + clone.outerHTML;
 
-    // Top 10 customers by revenue
-    const topCustomers = [...DATA.customer_master]
-      .sort((a,b) => (b.totalRevenue||0) - (a.totalRevenue||0))
-      .slice(0, 10);
+    // --- Inject the snapshot so the SAME app boots in reduced-feature mode.
+    //     Escape "<" so no data string can break out of the <script>; the
+    //     closing tag is written split so THIS source file stays valid. -----
+    const payload = JSON.stringify(snap).replace(/[\u003c\u2028\u2029]/g, function(c){ return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'); });
+    const closeTag = '<\/scr' + 'ipt>';
+    html = html.replace('</head>', '<scr' + 'ipt>window.__PVS_SNAPSHOT__=' + payload + ';' + closeTag + '\n</head>');
 
-    // Recent critical alarms (top 10)
-    const recentAlarms = [...DATA.alarm_status]
-      .filter(a => a.level === 'Critical' || a.level === 'Major')
-      .sort((a,b) => (b.timestamp||0) - (a.timestamp||0))
-      .slice(0, 10);
-
-    // Outstanding receivables (top 10 overdue)
-    const overdueList = [...DATA.revenue_actual]
-      .filter(r => r.daysOverdue > 0 && r.paymentStatus !== 'Paid')
-      .sort((a,b) => b.daysOverdue - a.daysOverdue)
-      .slice(0, 10);
-
-    // Build standalone HTML
-    const html = `<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<title>PowerVault Executive Report — ${today}</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f7fa; color: #1a1f2e; padding: 24px; line-height: 1.5; }
-.report { max-width: 1100px; margin: 0 auto; background: white; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-.report-header { border-bottom: 3px solid #13C2C2; padding-bottom: 16px; margin-bottom: 24px; }
-h1 { font-size: 24px; color: #13C2C2; }
-.report-date { font-size: 13px; color: #666; margin-top: 4px; }
-h2 { font-size: 18px; color: #1a1f2e; margin: 28px 0 12px; border-left: 4px solid #13C2C2; padding-left: 10px; }
-.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
-.kpi { background: #fafbfc; border: 1px solid #e8edf2; border-radius: 8px; padding: 14px; }
-.kpi-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
-.kpi-value { font-size: 22px; font-weight: 700; color: #1a1f2e; margin-top: 4px; }
-.kpi-success .kpi-value { color: #52C41A; }
-.kpi-warn .kpi-value { color: #FAAD14; }
-.kpi-danger .kpi-value { color: #F5222D; }
-.kpi-info .kpi-value { color: #1A73E8; }
-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
-th { background: #f0f4f8; padding: 10px; text-align: left; font-weight: 600; color: #1a1f2e; border-bottom: 2px solid #d4dce5; }
-td { padding: 10px; border-bottom: 1px solid #eef2f6; }
-tr:nth-child(even) { background: #fafbfc; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-.badge-critical { background: #fff1f0; color: #F5222D; }
-.badge-major    { background: #fff7e6; color: #FAAD14; }
-.badge-active   { background: #f6ffed; color: #52C41A; }
-.badge-A { background: #e6fffb; color: #13C2C2; }
-.badge-B { background: #fff7e6; color: #FAAD14; }
-.badge-C { background: #f5f5f5; color: #666; }
-.text-right { text-align: right; }
-.text-danger { color: #F5222D; font-weight: 600; }
-.text-success { color: #52C41A; font-weight: 600; }
-.chart-container { margin: 16px 0; }
-.chart-container img { max-width: 100%; height: auto; border: 1px solid #eef2f6; border-radius: 8px; padding: 8px; background: white; }
-.footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #eef2f6; font-size: 11px; color: #999; text-align: center; }
-@media print {
-  body { background: white; padding: 0; }
-  .report { box-shadow: none; padding: 16px; }
-}
-</style>
-</head>
-<body>
-<div class="report">
-  <div class="report-header">
-    <h1>PowerVault Aftersale Service Executive Report</h1>
-    <div class="report-date">รายงานสำหรับผู้บริหาร · ${today}</div>
-  </div>
-
-  <h2>📊 Key Performance Indicators</h2>
-  <div class="kpi-grid">
-    <div class="kpi kpi-info"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(totalRevenue)}</div></div>
-    <div class="kpi kpi-success"><div class="kpi-label">Total Profit</div><div class="kpi-value">${fmt(totalProfit)}</div></div>
-    <div class="kpi kpi-warn"><div class="kpi-label">Outstanding</div><div class="kpi-value">${fmt(overdueAmount)}</div></div>
-    <div class="kpi kpi-info"><div class="kpi-label">Forecast (weighted)</div><div class="kpi-value">${fmt(totalForecast)}</div></div>
-    <div class="kpi"><div class="kpi-label">Customers</div><div class="kpi-value">${fmtNum(customers)}</div></div>
-    <div class="kpi kpi-success"><div class="kpi-label">Bills Paid</div><div class="kpi-value">${fmtNum(paidCount)}</div></div>
-    <div class="kpi kpi-warn"><div class="kpi-label">Bills Unpaid</div><div class="kpi-value">${fmtNum(unpaidCount)}</div></div>
-    <div class="kpi kpi-danger"><div class="kpi-label">Active Alarms</div><div class="kpi-value">${fmtNum(activeAlarms)}</div></div>
-  </div>
-
-  <h2>🏆 Top 10 Customers by Revenue</h2>
-  <table>
-    <thead><tr><th>#</th><th>ลูกค้า</th><th>Grade</th><th class="text-right">Revenue</th></tr></thead>
-    <tbody>
-      ${topCustomers.map((c,i) => `
-        <tr>
-          <td>${i+1}</td>
-          <td>${c.name || ''}</td>
-          <td><span class="badge badge-${c.grade||'C'}">${c.grade||'C'}</span></td>
-          <td class="text-right">${fmt(c.totalRevenue||0)}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>
-
-  ${overdueList.length > 0 ? `
-  <h2>⚠️ Outstanding Receivables (Top 10 overdue)</h2>
-  <table>
-    <thead><tr><th>ลูกค้า</th><th>โครงการ</th><th class="text-right">จำนวน</th><th class="text-right">เกินกำหนด</th></tr></thead>
-    <tbody>
-      ${overdueList.map(r => `
-        <tr>
-          <td>${r.customer || ''}</td>
-          <td>${r.project || ''}</td>
-          <td class="text-right">${fmt(r.revenue||0)}</td>
-          <td class="text-right text-danger">${fmtNum(r.daysOverdue)} วัน</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>` : ''}
-
-  ${recentAlarms.length > 0 ? `
-  <h2>🚨 Recent Critical/Major Alarms (Top 10)</h2>
-  <table>
-    <thead><tr><th>เวลา</th><th>Site</th><th>Level</th><th>ประเภท</th><th>สถานะ</th></tr></thead>
-    <tbody>
-      ${recentAlarms.map(a => `
-        <tr>
-          <td>${a.time || ''}</td>
-          <td>${a.site || ''}</td>
-          <td><span class="badge badge-${(a.level||'minor').toLowerCase()}">${a.level || 'Minor'}</span></td>
-          <td>${a.type || ''}</td>
-          <td>${a.status || ''}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>` : ''}
-
-  <h2>📋 O&amp;M Contracts Summary</h2>
-  <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr)">
-    <div class="kpi kpi-success"><div class="kpi-label">Active Contracts</div><div class="kpi-value">${fmtNum(omActive)}</div></div>
-    <div class="kpi"><div class="kpi-label">Total Contracts</div><div class="kpi-value">${fmtNum(DATA.om_contracts.length)}</div></div>
-    <div class="kpi kpi-warn"><div class="kpi-label">Critical Permits ≤30d</div><div class="kpi-value">${fmtNum(criticalPermits)}</div></div>
-  </div>
-
-  <div class="footer">
-    Generated by PowerVault Aftersale Dashboard · ${today}<br>
-    ข้อมูลนี้สำหรับผู้บริหารใช้ในการตัดสินใจ — ไม่ใช่เอกสารทางบัญชี
-  </div>
-</div>
-</body>
-</html>`;
-
-    // Download
+    // --- Download a dated, self-contained file ------------------------------
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const ts = new Date().toLocaleString('sv').slice(0,10);
-    a.href = url;
-    a.download = `PowerVault_Executive_Report_${ts}.html`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast(`✓ Executive Report บันทึกแล้ว — เปิดด้วย browser ส่งให้ผู้บริหาร`, 'success');
+    const ds = now.toLocaleString('sv').slice(0, 10);
+    a.href = url; a.download = `PVS_Executive_Dashboard_${ds}.html`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast('✓ Export สำเร็จ — ไฟล์ Executive Dashboard (ข้อมูลฝังในตัว) เปิดได้เดี่ยว/อัปขึ้น Vercel', 'success');
   } catch (err) {
     console.error('Export failed:', err);
     showToast('Export ผิดพลาด: ' + (err.message || err), 'error');
   }
+}
+
+/* Snapshot-mode banner — makes an exported file unmistakably a point-in-time copy. */
+function showSnapshotBanner(iso) {
+  try {
+    const d = new Date(iso);
+    const stamp = isNaN(d.getTime()) ? String(iso)
+      : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    if (document.querySelector('.pvs-snapshot-banner')) return;
+    const el = document.createElement('div');
+    el.className = 'pvs-snapshot-banner';
+    el.textContent = `📸 ข้อมูล ณ วันที่ ${stamp} · Executive Snapshot (ไม่ใช่ข้อมูลสด)`;
+    const main = document.querySelector('.app-main') || document.body;
+    main.insertBefore(el, main.firstChild);
+  } catch (e) {}
 }
 
 /* ============== SNAPSHOT EXPORT ============== */
@@ -6623,17 +6522,34 @@ function init() {
     }
   } catch (e) { window.dashboardDebug = false; }
 
-  generateSampleData();
+  // V11 Phase 4: EXPORT (snapshot) mode — if data is baked in, boot from it
+  // instead of demo, and trim the app to the reduced feature set.
+  const EXPORT = !!window.__PVS_SNAPSHOT__;
+  if (EXPORT) {
+    try {
+      const s = window.__PVS_SNAPSHOT__;
+      Object.keys(s.data || {}).forEach(k => { if (Array.isArray(s.data[k])) DATA[k] = s.data[k]; });
+      window.MONTHLY = s.monthly || null;
+      window.__EXPORT_DQ_SCORE = (typeof s.dqScore === 'number') ? s.dqScore : null;
+      if (s.filters) { FILTERS.month = s.filters.month; FILTERS.customer = s.filters.customer; FILTERS.grade = s.filters.grade; }
+      document.body.classList.add('pvs-export');
+      document.querySelectorAll('[data-tab="dq"], #tab-dq').forEach(el => el.remove());
+      showSnapshotBanner(s.generatedAt);
+      window.DATA_SOURCE = { mode: 'snapshot', updatedAt: new Date(s.generatedAt) };
+    } catch (e) { console.warn('snapshot boot failed:', e); }
+  } else {
+    generateSampleData();
+  }
   setupChartDefaults();
   populateFilters();
   bindFilters();
   attachCardClicks();
 
-  // V10.1: bootstrap the Data Quality & Audit Center (restores the persisted
-  // audit log; heavy work only happens when its tab is opened). Guarded so a
-  // module failure can never block dashboard startup.
-  try { if (window.DQAudit && typeof window.DQAudit.init === 'function') window.DQAudit.init(); }
-  catch (e) { console.warn('DQAudit.init failed (non-fatal):', e); }
+  // V10.1: bootstrap the Data Quality & Audit Center (skipped in export mode).
+  if (!EXPORT) {
+    try { if (window.DQAudit && typeof window.DQAudit.init === 'function') window.DQAudit.init(); }
+    catch (e) { console.warn('DQAudit.init failed (non-fatal):', e); }
+  }
 
   // Tab navigation
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -6672,7 +6588,7 @@ function init() {
     if (ago < 60) lbl.textContent = `Synced ${ago}m ago`;
     else if (ago < 60*24) lbl.textContent = `Synced ${Math.floor(ago/60)}h ago`;
   }
-  setupAutoSync();
+  if (!EXPORT) setupAutoSync();
 
   // Snapshot
   document.getElementById('snapshotBtn').addEventListener('click', snapshotDashboard);
@@ -6768,8 +6684,8 @@ function init() {
   // First render — Executive Home is the default active tab
   renderActiveTab();
 
-  // Auto-sync on page load if Google Sheets URL was saved (replaces sample data)
-  if (savedUrl) {
+  // Auto-sync on page load if Google Sheets URL was saved (never in export mode)
+  if (savedUrl && !EXPORT) {
     setTimeout(syncFromGoogleSheets, 500);
   }
 }
