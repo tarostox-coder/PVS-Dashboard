@@ -1561,6 +1561,29 @@ input[type="file"] { display: none; }
 }
 .dept-card-v2 .dept-ic svg { width: 21px; height: 21px; stroke: var(--dept-color); fill: none; stroke-width: 2.1; }
 .dept-card-v2 .dept-name { padding-right: 46px; }
+
+/* ===================== EXECUTIVE HOME (Phase 3) ===================== */
+#execGauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
+#execCharts, #execBottom { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; margin-top: 14px; }
+@media (max-width: 1000px) { #execGauges { grid-template-columns: repeat(2, 1fr); } #execCharts, #execBottom { grid-template-columns: 1fr; } }
+.exec-gauge { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.exec-gauge-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+.exec-ring { position: relative; width: 130px; height: 130px; margin: 8px auto 4px; }
+.exec-ring-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; }
+.exec-gauge-sub { font-size: 11.5px; color: var(--text-dim); }
+.exec-dq-score { font-family: 'Outfit', sans-serif; font-size: 40px; font-weight: 800; margin: 14px 0 2px; }
+.exec-dq-score small { font-size: 16px; color: var(--text-muted); font-weight: 600; }
+.exec-toggle { display: inline-flex; gap: 2px; background: var(--card-elev); border-radius: 8px; padding: 3px; }
+.exec-toggle button { border: none; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 6px; cursor: pointer; }
+.exec-toggle button.active { background: var(--cyan); color: #fff; }
+.exec-attention { display: flex; flex-direction: column; gap: 8px; }
+.exec-att-item { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--border); cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.exec-att-item:hover { background: var(--card-elev); border-color: var(--border-bright); }
+.exec-att-ic { width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.exec-att-body { flex: 1; min-width: 0; }
+.exec-att-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exec-att-sub { font-size: 11.5px; color: var(--text-muted); }
+.exec-att-val { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 700; flex-shrink: 0; }
 .kpi-mini-label {
   font-size: 10.5px;
   color: var(--text-dim);
@@ -3103,7 +3126,12 @@ input[type="file"] { display: none; }
   </div>
   <div class="sidebar-section-label">Menu</div>
   <nav class="tabs-nav" id="tabsNav">
-    <button class="tab-btn active" data-tab="home">
+    <button class="tab-btn active" data-tab="exec">
+      <span class="tab-btn-num">★</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>
+      Executive
+    </button>
+    <button class="tab-btn" data-tab="home">
       <span class="tab-btn-num">01</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
       Summary
@@ -3233,7 +3261,20 @@ input[type="file"] { display: none; }
   <!-- ============================================================ -->
   <!-- ============== TAB 1: HOME / SUMMARY ======================= -->
   <!-- ============================================================ -->
-  <div class="tab-pane active" id="tab-home">
+  <!-- ============================================================ -->
+  <!-- ============== EXECUTIVE HOME (curated · Phase 3) ========== -->
+  <!-- Rolled-up, no raw tables. Rendered by renderExec(); hosts are -->
+  <!-- populated in JS to keep the markup small.                      -->
+  <!-- ============================================================ -->
+  <div class="tab-pane active" id="tab-exec">
+    <div class="tab-section-title" style="border-left:3px solid var(--cyan); padding-left:10px;">Executive Home · ภาพรวมผู้บริหาร</div>
+    <div id="execHero"></div>
+    <div id="execGauges"></div>
+    <div id="execCharts"></div>
+    <div id="execBottom"></div>
+  </div>
+
+  <div class="tab-pane" id="tab-home">
 
     <div class="health-banner healthy" id="healthBannerNew">
       <div class="health-banner-left">
@@ -4203,6 +4244,7 @@ function showToast(msg, type='success') {
 
 /* ============== TAB SWITCHING ============== */
 const TAB_TITLES = {
+  exec:     { title: 'Executive Home', sub: 'ภาพรวมผู้บริหาร · KPI · Gauge · แนวโน้ม · จุดที่ต้องดูแล' },
   home:     { title: 'Summary',  sub: 'Executive Command Center · เป้า <span class="text-cyan" style="font-weight:600;">10 ล้านบาท / เดือน</span>' },
   solar:    { title: 'Home Solar & SME', sub: 'ภาพรวมยอดขาย Solar รายภาค · กรุงเทพ · กลาง · เหนือ · อีสาน' },
   cleaning: { title: 'Cleaning',         sub: 'แผนงาน Cleaning · รายได้ · ความคืบหน้า' },
@@ -4240,7 +4282,8 @@ function getActiveTab() {
 
 function renderActiveTab() {
   const tab = getActiveTab();
-  if (tab === 'home') renderHome();
+  if (tab === 'exec') renderExec();
+  else if (tab === 'home') renderHome();
   else if (tab === 'solar') renderSolar();
   else if (tab === 'cleaning') renderCleaning();
   else if (tab === 'om') renderOM();
@@ -4327,6 +4370,251 @@ function fmtInt(n) { return Math.round(n || 0).toLocaleString(); }
 function fmtPct(n, d=1) { return (n || 0).toFixed(d); }
 function fmtKW(n) { return (n || 0).toFixed(2); }
 function fmtMoney(n) { return Math.round(n || 0).toLocaleString(); }
+
+/* ============== EXECUTIVE HOME (Phase 3) — curated roll-ups ==============
+ * A leadership-first landing view. It ONLY aggregates existing DataEngine
+ * outputs (no re-parsing, no new data model) and reuses existing compute
+ * helpers + drill-downs. kW (Revenue_Actual, averaged) and kWp (nameplate)
+ * are never conflated here; this view deals in revenue/% and counts. */
+function execIsSolar(r) { return r.category === 'Installation' || r.service === 'EPC Solar' || r.service === 'Monitoring'; }
+function execIsOM(r) { return r.service === 'Service' || r.category === 'O&M Contract'; }
+function execTerminated(s) { return /terminat|ยกเลิก|สิ้นสุด|หมดสัญญา|expired/i.test(String(s || '')); }
+
+/** BU revenue over a rolling window (day / week / month). Independent of the
+ *  global month filter, like the Monthly Summary panel. */
+function execBURevenue(grain) {
+  const t = new Date(today);
+  const start = new Date(t);
+  if (grain === 'day') start.setHours(0, 0, 0, 0);
+  else if (grain === 'week') start.setDate(start.getDate() - 6);
+  else start.setDate(start.getDate() - 29);
+  const startISO = toLocalISO(start);
+  const inWin = d => d && String(d).slice(0, 10) >= startISO;
+  const ra = DATA.revenue_actual || [];
+  const solar = ra.filter(r => execIsSolar(r) && inWin(r.billingDate)).reduce((s, r) => s + (r.revenue || 0), 0);
+  const om = ra.filter(r => execIsOM(r) && inWin(r.billingDate)).reduce((s, r) => s + (r.revenue || 0), 0);
+  const cleaning = (DATA.cleaning || []).filter(c => inWin(c.planDate)).reduce((s, c) => s + (c.kW || 0) * 800, 0);
+  const permit = (DATA.permit_jobs || []).filter(p => inWin(p.startDate)).reduce((s, p) => s + (p.revenue || 0), 0);
+  return { solar, cleaning, om, permit };
+}
+
+function renderExec() {
+  destroyCharts();
+  const tab = document.getElementById('tab-exec');
+  if (!tab || !tab.classList.contains('active')) return;
+
+  const rows = applyFilters(DATA.revenue_actual);
+  const totalRev = rows.reduce((s, r) => s + (r.revenue || 0), 0);
+  const collected = rows.filter(r => r.paymentStatus === 'Paid').reduce((s, r) => s + r.revenue, 0);
+  const collRate = totalRev > 0 ? (collected / totalRev * 100) : 0;
+  const rl = computeRevenueLoss();
+  const overdueAmt = rows.filter(r => r.daysOverdue > 0 || r.paymentStatus === 'Overdue').reduce((s, r) => s + r.revenue, 0);
+  const revAtRisk = rl.totalLoss + overdueAmt;
+  const g = computeGauge();
+
+  // SLA / uptime: average of O&M contract SLA (fallback 95); Contract health:
+  // Active ÷ (total excluding Terminated).
+  const oms = DATA.om_contracts || [];
+  const nonTerm = oms.filter(c => !execTerminated(c.status));
+  const activeC = oms.filter(c => /active|ใช้งาน/i.test(String(c.status || ''))).length;
+  const slaVals = oms.map(c => (typeof c.sla === 'number' ? c.sla : null)).filter(v => v != null);
+  const slaAvg = slaVals.length ? slaVals.reduce((a, b) => a + b, 0) / slaVals.length : 95;
+  const contractHealth = nonTerm.length ? (activeC / nonTerm.length * 100) : (oms.length ? 100 : 0);
+
+  // Data Quality score (reuse the DQ engine; safe if unavailable).
+  let dqScore = null, dqStatus = '';
+  try { const q = window.DQAudit && window.DQAudit.summary && window.DQAudit.summary(); if (q) { dqScore = q.score; dqStatus = q.status; } } catch (e) {}
+
+  /* ---- 4 full-color hero tiles (reuse .quick-stats / .qstat styling) ---- */
+  const tiles = [
+    { cls: 'cyan', label: 'Revenue MTD', value: '฿' + fmtMoney(totalRev), meta: `${g.pct.toFixed(0)}% ของเป้า ฿${fmtCurrency(g.target)}`,
+      svg: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', drill: () => cardClick('cardGauge') },
+    { cls: 'success', label: 'Collection Rate', value: collRate.toFixed(1) + '%', meta: `เก็บแล้ว ฿${fmtCurrency(collected)}`,
+      svg: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>', drill: () => cardClick('cardCashflow') },
+    { cls: 'warning', label: 'SLA / Uptime', value: slaAvg.toFixed(1) + '%', meta: `${activeC} สัญญา Active`,
+      svg: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', drill: () => switchTab('om') },
+    { cls: 'critical', label: 'Revenue at Risk', value: '฿' + fmtMoney(revAtRisk), meta: `Loss + Overdue`,
+      svg: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', drill: () => cardClick('cardRevLoss') },
+  ];
+  document.getElementById('execHero').innerHTML = '<div class="quick-stats" style="margin-top:14px;">' + tiles.map((t, i) => `
+    <div class="qstat ${t.cls}" data-exec-tile="${i}" style="cursor:pointer;">
+      <div class="qstat-row"><div class="qstat-icon"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">${t.svg}</svg></div>
+      <div class="qstat-label">${t.label}</div></div>
+      <div class="qstat-value">${t.value}</div>
+      <div class="qstat-meta">${t.meta}</div>
+    </div>`).join('') + '</div>';
+  document.getElementById('execHero').onclick = (e) => { const el = e.target.closest('[data-exec-tile]'); if (el) tiles[+el.dataset.execTile].drill(); };
+
+  /* ---- 3 ring gauges + Data Quality badge ---- */
+  const dqColor = dqScore == null ? 'var(--text-muted)' : dqScore >= 90 ? 'var(--success)' : dqScore >= 70 ? 'var(--warning)' : 'var(--critical)';
+  document.getElementById('execGauges').innerHTML = `
+    <div class="card exec-gauge"><div class="exec-gauge-title">ทำเป้า % (Achievement)</div>
+      <div class="exec-ring"><canvas id="execG1"></canvas><div class="exec-ring-center" id="execG1c"></div></div>
+      <div class="exec-gauge-sub">฿${fmtCurrency(g.projected)} / ฿${fmtCurrency(g.target)}</div></div>
+    <div class="card exec-gauge"><div class="exec-gauge-title">SLA / Uptime</div>
+      <div class="exec-ring"><canvas id="execG2"></canvas><div class="exec-ring-center" id="execG2c"></div></div>
+      <div class="exec-gauge-sub">เฉลี่ยจาก ${slaVals.length || 0} สัญญา</div></div>
+    <div class="card exec-gauge"><div class="exec-gauge-title">Contract Health</div>
+      <div class="exec-ring"><canvas id="execG3"></canvas><div class="exec-ring-center" id="execG3c"></div></div>
+      <div class="exec-gauge-sub">${activeC}/${nonTerm.length} Active (ไม่รวมยกเลิก)</div></div>
+    <div class="card exec-gauge clickable" id="execDqCard"><div class="exec-gauge-title">Data Quality Score</div>
+      <div class="exec-dq-score" style="color:${dqColor}">${dqScore == null ? '—' : dqScore}<small>/100</small></div>
+      <div class="exec-gauge-sub">${dqScore == null ? 'อัปโหลดข้อมูลเพื่อประเมิน' : (dqStatus === 'healthy' ? 'คุณภาพดี' : dqStatus === 'watch' ? 'ต้องเฝ้าระวัง' : 'ต้องแก้ไข')}</div></div>`;
+  const execDqCard = document.getElementById('execDqCard');
+  if (execDqCard) execDqCard.onclick = () => switchTab('dq');
+  execRing('execG1', g.pct, getCSSVar('--cyan'), 'execG1c');
+  execRing('execG2', slaAvg, getCSSVar('--success'), 'execG2c');
+  execRing('execG3', contractHealth, getCSSVar('--bu-om'), 'execG3c');
+
+  /* ---- Toggleable BU revenue bar + customer-group donut ---- */
+  const grain = window.__execGrain || 'month';
+  document.getElementById('execCharts').innerHTML = `
+    <div class="card"><div class="card-header"><div>
+      <div class="card-title">รายได้ตาม Business Unit</div>
+      <div class="card-subtitle">Solar · Cleaning · O&amp;M · Permit</div></div>
+      <div class="exec-toggle" id="execGrainToggle">
+        <button data-grain="day" class="${grain === 'day' ? 'active' : ''}">วันนี้</button>
+        <button data-grain="week" class="${grain === 'week' ? 'active' : ''}">7 วัน</button>
+        <button data-grain="month" class="${grain === 'month' ? 'active' : ''}">30 วัน</button>
+      </div></div>
+      <div class="chart-wrap"><canvas id="execBU"></canvas></div></div>
+    <div class="card"><div class="card-header"><div>
+      <div class="card-title">สัดส่วนรายได้ตามกลุ่มลูกค้า</div>
+      <div class="card-subtitle">อ่านกลุ่มจาก Customer Master</div></div></div>
+      <div class="chart-wrap"><canvas id="execDonut"></canvas></div></div>`;
+  const tg = document.getElementById('execGrainToggle');
+  if (tg) tg.onclick = (e) => { const b = e.target.closest('[data-grain]'); if (!b) return; window.__execGrain = b.dataset.grain; renderExec(); };
+
+  const bu = execBURevenue(grain);
+  CHARTS.execBU = registerChart('execBU', new Chart(document.getElementById('execBU').getContext('2d'), {
+    type: 'bar',
+    data: { labels: ['Solar', 'Cleaning', 'O&M', 'Permit'], datasets: [{
+      data: [bu.solar, bu.cleaning, bu.om, bu.permit],
+      backgroundColor: [getCSSVar('--bu-solar'), getCSSVar('--bu-cleaning'), getCSSVar('--bu-om'), getCSSVar('--bu-permit')],
+      borderRadius: 8, maxBarThickness: 60,
+    }]},
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) } } },
+      scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
+                y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true } },
+      onClick: (evt, els) => { if (els.length) switchTab(['solar', 'cleaning', 'om', 'permit'][els[0].index]); }
+    }
+  }));
+
+  // Revenue share by customer group (derived from Customer_Master, no hardcoding)
+  const grpOf = {};
+  (DATA.customer_master || []).forEach(c => { if (c.name) grpOf[c.name] = c.group || 'อื่นๆ'; });
+  const byGroup = {};
+  rows.forEach(r => { const grp = grpOf[r.customer] || 'อื่นๆ'; byGroup[grp] = (byGroup[grp] || 0) + (r.revenue || 0); });
+  // If Customer_Master has no usable groups (only "อื่นๆ"), fall back to the
+  // top customers by revenue so the donut is still meaningful.
+  let gEntries = Object.entries(byGroup).sort((a, b) => b[1] - a[1]);
+  const realGroups = gEntries.filter(e => e[0] && e[0] !== 'อื่นๆ' && e[1] > 0);
+  if (realGroups.length < 2) {
+    const byCust = {};
+    rows.forEach(r => { const k = r.customer || '—'; byCust[k] = (byCust[k] || 0) + (r.revenue || 0); });
+    gEntries = Object.entries(byCust).sort((a, b) => b[1] - a[1]);
+  }
+  gEntries = gEntries.slice(0, 6);
+  const donutColors = ['--cyan', '--bu-solar', '--solar', '--success', '--purple', '--pink'].map(getCSSVar);
+  const donutEl = document.getElementById('execDonut');
+  if (gEntries.length) {
+    CHARTS.execDonut = registerChart('execDonut', new Chart(donutEl.getContext('2d'), {
+      type: 'doughnut',
+      data: { labels: gEntries.map(e => e[0]), datasets: [{ data: gEntries.map(e => e[1]), backgroundColor: donutColors, borderWidth: 0, cutout: '62%' }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'right', labels: { boxWidth: 12, color: getCSSVar('--text-dim'), font: { size: 11 } } },
+                   tooltip: { callbacks: { label: c => `${c.label}: ฿${fmtFull(c.parsed)}` } } } }
+    }));
+  } else if (donutEl && donutEl.parentElement) {
+    donutEl.parentElement.innerHTML = '<div class="empty-state">ไม่มีข้อมูลกลุ่มลูกค้า</div>';
+  }
+
+  /* ---- Revenue trend (Actual vs Forecast) + Top-5 needs-attention ---- */
+  document.getElementById('execBottom').innerHTML = `
+    <div class="card"><div class="card-header"><div>
+      <div class="card-title">แนวโน้มรายได้ · Actual vs Forecast</div>
+      <div class="card-subtitle">รายเดือน (Weighted Forecast)</div></div></div>
+      <div class="chart-wrap"><canvas id="execTrend"></canvas></div></div>
+    <div class="card"><div class="card-header"><div>
+      <div class="card-title">Top-5 ต้องดูแลด่วน</div>
+      <div class="card-subtitle">Alarm ค้าง · Permit ดีเลย์ · สัญญาใกล้หมด</div></div></div>
+      <div class="exec-attention" id="execAttention"></div></div>`;
+
+  const months = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
+  const mlabels = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.'];
+  const actM = months.map(m => (DATA.revenue_actual || []).filter(r => r.billingDate && r.billingDate.startsWith(m)).reduce((s, r) => s + r.revenue, 0));
+  const fcM = months.map(m => (DATA.revenue_forecast || []).filter(f => f.forecastMonth === m).reduce((s, f) => s + f.revenue * (f.probability || 0) / 100, 0));
+  CHARTS.execTrend = registerChart('execTrend', new Chart(document.getElementById('execTrend').getContext('2d'), {
+    type: 'line',
+    data: { labels: mlabels, datasets: [
+      { label: 'Actual', data: actM, borderColor: getCSSVar('--cyan'), backgroundColor: 'rgba(19,194,194,0.14)', fill: true, tension: 0.4, borderWidth: 3, pointRadius: 4, pointBackgroundColor: getCSSVar('--cyan') },
+      { label: 'Forecast', data: fcM, borderColor: getCSSVar('--solar'), backgroundColor: 'transparent', borderWidth: 2.5, borderDash: [6, 4], tension: 0.4, pointRadius: 3 },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, color: getCSSVar('--text-dim') } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ฿${fmtFull(c.parsed.y)}` } } },
+      scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
+                y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } } } }
+  }));
+
+  renderExecAttention();
+}
+
+/** Ring gauge (0-100) with a centered %; color-graded value text. */
+function execRing(canvasId, pct, color, centerId) {
+  const el = document.getElementById(canvasId); if (!el) return;
+  const v = Math.max(0, Math.min(100, pct || 0));
+  const c = document.getElementById(centerId);
+  if (c) { c.textContent = (pct || 0).toFixed(0) + '%'; c.style.color = color; }
+  CHARTS[canvasId] = registerChart(canvasId, new Chart(el.getContext('2d'), {
+    type: 'doughnut',
+    data: { datasets: [{ data: [v, 100 - v], backgroundColor: [color, getCSSVar('--card-elev')], borderWidth: 0, cutout: '76%' }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+  }));
+}
+
+/** Top-5 needs-attention: oldest open alarms + most-delayed permits + soonest
+ *  contract expirations, each wired to the existing drill-downs. */
+function renderExecAttention() {
+  const host = document.getElementById('execAttention'); if (!host) return;
+  const items = [];
+  const todayISO = toLocalISO(today);
+
+  (DATA.alarm_status || []).forEach((a) => {
+    if (!/เปิด|open|active/i.test(String(a.status || ''))) return;
+    const age = a.timestamp ? Math.floor((today.getTime() - a.timestamp) / 86400000) : 0;
+    items.push({ score: 1000 + age, icon: '🔴', color: 'rgba(239,68,68,0.14)',
+      title: `Alarm · ${a.site || a.customer || '—'}`, sub: `${a.level || ''} · ${a.type || ''}`,
+      val: age > 0 ? age + ' วัน' : 'วันนี้', onclick: () => openAlarmRowDrill(DATA.alarm_status.indexOf(a)) });
+  });
+  (DATA.permit_jobs || []).forEach((p) => {
+    if (!(p.dueOffset < 0)) return;
+    items.push({ score: 500 + Math.abs(p.dueOffset), icon: '📋', color: 'rgba(167,139,250,0.16)',
+      title: `Permit · ${p.customer || '—'}`, sub: `${p.docType || ''} · เลย ${-p.dueOffset} วัน`,
+      val: '฿' + fmtCurrency(p.revenue || 0), onclick: () => openPermitDrill(DATA.permit_jobs.indexOf(p)) });
+  });
+  (DATA.om_contracts || []).forEach((c) => {
+    if (!c.endDate || execTerminated(c.status)) return;
+    const days = Math.floor((new Date(c.endDate) - today) / 86400000);
+    if (days < 0 || days > 90) return;                       // expiring within 90 days
+    items.push({ score: 300 + (90 - days), icon: '📄', color: 'rgba(245,158,11,0.16)',
+      title: `สัญญาใกล้หมด · ${c.customer || '—'}`, sub: `${c.site || ''} · หมด ${c.endDate}`,
+      val: days + ' วัน', onclick: () => openCustomerDrill(c.customer) });
+  });
+
+  items.sort((a, b) => b.score - a.score);
+  const top = items.slice(0, 5);
+  host.innerHTML = top.length ? top.map((it, i) => `
+    <div class="exec-att-item" data-att="${i}">
+      <div class="exec-att-ic" style="background:${it.color}">${it.icon}</div>
+      <div class="exec-att-body"><div class="exec-att-title">${it.title}</div><div class="exec-att-sub">${it.sub}</div></div>
+      <div class="exec-att-val">${it.val}</div>
+    </div>`).join('') : '<div class="empty-state">ไม่มีรายการที่ต้องดูแลด่วน ✓</div>';
+  host.onclick = (e) => { const el = e.target.closest('[data-att]'); if (el && top[+el.dataset.att]) top[+el.dataset.att].onclick(); };
+}
+
+/** Fire an existing card's click handler (reuse drill-downs from Summary). */
+function cardClick(id) { const el = document.getElementById(id); if (el && el.onclick) el.onclick(); }
 
 function renderHome() {
   destroyCharts();
@@ -6467,8 +6755,18 @@ function init() {
   updateLiveTime();
   setInterval(updateLiveTime, 1000);
 
-  // First render
-  renderHome();
+  // Sync the page header to the default active tab (switchTab isn't called on load)
+  try {
+    const a0 = document.querySelector('.tab-btn.active');
+    const t0 = a0 && a0.dataset ? a0.dataset.tab : null;
+    if (t0 && TAB_TITLES[t0]) {
+      document.getElementById('pageTitle').textContent = TAB_TITLES[t0].title;
+      document.getElementById('pageSubtitle').innerHTML = TAB_TITLES[t0].sub;
+    }
+  } catch (e) {}
+
+  // First render — Executive Home is the default active tab
+  renderActiveTab();
 
   // Auto-sync on page load if Google Sheets URL was saved (replaces sample data)
   if (savedUrl) {
@@ -8198,9 +8496,11 @@ document.addEventListener('DOMContentLoaded', init);
     loadPersisted();
   }
 
+  // Ensure quality is computed and return the summary (consumed by Executive Home).
+  function summary() { try { ensureComputed(); } catch (e) {} return STATE.quality; }
   root.DQAudit = {
     init, render, destroyCharts: destroyAllCharts,
-    ingest: ingestPublic, search: doSearch,
+    ingest: ingestPublic, search: doSearch, summary,
     _internal: { CFG, STATE, collectTables, parseLookups, runRules, computeQuality, snapshotOf, diffSnapshots, resolveUser, fnv1a, buildSearchIndex },
   };
 })(typeof window !== 'undefined' ? window : this);
