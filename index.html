@@ -1530,6 +1530,23 @@ input[type="file"] { display: none; }
   transition: all 0.15s ease;
 }
 .kpi-mini:hover { border-color: var(--border-bright); }
+
+/* ============ V11 STYLE B — soft-icon badge on secondary KPI cards ============
+ * Additive: only cards that contain a .kpi-ic get the icon + text inset, so DQ
+ * and dynamic KPI cards are unaffected. Tint colors come from BU CSS vars. */
+.kpi-mini { position: relative; }
+.kpi-mini .kpi-ic {
+  position: absolute; top: 13px; right: 13px;
+  width: 40px; height: 40px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.kpi-mini .kpi-ic svg { width: 21px; height: 21px; fill: none; stroke-width: 2.1; }
+.kpi-ic ~ .kpi-mini-label, .kpi-ic ~ .kpi-mini-value { padding-right: 44px; }
+.kpi-ic.solar    { background: rgba(59,130,246,0.12); }  .kpi-ic.solar svg    { stroke: var(--bu-solar); }
+.kpi-ic.cleaning { background: rgba(16,185,129,0.12); }  .kpi-ic.cleaning svg { stroke: var(--bu-cleaning); }
+.kpi-ic.om       { background: rgba(245,158,11,0.14); }  .kpi-ic.om svg       { stroke: var(--bu-om); }
+.kpi-ic.permit   { background: rgba(167,139,250,0.14); } .kpi-ic.permit svg   { stroke: var(--bu-permit); }
+.kpi-ic.cyan     { background: var(--cyan-glow); }       .kpi-ic.cyan svg     { stroke: var(--cyan); }
 .kpi-mini-label {
   font-size: 10.5px;
   color: var(--text-dim);
@@ -3382,21 +3399,25 @@ input[type="file"] { display: none; }
 
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiSolarRev" style="cursor:pointer;">
+        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
         <div class="kpi-mini-label">Revenue (Solar เดือนนี้)</div>
         <div class="kpi-mini-value" style="color:var(--bu-solar);">฿<span id="solarRevVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="solarRevSub">— โครงการ</div>
       </div>
       <div class="kpi-mini clickable" id="kpiSolarKW" style="cursor:pointer;">
+        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
         <div class="kpi-mini-label">kW ที่ติดตั้ง</div>
         <div class="kpi-mini-value text-solar"><span id="solarKWVal">0</span> kW</div>
         <div class="kpi-mini-trend neutral" id="solarKWAvg">เฉลี่ย 0 kW/หลัง</div>
       </div>
       <div class="kpi-mini clickable" id="kpiSolarForecast" style="cursor:pointer;">
+        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
         <div class="kpi-mini-label">Sales Forecast</div>
         <div class="kpi-mini-value text-solar">฿<span id="solarFcVal">0</span></div>
         <div class="kpi-mini-trend up" id="solarFcSub">Weighted ฿0</div>
       </div>
       <div class="kpi-mini">
+        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
         <div class="kpi-mini-label">Achievement %</div>
         <div class="kpi-mini-value text-success"><span id="solarAchVal">0</span>%</div>
         <div class="kpi-mini-trend neutral" id="solarAchSub">— vs เป้าเดือนนี้</div>
@@ -3448,21 +3469,25 @@ input[type="file"] { display: none; }
 
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiClRev" style="cursor:pointer;">
+        <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
         <div class="kpi-mini-label">Cleaning Revenue (เดือนนี้)</div>
         <div class="kpi-mini-value" style="color:var(--bu-cleaning);">฿<span id="clRevVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="clRevSub">— งาน</div>
       </div>
       <div class="kpi-mini clickable" id="kpiClJobs" style="cursor:pointer;">
+        <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg></div>
         <div class="kpi-mini-label">งานเดือนนี้</div>
         <div class="kpi-mini-value text-cyan" id="clMonthVal">0</div>
         <div class="kpi-mini-trend up" id="clDoneSub">เสร็จสิ้น 0/0</div>
       </div>
       <div class="kpi-mini">
+        <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg></div>
         <div class="kpi-mini-label">kW ที่ทำสะอาด</div>
         <div class="kpi-mini-value text-solar"><span id="clKWVal">0</span> kW</div>
         <div class="kpi-mini-trend neutral" id="clKWSub">รวมทั้งหมด</div>
       </div>
       <div class="kpi-mini clickable" id="kpiClDelay" style="cursor:pointer;">
+        <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
         <div class="kpi-mini-label">ดีเลย์</div>
         <div class="kpi-mini-value text-critical" id="clDelayVal">0</div>
         <div class="kpi-mini-trend down" id="clDelaySub">งานที่ค้าง</div>
@@ -3539,21 +3564,25 @@ input[type="file"] { display: none; }
 
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiOmSvc" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
         <div class="kpi-mini-label">Service Revenue (เดือนนี้)</div>
         <div class="kpi-mini-value" style="color:var(--bu-om);">฿<span id="omSvcVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="omSvcSub">— Service jobs</div>
       </div>
       <div class="kpi-mini clickable" id="kpiOmIns" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 14l2 2 4-4"/></svg></div>
         <div class="kpi-mini-label">Inspection Progress</div>
         <div class="kpi-mini-value text-success"><span id="omInsVal">0</span>%</div>
         <div class="kpi-mini-trend up" id="omInsSub">PM Completion</div>
       </div>
       <div class="kpi-mini clickable" id="kpiOmLoss" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
         <div class="kpi-mini-label">Revenue Loss (Time-Specific)</div>
         <div class="kpi-mini-value text-critical">฿<span id="omLossVal">0</span></div>
         <div class="kpi-mini-trend down" id="omLossSub">— hrs downtime</div>
       </div>
       <div class="kpi-mini clickable" id="kpiOmCrit" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
         <div class="kpi-mini-label">Critical Alarms</div>
         <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
         <div class="kpi-mini-trend down" id="omCritSub">เปิดอยู่</div>
@@ -3607,21 +3636,25 @@ input[type="file"] { display: none; }
 
     <div class="kpi-mini-grid">
       <div class="kpi-mini">
+        <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
         <div class="kpi-mini-label">เอกสารทั้งหมด</div>
         <div class="kpi-mini-value" style="color:var(--bu-permit);" id="pTotal">0</div>
         <div class="kpi-mini-trend neutral">รายการ Permit</div>
       </div>
       <div class="kpi-mini clickable" id="kpiPStuck" style="cursor:pointer;">
+        <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <div class="kpi-mini-label">เงินจม (Delayed Revenue)</div>
         <div class="kpi-mini-value text-critical">฿<span id="pStuckVal">0</span></div>
         <div class="kpi-mini-trend down" id="pStuckSub">— เอกสารดีเลย์</div>
       </div>
       <div class="kpi-mini">
+        <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
         <div class="kpi-mini-label">วันดีเลย์เฉลี่ย</div>
         <div class="kpi-mini-value text-warning"><span id="pAvgDelay">0</span></div>
         <div class="kpi-mini-trend neutral">วัน</div>
       </div>
       <div class="kpi-mini">
+        <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
         <div class="kpi-mini-label">Expected Release</div>
         <div class="kpi-mini-value text-success">฿<span id="pReleaseVal">0</span></div>
         <div class="kpi-mini-trend up">อนุมัติแล้ว/รอลงนาม</div>
