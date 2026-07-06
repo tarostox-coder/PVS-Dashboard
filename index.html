@@ -302,6 +302,9 @@
         contact:      { type: 'text',     syn: S(['ผู้ติดต่อ', 'contact', 'contact person', 'ผู้ประสานงาน']) },
         totalRevenue: { type: 'currency', syn: S(['รายได้รวม 12 เดือน', 'total revenue', 'รายได้รวม', 'รายได้ 12 เดือน', 'lifetime revenue']) },
         grade:        { type: 'text',     syn: S(['grade', 'เกรด', 'grade ลูกค้า', 'tier', 'ระดับลูกค้า']) },
+        province:     { type: 'text',     syn: S(['จังหวัด', 'province']) },
+        kWp:          { type: 'number',   syn: S(['ขนาดระบบ kwp', 'kwp', 'ขนาดระบบ', 'nameplate']) },
+        site:         { type: 'text',     syn: S(['ชื่อโครงการ site', 'ชื่อโครงการ', 'site', 'โครงการ']) },
       },
     },
     {
@@ -545,18 +548,47 @@
    * =========================================================================*/
   const ASSIGN_THRESHOLD = 0.6;  // require decent signature coverage + signal
 
+  // Goal 4.2 — the template's own @META datasetType maps 1:1 to a canonical
+  // dataset key. When present it is authoritative; fuzzy scoring is only a
+  // fallback for sheets WITHOUT an @META line (older files / pasted-in sheets),
+  // which keeps the "works on any structure" goal while making a real
+  // PVS_Template_V4 file deterministic instead of probabilistic.
+  const META_TYPE_TO_KEY = {
+    customer: 'customer_master', revenue: 'revenue_actual', forecast: 'revenue_forecast',
+    contract: 'om_contracts', cleaning: 'cleaning', inspection: 'inspection',
+    alarm: 'alarm_status', scada: 'scada_summary', permit: 'permit_jobs',
+  };
+
   function classify(detectedSheets) {
-    const candidates = []; // {sheet, dsKey, ...score}
+    const assignedDs = new Set(), assignedSheet = new Set(), result = [];
+
+    // Pass 1 — deterministic @META datasetType exact match (authoritative).
     for (const sh of detectedSheets) {
+      const dtype = sh.meta && sh.meta.datasetType;
+      const key = dtype && META_TYPE_TO_KEY[dtype];
+      if (!key || assignedDs.has(key) || assignedSheet.has(sh.name)) continue;
+      const ds = DATASETS.find(d => d.key === key);
+      if (!ds) continue;
+      const { map, matched } = mapColumns(sh.header.cols, ds);
+      result.push({ sheet: sh.name, dsKey: key, dataset: ds, map, matched, total: 1, sigCov: 1, matchedVia: 'meta' });
+      assignedDs.add(key); assignedSheet.add(sh.name);
+    }
+
+    // Pass 2 — fuzzy Dice/Levenshtein scoring, ONLY for sheets that did not
+    // resolve via @META datasetType above.
+    const candidates = [];
+    for (const sh of detectedSheets) {
+      if (assignedSheet.has(sh.name)) continue;
+      if (sh.meta && META_TYPE_TO_KEY[sh.meta.datasetType]) continue; // meta type known but ds already taken
       for (const ds of DATASETS) {
+        if (assignedDs.has(ds.key)) continue;
         const s = datasetScore(sh.header.cols, ds, sh.name);
         if (s.sigCov >= 0.5 && s.total >= ASSIGN_THRESHOLD) {
-          candidates.push({ sheet: sh.name, dsKey: ds.key, dataset: ds, ...s });
+          candidates.push({ sheet: sh.name, dsKey: ds.key, dataset: ds, ...s, matchedVia: 'heuristic' });
         }
       }
     }
     candidates.sort((a, b) => b.total - a.total);
-    const assignedDs = new Set(), assignedSheet = new Set(), result = [];
     for (const c of candidates) {
       if (assignedDs.has(c.dsKey) || assignedSheet.has(c.sheet)) continue;
       assignedDs.add(c.dsKey); assignedSheet.add(c.sheet);
@@ -800,7 +832,7 @@
           profit: r.profit != null ? r.profit : (revenue - cost),
           jobStatus: T.text(r.jobStatus), responsible: T.text(r.responsible),
           paymentStatus: T.text(r.paymentStatus) || 'Pending',
-          kW: r.kW || 0, province: T.text(r.province) || 'กรุงเทพฯ', site: T.text(r.site),
+          kW: r.kW || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated
         };
       }).filter(r => r.customer && (r.billingDate || r.revenue));
     },
@@ -819,8 +851,9 @@
     customer_master(rows, ctx, DATA) {
       const list = rows.map(r => ({
         name: T.text(r.name), group: T.text(r.group), businessType: T.text(r.businessType),
-        warrantyEnd: ctx.toLocalISO(r.warrantyEnd) || '', status: T.text(r.status) || 'Active',
+        warrantyEnd: ctx.toLocalISO(r.warrantyEnd) || '', status: T.text(r.status),   // Goal 4.3: no fabricated 'Active'
         contact: T.text(r.contact), grade: T.text(r.grade) || 'C', totalRevenue: r.totalRevenue || 0,
+        province: T.text(r.province), kWp: r.kWp || 0, site: T.text(r.site),           // single-source-of-truth for lookups
       })).filter(r => r.name);
       list.forEach(c => {
         if (!c.totalRevenue) c.totalRevenue = (DATA.revenue_actual || []).filter(r => r.customer === c.name).reduce((s, r) => s + r.revenue, 0);
@@ -835,16 +868,19 @@
       return rows.map(r => {
         const ts = r.time instanceof Date ? r.time.getTime() : Date.now();
         const startHour = new Date(ts).getHours();
-        const level = T.text(r.level) || 'Minor';
+        const level = T.text(r.level) || 'ไม่ระบุ';                 // Goal 4.3: no fabricated 'Minor'
+        // downtime keeps a level-based estimate only when a real level exists;
+        // an unknown level yields an unknown (0) downtime rather than a guess.
         const dt = (r.downtimeHrs && r.downtimeHrs > 0) ? r.downtimeHrs
-          : (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : 0.25);
-        const kW = (r.kW && r.kW > 0) ? r.kW : 100;
+          : (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : level === 'Warning' ? 0.25 : 0);
+        const kW = (r.kW && r.kW > 0) ? r.kW : null;                // Goal 4.3: no fabricated 100
+        const kwMissing = (kW == null);
         return {
           time: ctx.toLocalDateTime(r.time) || T.text(r.time), timestamp: ts, hourOfDay: startHour,
           customer: T.text(r.customer) || firstToken(r.site), site: T.text(r.site),
           level, type: T.text(r.type), inverterId: T.text(r.inverterId), status: T.text(r.status),
-          kW, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
-          downtimeHrs: dt, revenueLoss: ctx.computeTimeSpecificLoss(kW, startHour, dt),
+          kW: kW == null ? 0 : kW, kwMissing, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
+          downtimeHrs: dt, revenueLoss: kwMissing ? 0 : ctx.computeTimeSpecificLoss(kW, startHour, dt),
           responsible: T.text(r.responsible),
         };
       }).filter(r => r.site || r.customer);
@@ -872,7 +908,7 @@
       return rows.map(r => ({
         customer: T.text(r.customer), site: T.text(r.site),
         startDate: ctx.toLocalISO(r.startDate) || '', endDate: ctx.toLocalISO(r.endDate) || '',
-        sla: r.sla != null ? r.sla : 95, fee: r.fee || 0, status: T.text(r.status) || 'Active',
+        sla: r.sla != null ? r.sla : null, fee: r.fee || 0, status: T.text(r.status),   // Goal 4.3: no fabricated 95 / 'Active'
       })).filter(r => r.customer);
     },
     scada_summary(rows, ctx) {
@@ -958,14 +994,17 @@
         // cleaning signature). Committing it would overwrite real DATA with [].
         // Skip the assignment entirely so the sheet falls through to Stage D and
         // is handled generically instead.
-        if (!derived || !derived.length) {
+        // Defer a 0-row match to generic handling ONLY for fuzzy matches (a
+        // spurious grazing match must not overwrite real DATA with []). An
+        // authoritative @META match is trusted even when empty (renderIfEmpty).
+        if ((!derived || !derived.length) && a.matchedVia !== 'meta') {
           report.warnings.push(`assignment ${a.sheet}->${ds.key} produced 0 rows; deferred to generic handling`);
           continue;
         }
         data[ds.key] = derived;
         report.sheetsAssigned++;
-        report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2) };
-        report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2) });
+        report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2), matchedVia: a.matchedVia || 'heuristic' };
+        report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2), matchedVia: a.matchedVia || 'heuristic' });
         // V10.1 (additive): keep a FULL-FIDELITY generic table of every
         // classified sheet (all columns incl. record ids / audit stamps that
         // the canonical derive step intentionally drops). Consumed by the
@@ -1004,16 +1043,33 @@
         if (assignedNames.has(sh.name)) continue;
         try {
           const generic = extractGeneric(sh.grid, sh.header);
-          if (generic && generic.rows.length) {
+          const metaRole = sh.meta && sh.meta.datasetRole;
+          const renderIfEmpty = sh.meta && /^true$/i.test(String(sh.meta.renderIfEmpty || ''));
+          // Goal 4.1 — the template's declared datasetRole is authoritative and
+          // overrides the fragile heuristic: 'support' is ALWAYS suppressed
+          // (hard, not a soft score penalty), 'business' ALWAYS gets a tab
+          // (renderIfEmpty=true still gets an empty-state tab, never dropped).
+          if (generic && (generic.rows.length || (metaRole === 'business' && renderIfEmpty))) {
             generic.name = sh.name;
-            generic.meta = sh.meta || null;          // V10.1: @META hint pass-through
-            generic.intent = classifyIntent(generic);
-            if (generic.intent.datasetIntent === 'business') {
-              report.unclassified.push(generic);
-              Debug.log(`◆ ${sh.name} → business tab (${generic.rows.length} rows, ${generic.columns.length} cols, BRS ${generic.intent.businessRelevanceScore})`);
-            } else {
+            generic.meta = sh.meta || null;
+            if (metaRole === 'support') {
+              generic.intent = { datasetIntent: 'support', via: 'meta', businessRelevanceScore: null, sheetConfidenceScore: null, signals: { metaRole: 'support' } };
               report.referenceSheets.push(generic);
-              Debug.log(`◇ ${sh.name} → ${generic.intent.datasetIntent} (suppressed; BRS ${generic.intent.businessRelevanceScore}, name="${generic.intent.signals.nameHit}")`);
+              Debug.log(`◇ ${sh.name} → support (@META datasetRole; hard-suppressed)`);
+            } else if (metaRole === 'business') {
+              generic.intent = { datasetIntent: 'business', via: 'meta', businessRelevanceScore: null, sheetConfidenceScore: null, signals: { metaRole: 'business' } };
+              report.unclassified.push(generic);
+              Debug.log(`◆ ${sh.name} → business tab (@META datasetRole)`);
+            } else {
+              generic.intent = classifyIntent(generic);
+              generic.intent.via = 'heuristic';
+              if (generic.intent.datasetIntent === 'business') {
+                report.unclassified.push(generic);
+                Debug.log(`◆ ${sh.name} → business tab (heuristic, BRS ${generic.intent.businessRelevanceScore})`);
+              } else {
+                report.referenceSheets.push(generic);
+                Debug.log(`◇ ${sh.name} → ${generic.intent.datasetIntent} (heuristic; BRS ${generic.intent.businessRelevanceScore})`);
+              }
             }
           } else {
             report.skippedSheets.push({ name: sh.name, reason: 'no data rows' });
@@ -1021,6 +1077,18 @@
         } catch (e) { report.warnings.push(`unclassified ${sh.name} failed: ${e}`); }
       }
     } catch (e) { report.warnings.push('unclassified capture failed: ' + e); }
+
+    // Goal 4.3 — resolve a missing Revenue_Actual province by an EXACT lookup
+    // against Customer_Master (the declared single source of truth). No exact
+    // match → 'ไม่ระบุ' (a visibly distinct unknown bucket), never a fabricated
+    // default. Exact match only here; fuzzy entity resolution is Goal 5.
+    try {
+      const provByCustomer = {};
+      (data.customer_master || []).forEach(c => { if (c.name && c.province) provByCustomer[c.name] = c.province; });
+      (data.revenue_actual || []).forEach(r => {
+        if (!r.province) { r.province = provByCustomer[r.customer] || 'ไม่ระบุ'; }
+      });
+    } catch (e) { report.warnings.push('province resolve failed: ' + e); }
 
     // Recompute customer grades once revenue is known (self-heal ordering)
     try {
@@ -1057,7 +1125,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -3775,6 +3843,7 @@ input[type="file"] { display: none; }
     <div class="tab-section-title" style="border-left:3px solid var(--bu-summary); padding-left:10px;">Data Quality &amp; Audit Center · ศูนย์ตรวจสอบคุณภาพข้อมูล</div>
     <div id="dqSearchHost"></div>
     <div id="dqHealthHost"></div>
+    <div id="dqConfidenceHost"></div>
     <div id="dqKpiHost"></div>
     <div id="dqFilterHost"></div>
     <div id="dqValidationHost"></div>
@@ -4429,13 +4498,14 @@ function renderExec() {
   const revAtRisk = rl.totalLoss + overdueAmt;
   const g = computeGauge();
 
-  // SLA / uptime: average of O&M contract SLA (fallback 95); Contract health:
-  // Active ÷ (total excluding Terminated).
+  // SLA / uptime: average of REAL O&M contract SLA values only. Goal 2 #2 /
+  // Goal 4.3 — never fabricate 95 when none is entered; show it as unknown.
+  // Contract health: Active ÷ (total excluding Terminated).
   const oms = DATA.om_contracts || [];
   const nonTerm = oms.filter(c => !execTerminated(c.status));
   const activeC = oms.filter(c => /active|ใช้งาน/i.test(String(c.status || ''))).length;
   const slaVals = oms.map(c => (typeof c.sla === 'number' ? c.sla : null)).filter(v => v != null);
-  const slaAvg = slaVals.length ? slaVals.reduce((a, b) => a + b, 0) / slaVals.length : 95;
+  const slaAvg = slaVals.length ? slaVals.reduce((a, b) => a + b, 0) / slaVals.length : null;
   const contractHealth = nonTerm.length ? (activeC / nonTerm.length * 100) : (oms.length ? 100 : 0);
 
   // Data Quality score (reuse the DQ engine; safe if unavailable).
@@ -4453,7 +4523,7 @@ function renderExec() {
       svg: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', drill: () => cardClick('cardGauge') },
     { cls: 'success', label: 'Collection Rate', value: collRate.toFixed(1) + '%', meta: `เก็บแล้ว ฿${fmtCurrency(collected)}`,
       svg: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>', drill: () => cardClick('cardCashflow') },
-    { cls: 'warning', label: 'SLA / Uptime', value: slaAvg.toFixed(1) + '%', meta: `${activeC} สัญญา Active`,
+    { cls: 'warning', label: 'SLA / Uptime', value: slaAvg != null ? slaAvg.toFixed(1) + '%' : 'ไม่มีข้อมูล', meta: `${activeC} สัญญา Active`,
       svg: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', drill: () => switchTab('om') },
     { cls: 'critical', label: 'Revenue at Risk', value: '฿' + fmtMoney(revAtRisk), meta: `Loss + Overdue`,
       svg: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', drill: () => cardClick('cardRevLoss') },
@@ -4585,12 +4655,17 @@ function renderExec() {
 /** Ring gauge (0-100) with a centered %; color-graded value text. */
 function execRing(canvasId, pct, color, centerId) {
   const el = document.getElementById(canvasId); if (!el) return;
-  const v = Math.max(0, Math.min(100, pct || 0));
+  const unknown = (pct == null || isNaN(pct));               // Goal 4.3: distinguish "no data" from 0%
+  const v = unknown ? 0 : Math.max(0, Math.min(100, pct));
   const c = document.getElementById(centerId);
-  if (c) { c.textContent = (pct || 0).toFixed(0) + '%'; c.style.color = color; }
+  if (c) {
+    c.textContent = unknown ? '—' : pct.toFixed(0) + '%';
+    c.style.color = unknown ? getCSSVar('--text-muted') : color;
+    c.style.fontSize = unknown ? '20px' : '';
+  }
   CHARTS[canvasId] = registerChart(canvasId, new Chart(el.getContext('2d'), {
     type: 'doughnut',
-    data: { datasets: [{ data: [v, 100 - v], backgroundColor: [color, getCSSVar('--card-elev')], borderWidth: 0, cutout: '76%' }] },
+    data: { datasets: [{ data: unknown ? [0, 100] : [v, 100 - v], backgroundColor: [color, getCSSVar('--card-elev')], borderWidth: 0, cutout: '76%' }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } } }
   }));
 }
@@ -8392,12 +8467,42 @@ document.addEventListener('DOMContentLoaded', init);
     try { renderAudit(); } catch (e) { console.warn('DQ audit failed:', e); }
     try { renderTimeline(); } catch (e) { console.warn('DQ timeline failed:', e); }
   }
+  // Goal 4.4 — show how each dataset was matched (declared @META vs fuzzy
+  // heuristic) so ops can catch template drift (renamed sheet / missing @META)
+  // the moment it happens, instead of when a wrong/duplicate tab appears.
+  function renderConfidence() {
+    const h = host('dqConfidenceHost'); if (!h) return;
+    const rep = STATE.lastReport;
+    const asg = (rep && rep.assignments) || [];
+    if (!asg.length) { h.innerHTML = ''; return; }
+    const meta = asg.filter(a => a.matchedVia === 'meta').length;
+    const heur = asg.length - meta;
+    const rows = asg.slice().sort((a, b) => (a.matchedVia === 'meta' ? 1 : 0) - (b.matchedVia === 'meta' ? 1 : 0)).map(a => {
+      const viaMeta = a.matchedVia === 'meta';
+      const badge = viaMeta
+        ? '<span class="badge badge-paid">@META</span>'
+        : '<span class="badge badge-pending">heuristic</span>';
+      return `<tr><td>${esc(a.sheet)}</td><td class="text-mono">${esc(a.dataset)}</td><td>${badge}</td><td class="text-right text-mono">${fmtInt(a.rows)}</td></tr>`;
+    }).join('');
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Dataset Match Confidence · การจับคู่ชีต</div>
+          <div class="card-subtitle">${fmtInt(meta)} via @META · ${fmtInt(heur)} via heuristic — heuristic = ตรวจสอบว่าชีตถูกเปลี่ยนชื่อ/ไม่มี @META</div>
+        </div></div>
+        <div class="table-wrap" style="max-height:280px;"><table class="data-table"><thead><tr>
+          <th>Sheet</th><th>Dataset</th><th>Matched via</th><th class="text-right">Rows</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>
+        ${heur ? '<div style="padding:8px 12px;color:var(--warning);font-size:11.5px">⚠ มี ' + heur + ' ชีตที่จับคู่ด้วย heuristic — ตรวจว่ามี @META ครบหรือชื่อชีตถูกเปลี่ยน</div>' : ''}
+      </div>`;
+  }
   function render() {
     const pane = document.getElementById('tab-dq');
     if (!pane || !pane.classList.contains('active')) return;
     try { ensureComputed(); } catch (e) { console.warn('DQ compute failed:', e); }
     try { ensureSearchCard(); } catch (e) {}
     try { renderHealth(); } catch (e) {}
+    try { renderConfidence(); } catch (e) {}
     try { ensureFilterBar(); } catch (e) {}
     renderDynamic();
   }
