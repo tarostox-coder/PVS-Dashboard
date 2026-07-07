@@ -1073,6 +1073,65 @@
   }
 
   /* ===========================================================================
+   * 9.6 STAGE E — DUPLICATE-ROW DETECTION (Goal 5.3)
+   *   One shared mechanism over EVERY dataset (Uniform Standard) driven by a
+   *   per-dataset key config. Two rows are "likely duplicates" only when the
+   *   whole key matches — which for revenue means customer + project + date +
+   *   amount, so genuine separate billing periods (different date OR amount)
+   *   are never flagged. The FIRST occurrence is kept; the rest are flagged
+   *   `isDuplicate` (never deleted) so downstream sums can skip them while the
+   *   rows still show, flagged, in the tables + Data Quality Center.
+   * =========================================================================*/
+  const DUP_KEYS = {
+    revenue_actual:   ['customer', 'project', 'billingDate', 'revenue'],
+    revenue_forecast: ['customer', 'project', 'forecastMonth', 'revenue'],
+    permit_jobs:      ['customer', 'docType', 'startDate', 'revenue'],
+    cleaning:         ['customer', 'site', 'planDate'],
+    inspection:       ['customer', 'site', 'planDate'],
+    alarm_status:     ['customer', 'site', 'time', 'type'],
+    om_contracts:     ['customer', 'site', 'startDate', 'endDate'],
+    scada_summary:    ['customer', 'site', 'month'],
+  };
+  function dupKeyPart(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+    const s = String(v).trim();
+    const m = s.match(/^\d{4}-\d{2}-\d{2}/); if (m) return m[0];   // date → day precision
+    return s.toLowerCase();
+  }
+  function detectDuplicates(data, report) {
+    const summary = [], items = []; let total = 0; const ITEM_CAP = 400;
+    try {
+      for (const k in DUP_KEYS) {
+        const rows = data[k]; if (!Array.isArray(rows) || !rows.length) continue;
+        const fields = DUP_KEYS[k];
+        const groups = new Map();
+        rows.forEach((row, i) => {
+          row.isDuplicate = false;
+          const parts = fields.map(f => dupKeyPart(row[f]));
+          // Core Principle: only flag when the WHOLE key is present. A single
+          // missing part (e.g. a blank billing date) makes duplication ambiguous
+          // — matching customer+amount alone would wrongly drop genuine revenue —
+          // so an incomplete key can never be judged a duplicate; the row stays.
+          if (parts.some(p => p === '')) return;
+          const key = parts.join('␟');
+          if (!groups.has(key)) groups.set(key, { first: i, idxs: [i], parts });
+          else groups.get(key).idxs.push(i);
+        });
+        let dup = 0, grpN = 0;
+        for (const g of groups.values()) {
+          if (g.idxs.length < 2) continue;
+          grpN++;
+          g.idxs.slice(1).forEach(i => { rows[i].isDuplicate = true; rows[i].duplicateOf = g.first; dup++; });
+          if (items.length < ITEM_CAP) items.push({ dataset: k, fields, values: g.parts, occurrences: g.idxs.length });
+        }
+        if (dup) { summary.push({ dataset: k, keyFields: fields, duplicates: dup, groups: grpN, total: rows.length }); total += dup; }
+      }
+    } catch (e) { report.warnings.push('duplicate detection failed: ' + e); }
+    report.duplicates = { summary, items: items.sort((a, b) => b.occurrences - a.occurrences), total };
+  }
+
+  /* ===========================================================================
    * 10. ORCHESTRATOR
    * =========================================================================*/
   function defaultCtx(ctx) {
@@ -1235,6 +1294,11 @@
     // exact province lookup below and never fragment aggregations by typo.
     reconcileEntities(data, report);
 
+    // Stage E — Goal 5.3: flag literal duplicate rows (shared, all datasets) so
+    // KPI/revenue sums don't double-count. Runs after reconcile (canonical
+    // customer) and before province/grade so those see the flags.
+    detectDuplicates(data, report);
+
     // Goal 4.3 — resolve a missing Revenue_Actual province by an EXACT lookup
     // against Customer_Master (the declared single source of truth). No exact
     // match → 'ไม่ระบุ' (a visibly distinct unknown bucket), never a fabricated
@@ -1282,7 +1346,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities, clusterEntities, entitySim },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities, clusterEntities, entitySim, detectDuplicates, DUP_KEYS },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -4002,6 +4066,7 @@ input[type="file"] { display: none; }
     <div id="dqHealthHost"></div>
     <div id="dqConfidenceHost"></div>
     <div id="dqReconcileHost"></div>
+    <div id="dqDuplicateHost"></div>
     <div id="dqKpiHost"></div>
     <div id="dqFilterHost"></div>
     <div id="dqValidationHost"></div>
@@ -4440,6 +4505,11 @@ function getCSSVar(name) { return getComputedStyle(document.documentElement).get
 
 function applyFilters(rows, dateField = 'date', custField = 'customer') {
   return rows.filter(r => {
+    // Goal 5.3 — single shared exclusion point for literal duplicate rows.
+    // Rows are flagged (never deleted) by DataEngine.detectDuplicates; excluding
+    // them here keeps every KPI sum AND its drill-down consistent, while the
+    // flagged rows still show in the Data Quality Center + raw explorer tables.
+    if (r.isDuplicate) return false;
     if (FILTERS.month !== 'all' && r[dateField]) {
       if (!String(r[dateField]).startsWith(FILTERS.month)) return false;
     }
@@ -8719,6 +8789,64 @@ document.addEventListener('DOMContentLoaded', init);
         ${(!poss.length && !clusters.length && !singles.length && !incomplete.length) ? '<div class="empty-state">ทุกชื่อลูกค้าตรงกับ Customer Master ✓</div>' : ''}
       </div>`;
   }
+  // Goal 5.3 — flagged literal-duplicate rows (site/customer + date + amount).
+  // The engine flags, never deletes; sums exclude them via the shared
+  // applyFilters. This panel shows them, grouped, so a person can reconcile.
+  const DUP_DS_LABELS = {
+    revenue_actual: 'รายได้ (Revenue Actual)', revenue_forecast: 'Forecast', permit_jobs: 'Permit',
+    cleaning: 'Cleaning', inspection: 'Inspection', alarm_status: 'Alarm',
+    om_contracts: 'O&M Contracts', scada_summary: 'SCADA',
+  };
+  const DUP_FIELD_LABELS = {
+    customer: 'ลูกค้า', project: 'โครงการ', site: 'ไซต์', billingDate: 'วันที่บิล',
+    forecastMonth: 'เดือน', planDate: 'วันที่แผน', startDate: 'วันเริ่ม', endDate: 'วันสิ้นสุด',
+    time: 'เวลา', month: 'เดือน', type: 'ประเภท', docType: 'ประเภทเอกสาร', revenue: 'ยอดเงิน',
+  };
+  function renderDuplicates() {
+    const h = host('dqDuplicateHost'); if (!h) return;
+    const dup = STATE.lastReport && STATE.lastReport.duplicates;
+    if (!dup || !dup.total) { h.innerHTML = ''; return; }
+    const summary = dup.summary || [];
+    const items = dup.items || [];
+
+    const sumRows = summary.map(s => `
+      <tr><td><strong>${esc(DUP_DS_LABELS[s.dataset] || s.dataset)}</strong></td>
+      <td>${esc(s.keyFields.map(f => DUP_FIELD_LABELS[f] || f).join(' + '))}</td>
+      <td class="text-right text-mono">${fmtInt(s.groups)}</td>
+      <td class="text-right text-mono">${fmtInt(s.duplicates)}</td>
+      <td class="text-right text-mono">${fmtInt(s.total)}</td></tr>`).join('');
+
+    const itemRows = items.slice(0, 150).map(it => {
+      const key = it.fields.map((f, i) => {
+        const v = it.values[i];
+        return `<span style="color:var(--text-muted)">${esc(DUP_FIELD_LABELS[f] || f)}:</span> ${esc(v === '' ? '—' : v)}`;
+      }).join(' · ');
+      return `<tr><td>${esc(DUP_DS_LABELS[it.dataset] || it.dataset)}</td>
+        <td style="font-size:12px">${key}</td>
+        <td class="text-center"><span class="badge badge-pending">×${fmtInt(it.occurrences)}</span></td></tr>`;
+    }).join('');
+
+    const capped = items.length > 150 ? `<div style="font-size:11px;color:var(--text-muted);padding:6px 2px">แสดง 150 กลุ่มแรกจาก ${fmtInt(items.length)} กลุ่ม</div>` : '';
+
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Duplicate Rows · แถวซ้ำ (ไม่นับซ้ำในยอดรวม)</div>
+          <div class="card-subtitle">${fmtInt(dup.total)} แถวถูกตีธง "ซ้ำ" ใน ${fmtInt(summary.length)} ชุดข้อมูล — แถวแรกของแต่ละกลุ่มถูกเก็บไว้ ที่เหลือไม่ถูกนำไปรวมยอด/KPI แต่ยังแสดงในตารางดิบ (ไม่มีการลบ)</div>
+        </div></div>
+
+        <div style="font-size:12px;font-weight:600;color:var(--warning);padding:4px 2px 8px">⚠ นับเป็นซ้ำเฉพาะเมื่อ "ทั้งคีย์" ตรงกัน (เช่น รายได้ = ลูกค้า+โครงการ+วันที่+ยอด) — งวดบิลจริงที่ต่างวันหรือต่างยอด จะไม่ถูกตีธง</div>
+
+        <div class="table-wrap" style="max-height:180px;"><table class="data-table"><thead><tr>
+          <th>ชุดข้อมูล</th><th>คีย์ที่ใช้ตรวจ</th><th class="text-right">กลุ่มซ้ำ</th><th class="text-right">แถวซ้ำ</th><th class="text-right">แถวทั้งหมด</th>
+        </tr></thead><tbody>${sumRows}</tbody></table></div>
+
+        ${itemRows ? `<div style="font-size:12px;font-weight:600;color:var(--text-dim);padding:14px 2px 8px">กลุ่มที่ซ้ำ (เรียงตามจำนวนครั้งที่พบ)</div>
+        <div class="table-wrap" style="max-height:320px;"><table class="data-table"><thead><tr>
+          <th>ชุดข้อมูล</th><th>คีย์</th><th class="text-center">พบซ้ำ</th>
+        </tr></thead><tbody>${itemRows}</tbody></table></div>${capped}` : ''}
+      </div>`;
+  }
   function render() {
     const pane = document.getElementById('tab-dq');
     if (!pane || !pane.classList.contains('active')) return;
@@ -8727,6 +8855,7 @@ document.addEventListener('DOMContentLoaded', init);
     try { renderHealth(); } catch (e) {}
     try { renderConfidence(); } catch (e) {}
     try { renderReconcile(); } catch (e) {}
+    try { renderDuplicates(); } catch (e) {}
     try { ensureFilterBar(); } catch (e) {}
     renderDynamic();
   }
