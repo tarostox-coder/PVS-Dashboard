@@ -921,6 +921,93 @@
   };
 
   /* ===========================================================================
+   * 9.5 STAGE E — RECONCILE (Goal 5.1: customer entity resolution)
+   *   Canonical customer dictionary = Customer_Master.name (declared single
+   *   source of truth). Every business row's customer string is resolved
+   *   against it, REUSING the same dice/levRatio utilities as header matching
+   *   — applied to VALUES. Per the Core Principle:
+   *     · normalized-EXACT variant (whitespace/case/punct/legal-prefix only)
+   *       → auto-canonicalize silently (overwrite customer, keep customerRaw)
+   *     · a real character difference (plausible typo), fuzzy ≥ MED
+   *       → FLAG as "possible duplicate" for a human; NEVER auto-merge
+   *     · no match → FLAG "not yet in Customer_Master"
+   *   This stage NEVER collapses rows: legitimate repeats (many billing
+   *   periods; one customer with many distinct sites) are the rollup's job
+   *   (Goal 5.5), not this one. It only canonicalizes the customer STRING.
+   * =========================================================================*/
+  // Strip only unambiguous legal-entity words. NOT 'มหาชน'/'public'/'plc' — a
+  // PLC and a Co.,Ltd of the same name can be distinct entities.
+  const ENTITY_STOPWORDS = /(บริษัท|บจก\.?|หจก\.?|ห้างหุ้นส่วนจำกัด|ห้างหุ้นส่วน|จำกัด|company|co\.?,?|ltd\.?|limited|corporation|corp\.?|inc\.?)/gi;
+  function normEntity(s) {
+    let v = T.text(s); if (!v) return '';
+    v = v.toLowerCase();
+    v = v.replace(ENTITY_STOPWORDS, ' ');
+    v = v.replace(/[.,\-_/\\'"“”‘’()\[\]]+/g, ' ');   // normalize punctuation/parens to space (keep the content)
+    v = v.replace(/\s+/g, ' ').trim();
+    return v;
+  }
+  const RECON = { MED: 0.72 };   // fuzzy ≥ MED (but not exact) → "possible"; below → unresolved
+
+  function reconcileEntities(data, report) {
+    const RESULT = { possibleDuplicates: [], unresolved: [], exactCount: 0, autoCount: 0, canonCount: 0 };
+    try {
+      const canonRaw = [...new Set((data.customer_master || []).map(c => T.text(c.name)).filter(Boolean))];
+      if (!canonRaw.length) { report.reconcile = RESULT; return; }   // no dictionary → resolve nothing
+      const canonNorm = canonRaw.map(raw => ({ raw, norm: normEntity(raw) }));
+      const byNorm = new Map();
+      for (const c of canonNorm) if (c.norm && !byNorm.has(c.norm)) byNorm.set(c.norm, c.raw);
+
+      const cache = new Map(), possMap = new Map(), unresMap = new Map();
+      function resolve(rawValue) {
+        const val = T.text(rawValue); if (!val) return null;
+        if (cache.has(val)) return cache.get(val);
+        const norm = normEntity(val);
+        let res;
+        if (byNorm.has(norm)) {
+          const canon = byNorm.get(norm);
+          res = { canonical: canon, flag: (canon === val ? 'exact' : 'canonical'), score: 1 };
+        } else {
+          let best = null, bestScore = 0;
+          for (const c of canonNorm) {
+            if (!c.norm) continue;
+            const sc = Math.max(dice(norm, c.norm), 0.85 * levRatio(norm, c.norm));
+            if (sc > bestScore) { bestScore = sc; best = c; }
+          }
+          if (best && bestScore >= RECON.MED) res = { canonical: val, flag: 'possible', score: +bestScore.toFixed(3), candidate: best.raw };
+          else res = { canonical: val, flag: 'unresolved', score: +bestScore.toFixed(3) };
+        }
+        cache.set(val, res);
+        return res;
+      }
+
+      const WITH_CUSTOMER = ['revenue_actual', 'revenue_forecast', 'alarm_status', 'permit_jobs', 'cleaning', 'inspection', 'om_contracts', 'scada_summary'];
+      for (const k of WITH_CUSTOMER) {
+        (data[k] || []).forEach(row => {
+          const res = resolve(row.customer);
+          if (!res) return;
+          row.customerRaw = T.text(row.customer);       // keep original for display/audit
+          row.customerFlag = res.flag;
+          if (res.flag === 'exact' || res.flag === 'canonical') {
+            row.customer = res.canonical;               // aggregations consume the canonical spelling
+            if (res.flag === 'canonical') RESULT.autoCount++; else RESULT.exactCount++;
+          } else if (res.flag === 'possible') {
+            const key = row.customerRaw + '␟' + res.candidate;
+            if (!possMap.has(key)) possMap.set(key, { raw: row.customerRaw, candidate: res.candidate, score: res.score, count: 0, sheets: new Set() });
+            const e = possMap.get(key); e.count++; e.sheets.add(k);
+          } else {
+            if (!unresMap.has(row.customerRaw)) unresMap.set(row.customerRaw, { raw: row.customerRaw, count: 0, sheets: new Set() });
+            const e = unresMap.get(row.customerRaw); e.count++; e.sheets.add(k);
+          }
+        });
+      }
+      RESULT.possibleDuplicates = [...possMap.values()].map(e => ({ raw: e.raw, candidate: e.candidate, score: e.score, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.score - a.score);
+      RESULT.unresolved = [...unresMap.values()].map(e => ({ raw: e.raw, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.count - a.count);
+      RESULT.canonCount = RESULT.exactCount + RESULT.autoCount;
+    } catch (e) { report.warnings.push('reconcile failed: ' + e); }
+    report.reconcile = RESULT;
+  }
+
+  /* ===========================================================================
    * 10. ORCHESTRATOR
    * =========================================================================*/
   function defaultCtx(ctx) {
@@ -1078,6 +1165,11 @@
       }
     } catch (e) { report.warnings.push('unclassified capture failed: ' + e); }
 
+    // Stage E — Goal 5.1: reconcile customer entity names against Customer_Master
+    // BEFORE any downstream lookup/rollup, so canonicalized names improve the
+    // exact province lookup below and never fragment aggregations by typo.
+    reconcileEntities(data, report);
+
     // Goal 4.3 — resolve a missing Revenue_Actual province by an EXACT lookup
     // against Customer_Master (the declared single source of truth). No exact
     // match → 'ไม่ระบุ' (a visibly distinct unknown bucket), never a fabricated
@@ -1125,7 +1217,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -3844,6 +3936,7 @@ input[type="file"] { display: none; }
     <div id="dqSearchHost"></div>
     <div id="dqHealthHost"></div>
     <div id="dqConfidenceHost"></div>
+    <div id="dqReconcileHost"></div>
     <div id="dqKpiHost"></div>
     <div id="dqFilterHost"></div>
     <div id="dqValidationHost"></div>
@@ -8496,6 +8589,37 @@ document.addEventListener('DOMContentLoaded', init);
         ${heur ? '<div style="padding:8px 12px;color:var(--warning);font-size:11.5px">⚠ มี ' + heur + ' ชีตที่จับคู่ด้วย heuristic — ตรวจว่ามี @META ครบหรือชื่อชีตถูกเปลี่ยน</div>' : ''}
       </div>`;
   }
+  // Goal 5.1 — Entity Resolution: possible-duplicate customer names (human
+  // must confirm — never auto-merged) + customers not yet in Customer_Master.
+  function renderReconcile() {
+    const h = host('dqReconcileHost'); if (!h) return;
+    const rec = STATE.lastReport && STATE.lastReport.reconcile;
+    if (!rec) { h.innerHTML = ''; return; }
+    const poss = rec.possibleDuplicates || [], unres = rec.unresolved || [];
+    if (!poss.length && !unres.length && !rec.canonCount) { h.innerHTML = ''; return; }
+    const possRows = poss.slice(0, 200).map(p => `
+      <tr><td><strong>${esc(p.raw)}</strong></td><td>${esc(p.candidate)}</td>
+      <td class="text-center"><span class="badge badge-pending">${(p.score * 100).toFixed(0)}%</span></td>
+      <td class="text-right text-mono">${fmtInt(p.count)}</td><td>${esc(p.sheets.join(', '))}</td></tr>`).join('');
+    const unresRows = unres.slice(0, 200).map(u => `
+      <tr><td><strong>${esc(u.raw)}</strong></td><td class="text-right text-mono">${fmtInt(u.count)}</td><td>${esc(u.sheets.join(', '))}</td></tr>`).join('');
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Entity Resolution · จับคู่ชื่อลูกค้ากับ Customer Master</div>
+          <div class="card-subtitle">${fmtInt(rec.canonCount)} auto-canonicalized · ${fmtInt(poss.length)} อาจซ้ำ/พิมพ์ผิด (รอยืนยัน) · ${fmtInt(unres.length)} ยังไม่มีใน Customer Master</div>
+        </div></div>
+        ${poss.length ? `<div style="font-size:12px;font-weight:600;color:var(--warning);padding:4px 2px 8px">⚠ อาจซ้ำ/พิมพ์ผิด — ยังไม่รวมให้ ต้องให้คนยืนยัน</div>
+          <div class="table-wrap" style="max-height:260px;"><table class="data-table"><thead><tr>
+          <th>ค่าที่กรอก</th><th>ใกล้เคียงกับ (Customer Master)</th><th class="text-center">คะแนน</th><th class="text-right">แถว</th><th>ชีต</th>
+          </tr></thead><tbody>${possRows}</tbody></table></div>` : ''}
+        ${unres.length ? `<div style="font-size:12px;font-weight:600;color:var(--text-dim);padding:12px 2px 8px">ยังไม่มีใน Customer Master (อาจเป็นไซต์ใหม่ที่ยังไม่ถูกเพิ่ม)</div>
+          <div class="table-wrap" style="max-height:220px;"><table class="data-table"><thead><tr>
+          <th>ชื่อลูกค้า</th><th class="text-right">แถว</th><th>ชีต</th>
+          </tr></thead><tbody>${unresRows}</tbody></table></div>` : ''}
+        ${(!poss.length && !unres.length) ? '<div class="empty-state">ทุกชื่อลูกค้าตรงกับ Customer Master ✓</div>' : ''}
+      </div>`;
+  }
   function render() {
     const pane = document.getElementById('tab-dq');
     if (!pane || !pane.classList.contains('active')) return;
@@ -8503,6 +8627,7 @@ document.addEventListener('DOMContentLoaded', init);
     try { ensureSearchCard(); } catch (e) {}
     try { renderHealth(); } catch (e) {}
     try { renderConfidence(); } catch (e) {}
+    try { renderReconcile(); } catch (e) {}
     try { ensureFilterBar(); } catch (e) {}
     renderDynamic();
   }
