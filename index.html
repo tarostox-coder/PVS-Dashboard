@@ -1132,6 +1132,100 @@
   }
 
   /* ===========================================================================
+   * 9.7 STAGE E — HIERARCHICAL ROLLUP  (Goal 5.5)
+   *   One shared, config-driven rollup over every relevant dataset (Uniform
+   *   Standard). Builds a 3-level tree per dataset for the executive / BU views:
+   *     1. Customer  — grouped by the EXACT canonicalized name (5.1 already
+   *        aligned typos to Customer_Master; here we only ever exact-match).
+   *     2. Project   — grouped by EXACT project string, never fuzzy: two real
+   *        sites with similar names must stay separate. Same customer + same
+   *        project → one line summing its billing periods ("N งวด"). Same
+   *        customer + different project → separate lines under the customer.
+   *     3. Period    — each surviving row (one invoice / billing period).
+   *   Guardrails:
+   *     • Excludes rows flagged isDuplicate (Goal 5.3) so a rollup total always
+   *       equals the KPI sum that applyFilters produces — never double-counted.
+   *     • A BLANK project can't be confirmed to be "the same project" as any
+   *       other blank, so it NEVER merges — each blank row is its own line,
+   *       flagged resolved:false (Core Principle: flag ambiguity, don't fabricate
+   *       a shared project). Same rule for a blank customer.
+   *     • Sums only additive money fields (revenue/cost/profit). kW is an
+   *       AVERAGE metric (Revenue_Actual) and kWp a nameplate (Customer_Master) —
+   *       neither is summed here, so the two are never conflated.
+   * =========================================================================*/
+  const ROLLUP_SPECS = {
+    revenue_actual:   { customer: 'customer', project: 'project', period: 'billingDate',   periodLabel: 'งวด',  sum: ['revenue', 'cost', 'profit'] },
+    revenue_forecast: { customer: 'customer', project: 'project', period: 'forecastMonth', periodLabel: 'เดือน', sum: ['revenue'] },
+  };
+  function rollupOne(rows, spec) {
+    const sumFields = spec.sum;
+    const zero = () => { const o = {}; sumFields.forEach(f => o[f] = 0); return o; };
+    const addInto = (acc, row) => { sumFields.forEach(f => { acc[f] += Number(row[f]) || 0; }); };
+
+    const custMap = new Map();
+    let rowsCounted = 0, dupExcluded = 0, blankCust = 0, blankProj = 0;
+
+    rows.forEach((row, idx) => {
+      if (row.isDuplicate) { dupExcluded++; return; }         // stay consistent with KPI sums
+      rowsCounted++;
+      const custName = (row[spec.customer] == null ? '' : String(row[spec.customer]).trim());
+      const custResolved = custName !== '';
+      const custKey = custResolved ? custName : ' nocust';
+      if (!custResolved) blankCust++;
+
+      const projName = (row[spec.project] == null ? '' : String(row[spec.project]).trim());
+      const projResolved = projName !== '';
+      const projKey = projResolved ? projName : (' noproj:' + idx);   // blank never merges
+      if (!projResolved) blankProj++;
+
+      let c = custMap.get(custKey);
+      if (!c) { c = { customer: custResolved ? custName : '(ไม่ระบุลูกค้า)', resolved: custResolved, totals: zero(), projMap: new Map() }; custMap.set(custKey, c); }
+      addInto(c.totals, row);
+
+      let p = c.projMap.get(projKey);
+      if (!p) { p = { project: projResolved ? projName : '(ไม่ระบุโครงการ)', resolved: projResolved, totals: zero(), periods: [] }; c.projMap.set(projKey, p); }
+      addInto(p.totals, row);
+      const pv = {}; sumFields.forEach(f => pv[f] = Number(row[f]) || 0);
+      p.periods.push({ rowIndex: idx, period: dupKeyPart(row[spec.period]) || '', raw: row[spec.period] != null ? row[spec.period] : '', values: pv });
+    });
+
+    const primary = sumFields[0];
+    const totals = zero();
+    const customers = [...custMap.values()].map(c => {
+      const projects = [...c.projMap.values()].map(p => ({
+        project: p.project, resolved: p.resolved, totals: p.totals, periodCount: p.periods.length, periods: p.periods,
+      })).sort((a, b) => (b.totals[primary] || 0) - (a.totals[primary] || 0));
+      sumFields.forEach(f => { totals[f] += c.totals[f]; });
+      return {
+        customer: c.customer, resolved: c.resolved, totals: c.totals,
+        projectCount: projects.length,
+        periodCount: projects.reduce((s, p) => s + p.periodCount, 0),
+        projects,
+      };
+    }).sort((a, b) => (b.totals[primary] || 0) - (a.totals[primary] || 0));
+
+    return {
+      sumFields, periodLabel: spec.periodLabel || 'งวด', primaryField: primary,
+      customers, totals,
+      customerCount: customers.length,
+      projectCount: customers.reduce((s, c) => s + c.projectCount, 0),
+      periodCount: customers.reduce((s, c) => s + c.periodCount, 0),
+      rowsCounted, duplicatesExcluded: dupExcluded, blankCustomer: blankCust, blankProject: blankProj,
+    };
+  }
+  function buildRollups(data, report) {
+    const out = {};
+    try {
+      for (const k in ROLLUP_SPECS) {
+        const rows = data[k];
+        if (!Array.isArray(rows) || !rows.length) continue;
+        out[k] = rollupOne(rows, ROLLUP_SPECS[k]);
+      }
+    } catch (e) { report.warnings.push('rollup build failed: ' + e); }
+    report.rollups = out;
+  }
+
+  /* ===========================================================================
    * 10. ORCHESTRATOR
    * =========================================================================*/
   function defaultCtx(ctx) {
@@ -1299,6 +1393,12 @@
     // customer) and before province/grade so those see the flags.
     detectDuplicates(data, report);
 
+    // Stage E — Goal 5.5: build the customer→project→period rollup used by the
+    // executive/BU views. Runs AFTER reconcile (exact names) and detectDuplicates
+    // (its totals exclude flagged duplicates), so a rollup line always equals the
+    // KPI sum for the same slice. Purely additive: report.rollups only.
+    buildRollups(data, report);
+
     // Goal 4.3 — resolve a missing Revenue_Actual province by an EXACT lookup
     // against Customer_Master (the declared single source of truth). No exact
     // match → 'ไม่ระบุ' (a visibly distinct unknown bucket), never a fabricated
@@ -1346,7 +1446,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities, clusterEntities, entitySim, detectDuplicates, DUP_KEYS },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities, clusterEntities, entitySim, detectDuplicates, DUP_KEYS, buildRollups, rollupOne, ROLLUP_SPECS },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
