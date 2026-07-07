@@ -3849,6 +3849,15 @@ input[type="file"] { display: none; }
 
     <div class="section-bar">
       <div class="section-num">5</div>
+      <div class="section-title">รายได้ตามลูกค้า → โครงการ</div>
+      <div class="section-sub">รวมยอดตามลูกค้าและโครงการ (จับคู่ชื่อแบบตรงเป๊ะ · ไม่รวมแถวซ้ำ) · คลิกโครงการเพื่อดูรายงวด</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div id="rollupHost"></div>
+
+    <div class="section-bar">
+      <div class="section-num">6</div>
       <div class="section-title">จุดที่ต้องดูแลด่วน</div>
       <div class="section-sub">Top issues ที่ทำให้เงินรั่ว · เรียงตามมูลค่า</div>
       <div class="section-spacer"></div>
@@ -5280,7 +5289,117 @@ function renderHome() {
         </div>`).join('')
     : '<div class="empty-state">ไม่มีจุดที่ต้องดูแล ✓</div>';
 
+  // Goal 5.5 — customer→project rollup, computed on the SAME filtered rows as
+  // the hero KPIs above so its total always reconciles with them.
+  renderRollup('rollupHost', 'revenue_actual', rows);
+
   renderMonthlySummaryPanel();
+}
+
+/* ============== Goal 5.5 — HIERARCHICAL ROLLUP (presentation) ==============
+ * Renders the customer→project→period tree from the engine's single shared
+ * rollupOne() (Uniform Standard) over the CURRENTLY FILTERED rows, so the tree
+ * total equals the KPI above it. Levels 1–2 (customer, project) show summed;
+ * level 3 (individual billing periods) opens in the existing drill-down modal
+ * (reused, not rebuilt). Different or blank projects never merge (engine 9.7);
+ * kW is never summed (kW≠kWp). */
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+window.__rollupCache = window.__rollupCache || {};
+function renderRollup(hostId, dsKey, sourceRows) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const eng = window.DataEngine && window.DataEngine._internal;
+  const spec = eng && eng.ROLLUP_SPECS && eng.ROLLUP_SPECS[dsKey];
+  if (!eng || !spec || typeof eng.rollupOne !== 'function') { host.innerHTML = ''; return; }
+
+  const roll = eng.rollupOne(sourceRows || [], spec);
+  window.__rollupCache[dsKey] = { roll, rows: sourceRows || [] };
+  const primary = roll.primaryField;
+
+  if (!roll.customers.length) {
+    host.innerHTML = '<div class="card"><div class="empty-state">ไม่มีข้อมูลรายได้ในช่วงที่กรอง</div></div>';
+    return;
+  }
+
+  const groups = roll.customers.map((c, ci) => {
+    const projRows = c.projects.map((p, pi) => {
+      const label = p.resolved ? escHtml(p.project)
+        : `<span style="color:var(--warning)">${escHtml(p.project)} ⚠</span>`;
+      return `<tr class="rollup-proj-row rp-${ci}" style="display:none;cursor:pointer;" onclick="openRollupDrill('${dsKey}',${ci},${pi})">
+        <td style="padding-left:30px;">${label}</td>
+        <td class="text-center text-mono">${p.periodCount} ${escHtml(roll.periodLabel)}</td>
+        <td class="text-right text-mono">฿${fmtCurrency(p.totals[primary])}</td>
+        <td class="text-center" style="color:var(--text-muted)">ดูงวด ›</td>
+      </tr>`;
+    }).join('');
+    return `<tbody>
+      <tr class="rollup-cust-row" onclick="toggleRollupCust(${ci})" style="cursor:pointer;">
+        <td><span class="rollup-caret" id="rollupCaret-${ci}">▸</span> <strong>${escHtml(c.customer)}</strong></td>
+        <td class="text-center text-mono">${c.projectCount} โครงการ · ${c.periodCount} ${escHtml(roll.periodLabel)}</td>
+        <td class="text-right text-mono"><strong>฿${fmtCurrency(c.totals[primary])}</strong></td>
+        <td></td>
+      </tr>${projRows}
+    </tbody>`;
+  }).join('');
+
+  const blankNote = roll.blankProject ? ` · ${roll.blankProject} แถวไม่มีชื่อโครงการ (ขึ้นธง ไม่ถูกยุบรวม)` : '';
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-header"><div>
+        <div class="card-title">รวม ฿${fmtCurrency(roll.totals[primary])} · ${roll.customerCount} ลูกค้า · ${roll.projectCount} โครงการ · ${roll.periodCount} ${escHtml(roll.periodLabel)}</div>
+        <div class="card-subtitle">คลิกชื่อลูกค้าเพื่อกางโครงการ · คลิกโครงการเพื่อดูรายงวด${blankNote}</div>
+      </div></div>
+      <div class="table-wrap" style="max-height:440px;">
+        <table class="data-table"><thead><tr>
+          <th>ลูกค้า / โครงการ</th><th class="text-center">โครงการ · งวด</th><th class="text-right">รายได้</th><th></th>
+        </tr></thead>${groups}</table>
+      </div>
+    </div>`;
+}
+function toggleRollupCust(ci) {
+  const rows = document.querySelectorAll('.rp-' + ci);
+  const caret = document.getElementById('rollupCaret-' + ci);
+  let opened = false;
+  rows.forEach(r => { const show = r.style.display === 'none'; r.style.display = show ? '' : 'none'; opened = show; });
+  if (caret) caret.textContent = opened ? '▾' : '▸';
+}
+function openRollupDrill(dsKey, ci, pi) {
+  const cache = window.__rollupCache[dsKey]; if (!cache) return;
+  const c = cache.roll.customers[ci]; if (!c) return;
+  const p = c.projects[pi]; if (!p) return;
+  const src = cache.rows;
+  const isRev = dsKey === 'revenue_actual';
+  const rows = p.periods.map(per => {
+    const row = src[per.rowIndex] || {};
+    if (isRev) {
+      return {
+        billingDate: row.billingDate || per.raw || '—',
+        revenue: row.revenue != null ? row.revenue : per.values.revenue,
+        cost: row.cost != null ? row.cost : '',
+        profit: row.profit != null ? row.profit : '',
+        paymentStatus: row.paymentStatus || '',
+      };
+    }
+    return { period: per.raw || per.period || '—', revenue: per.values.revenue };
+  });
+  const cols = isRev ? [
+    { key: 'billingDate', label: 'วันที่บิล' },
+    { key: 'revenue', label: 'รายได้', right: true, fmt: v => '฿' + fmtCurrency(v) },
+    { key: 'cost', label: 'ต้นทุน', right: true, fmt: v => v === '' ? '—' : '฿' + fmtCurrency(v) },
+    { key: 'profit', label: 'กำไร', right: true, fmt: v => v === '' ? '—' : '฿' + fmtCurrency(v) },
+    { key: 'paymentStatus', label: 'สถานะจ่าย', badge: true },
+  ] : [
+    { key: 'period', label: 'งวด' },
+    { key: 'revenue', label: 'รายได้', right: true, fmt: v => '฿' + fmtCurrency(v) },
+  ];
+  const primary = cache.roll.primaryField;
+  const summary = [
+    { label: 'รายได้รวมโครงการ', value: '฿' + fmtCurrency(p.totals[primary]) },
+    { label: 'จำนวนงวด', value: p.periodCount + ' ' + cache.roll.periodLabel },
+  ];
+  openDrill(`${c.customer} · ${p.project}`, 'รายงวด (billing periods) ของโครงการนี้ — ไม่รวมแถวซ้ำ', rows, cols, summary);
 }
 
 /* Monthly Summary panel — embedded on the Home page (right column).
