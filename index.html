@@ -948,8 +948,33 @@
   }
   const RECON = { MED: 0.72 };   // fuzzy ≥ MED (but not exact) → "possible"; below → unresolved
 
+  const WITH_CUSTOMER = ['revenue_actual', 'revenue_forecast', 'alarm_status', 'permit_jobs', 'cleaning', 'inspection', 'om_contracts', 'scada_summary'];
+  const CLUSTER_CAP = 1500;   // pairwise-cluster only up to this many distinct names (perf guard)
+
+  // Similarity used everywhere on VALUES — one shared definition (Uniform Standard).
+  function entitySim(normA, normB) { return Math.max(dice(normA, normB), 0.85 * levRatio(normA, normB)); }
+
+  // Goal 5.1b — connected-components clustering of a POOL of {raw,norm,count,sheets}
+  // entries by entitySim >= RECON.MED. Shared, dataset-agnostic; the caller pools
+  // rows from every sheet first, so this is never per-sheet.
+  function clusterEntities(entries) {
+    const items = entries.filter(e => e.norm);
+    const n = items.length, parent = items.map((_, i) => i);
+    const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+    if (n <= CLUSTER_CAP) {
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        if (entitySim(items[i].norm, items[j].norm) >= RECON.MED) { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
+      }
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(items[i]); }
+    // entries whose norm was empty are handled separately (incomplete); they never cluster
+    return { clustered: [...groups.values()], capped: n > CLUSTER_CAP };
+  }
+
   function reconcileEntities(data, report) {
-    const RESULT = { possibleDuplicates: [], unresolved: [], exactCount: 0, autoCount: 0, canonCount: 0 };
+    const RESULT = { possibleDuplicates: [], unresolvedClusters: [], unresolvedSingletons: [], incomplete: [],
+                     exactCount: 0, autoCount: 0, canonCount: 0, incompleteCount: 0, clusterCapped: false };
     try {
       const canonRaw = [...new Set((data.customer_master || []).map(c => T.text(c.name)).filter(Boolean))];
       if (!canonRaw.length) { report.reconcile = RESULT; return; }   // no dictionary → resolve nothing
@@ -957,30 +982,33 @@
       const byNorm = new Map();
       for (const c of canonNorm) if (c.norm && !byNorm.has(c.norm)) byNorm.set(c.norm, c.raw);
 
-      const cache = new Map(), possMap = new Map(), unresMap = new Map();
+      const cache = new Map(), possMap = new Map(), unresMap = new Map(), incMap = new Map();
       function resolve(rawValue) {
         const val = T.text(rawValue); if (!val) return null;
         if (cache.has(val)) return cache.get(val);
         const norm = normEntity(val);
         let res;
-        if (byNorm.has(norm)) {
+        if (!norm) {
+          // value reduced to nothing after stripping legal stopwords (e.g. only "บริษัท")
+          res = { canonical: val, flag: 'incomplete', norm: '' };
+        } else if (byNorm.has(norm)) {
           const canon = byNorm.get(norm);
-          res = { canonical: canon, flag: (canon === val ? 'exact' : 'canonical'), score: 1 };
+          res = { canonical: canon, flag: (canon === val ? 'exact' : 'canonical'), norm, score: 1 };
         } else {
           let best = null, bestScore = 0;
           for (const c of canonNorm) {
             if (!c.norm) continue;
-            const sc = Math.max(dice(norm, c.norm), 0.85 * levRatio(norm, c.norm));
+            const sc = entitySim(norm, c.norm);
             if (sc > bestScore) { bestScore = sc; best = c; }
           }
-          if (best && bestScore >= RECON.MED) res = { canonical: val, flag: 'possible', score: +bestScore.toFixed(3), candidate: best.raw };
-          else res = { canonical: val, flag: 'unresolved', score: +bestScore.toFixed(3) };
+          if (best && bestScore >= RECON.MED) res = { canonical: val, flag: 'possible', score: +bestScore.toFixed(3), candidate: best.raw, norm };
+          else res = { canonical: val, flag: 'unresolved', score: +bestScore.toFixed(3), norm };
         }
         cache.set(val, res);
         return res;
       }
 
-      const WITH_CUSTOMER = ['revenue_actual', 'revenue_forecast', 'alarm_status', 'permit_jobs', 'cleaning', 'inspection', 'om_contracts', 'scada_summary'];
+      // --- Pass 1: resolve every customer-bearing row against Customer_Master ---
       for (const k of WITH_CUSTOMER) {
         (data[k] || []).forEach(row => {
           const res = resolve(row.customer);
@@ -994,14 +1022,51 @@
             const key = row.customerRaw + '␟' + res.candidate;
             if (!possMap.has(key)) possMap.set(key, { raw: row.customerRaw, candidate: res.candidate, score: res.score, count: 0, sheets: new Set() });
             const e = possMap.get(key); e.count++; e.sheets.add(k);
+          } else if (res.flag === 'incomplete') {
+            if (!incMap.has(row.customerRaw)) incMap.set(row.customerRaw, { raw: row.customerRaw, count: 0, sheets: new Set() });
+            const e = incMap.get(row.customerRaw); e.count++; e.sheets.add(k);
           } else {
-            if (!unresMap.has(row.customerRaw)) unresMap.set(row.customerRaw, { raw: row.customerRaw, count: 0, sheets: new Set() });
+            if (!unresMap.has(row.customerRaw)) unresMap.set(row.customerRaw, { raw: row.customerRaw, norm: res.norm, count: 0, sheets: new Set() });
             const e = unresMap.get(row.customerRaw); e.count++; e.sheets.add(k);
           }
         });
       }
+
+      // --- Pass 2 (5.1b): cluster the POOLED unresolved names across ALL sheets ---
+      const pool = [...unresMap.values()].map(e => ({ raw: e.raw, norm: e.norm, count: e.count, sheets: e.sheets }));
+      const { clustered, capped } = clusterEntities(pool);
+      RESULT.clusterCapped = capped;
+      const labelOfRaw = new Map();                     // rawValue -> suggested cluster label (multi-member only)
+      const clusters = [], singletons = [];
+      for (const grp of clustered) {
+        if (grp.length >= 2) {
+          const members = grp.slice().sort((a, b) => b.raw.length - a.raw.length || b.count - a.count);
+          const label = members[0].raw;                 // "most complete-looking" = longest, then most rows
+          const sheets = new Set(); let rowCount = 0;
+          members.forEach(m => { m.sheets.forEach(s => sheets.add(s)); rowCount += m.count; labelOfRaw.set(m.raw, label); });
+          clusters.push({ label, memberCount: members.length, rowCount, sheets: [...sheets],
+                          members: members.map(m => ({ raw: m.raw, count: m.count, sheets: [...m.sheets] })) });
+        } else {
+          const m = grp[0]; singletons.push({ raw: m.raw, count: m.count, sheets: [...m.sheets] });
+        }
+      }
+
+      // Re-flag clustered rows as 'unresolved-clustered' (suggestion only — the raw
+      // customer string is NEVER overwritten; nothing is auto-added to Customer_Master).
+      for (const k of WITH_CUSTOMER) {
+        (data[k] || []).forEach(row => {
+          if (row.customerFlag === 'unresolved' && labelOfRaw.has(row.customerRaw)) {
+            row.customerFlag = 'unresolved-clustered';
+            row.customerCluster = labelOfRaw.get(row.customerRaw);
+          }
+        });
+      }
+
       RESULT.possibleDuplicates = [...possMap.values()].map(e => ({ raw: e.raw, candidate: e.candidate, score: e.score, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.score - a.score);
-      RESULT.unresolved = [...unresMap.values()].map(e => ({ raw: e.raw, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.count - a.count);
+      RESULT.unresolvedClusters = clusters.sort((a, b) => b.rowCount - a.rowCount);
+      RESULT.unresolvedSingletons = singletons.sort((a, b) => b.count - a.count);
+      RESULT.incomplete = [...incMap.values()].map(e => ({ raw: e.raw, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.count - a.count);
+      RESULT.incompleteCount = RESULT.incomplete.reduce((s, e) => s + e.count, 0);
       RESULT.canonCount = RESULT.exactCount + RESULT.autoCount;
     } catch (e) { report.warnings.push('reconcile failed: ' + e); }
     report.reconcile = RESULT;
@@ -1217,7 +1282,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities, clusterEntities, entitySim },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -8595,29 +8660,63 @@ document.addEventListener('DOMContentLoaded', init);
     const h = host('dqReconcileHost'); if (!h) return;
     const rec = STATE.lastReport && STATE.lastReport.reconcile;
     if (!rec) { h.innerHTML = ''; return; }
-    const poss = rec.possibleDuplicates || [], unres = rec.unresolved || [];
-    if (!poss.length && !unres.length && !rec.canonCount) { h.innerHTML = ''; return; }
-    const possRows = poss.slice(0, 200).map(p => `
+    const poss = rec.possibleDuplicates || [];
+    const clusters = rec.unresolvedClusters || [];
+    const singles = rec.unresolvedSingletons || [];
+    const incomplete = rec.incomplete || [];
+    if (!poss.length && !clusters.length && !singles.length && !incomplete.length && !rec.canonCount) { h.innerHTML = ''; return; }
+
+    // possible duplicates (typo of a real Customer_Master name)
+    const possRows = poss.slice(0, 150).map(p => `
       <tr><td><strong>${esc(p.raw)}</strong></td><td>${esc(p.candidate)}</td>
       <td class="text-center"><span class="badge badge-pending">${(p.score * 100).toFixed(0)}%</span></td>
       <td class="text-right text-mono">${fmtInt(p.count)}</td><td>${esc(p.sheets.join(', '))}</td></tr>`).join('');
-    const unresRows = unres.slice(0, 200).map(u => `
-      <tr><td><strong>${esc(u.raw)}</strong></td><td class="text-right text-mono">${fmtInt(u.count)}</td><td>${esc(u.sheets.join(', '))}</td></tr>`).join('');
+
+    // 5.1b — clustered "new customers to add", grouped (label = suggested spelling)
+    const clusterRows = clusters.slice(0, 150).map(c => {
+      const variants = c.members.map(m => `${esc(m.raw)} (${fmtInt(m.count)})`).join(' · ');
+      return `<tr><td><strong>${esc(c.label)}</strong><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${variants}</div></td>
+        <td class="text-center text-mono">${fmtInt(c.memberCount)}</td>
+        <td class="text-right text-mono">${fmtInt(c.rowCount)}</td><td>${esc(c.sheets.join(', '))}</td></tr>`;
+    }).join('');
+
+    // singletons — a single distinct name not in Customer_Master and not clustered
+    const singleRows = singles.slice(0, 150).map(u => `
+      <tr><td>${esc(u.raw)}</td><td class="text-right text-mono">${fmtInt(u.count)}</td><td>${esc(u.sheets.join(', '))}</td></tr>`).join('');
+
+    // incomplete — customer cell reduced to nothing after stripping legal words
+    const incRows = incomplete.slice(0, 100).map(u => `
+      <tr><td>"${esc(u.raw)}"</td><td class="text-right text-mono">${fmtInt(u.count)}</td><td>${esc(u.sheets.join(', '))}</td></tr>`).join('');
+
+    const newCustTotal = clusters.length + singles.length;
     h.innerHTML = `
       <div class="card" style="margin-top:14px;">
         <div class="card-header"><div>
           <div class="card-title">Entity Resolution · จับคู่ชื่อลูกค้ากับ Customer Master</div>
-          <div class="card-subtitle">${fmtInt(rec.canonCount)} auto-canonicalized · ${fmtInt(poss.length)} อาจซ้ำ/พิมพ์ผิด (รอยืนยัน) · ${fmtInt(unres.length)} ยังไม่มีใน Customer Master</div>
+          <div class="card-subtitle">${fmtInt(rec.canonCount)} auto-canonicalized · ${fmtInt(poss.length)} อาจซ้ำ/พิมพ์ผิด · ${fmtInt(clusters.length)} กลุ่มลูกค้าใหม่ (${fmtInt(newCustTotal)} รายการรวมเดี่ยว) · ${fmtInt(incomplete.length)} ค่าไม่สมบูรณ์</div>
         </div></div>
-        ${poss.length ? `<div style="font-size:12px;font-weight:600;color:var(--warning);padding:4px 2px 8px">⚠ อาจซ้ำ/พิมพ์ผิด — ยังไม่รวมให้ ต้องให้คนยืนยัน</div>
-          <div class="table-wrap" style="max-height:260px;"><table class="data-table"><thead><tr>
+
+        ${poss.length ? `<div style="font-size:12px;font-weight:600;color:var(--warning);padding:4px 2px 8px">⚠ อาจซ้ำ/พิมพ์ผิดของชื่อที่มีอยู่แล้ว — ยังไม่รวมให้ ต้องให้คนยืนยัน</div>
+          <div class="table-wrap" style="max-height:240px;"><table class="data-table"><thead><tr>
           <th>ค่าที่กรอก</th><th>ใกล้เคียงกับ (Customer Master)</th><th class="text-center">คะแนน</th><th class="text-right">แถว</th><th>ชีต</th>
           </tr></thead><tbody>${possRows}</tbody></table></div>` : ''}
-        ${unres.length ? `<div style="font-size:12px;font-weight:600;color:var(--text-dim);padding:12px 2px 8px">ยังไม่มีใน Customer Master (อาจเป็นไซต์ใหม่ที่ยังไม่ถูกเพิ่ม)</div>
+
+        ${clusters.length ? `<div style="font-size:12px;font-weight:600;color:var(--cyan);padding:14px 2px 8px">🆕 ลูกค้าใหม่ที่ควรเพิ่มใน Customer Master (จัดกลุ่มชื่อที่คล้ายกันข้ามชีตแล้ว — ป้ายชื่อเป็นแค่คำแนะนำ ยังไม่รวมข้อมูลจริง)</div>
+          <div class="table-wrap" style="max-height:300px;"><table class="data-table"><thead><tr>
+          <th>ชื่อที่แนะนำ · รูปแบบที่พบ</th><th class="text-center">จำนวนรูปแบบ</th><th class="text-right">แถวรวม</th><th>ชีต</th>
+          </tr></thead><tbody>${clusterRows}</tbody></table></div>` : ''}
+
+        ${singles.length ? `<div style="font-size:12px;font-weight:600;color:var(--text-dim);padding:14px 2px 8px">ลูกค้าใหม่ (ชื่อเดี่ยว ไม่มีรูปแบบซ้ำ) — ยังไม่มีใน Customer Master</div>
           <div class="table-wrap" style="max-height:220px;"><table class="data-table"><thead><tr>
           <th>ชื่อลูกค้า</th><th class="text-right">แถว</th><th>ชีต</th>
-          </tr></thead><tbody>${unresRows}</tbody></table></div>` : ''}
-        ${(!poss.length && !unres.length) ? '<div class="empty-state">ทุกชื่อลูกค้าตรงกับ Customer Master ✓</div>' : ''}
+          </tr></thead><tbody>${singleRows}</tbody></table></div>` : ''}
+
+        ${incomplete.length ? `<div style="font-size:12px;font-weight:600;color:var(--critical);padding:14px 2px 8px">ค่าไม่สมบูรณ์ (เหลือแค่คำนำหน้า เช่น "บริษัท") — ต้องกลับไปกรอกชื่อจริง</div>
+          <div class="table-wrap" style="max-height:180px;"><table class="data-table"><thead><tr>
+          <th>ค่าที่กรอก</th><th class="text-right">แถว</th><th>ชีต</th>
+          </tr></thead><tbody>${incRows}</tbody></table></div>` : ''}
+
+        ${(!poss.length && !clusters.length && !singles.length && !incomplete.length) ? '<div class="empty-state">ทุกชื่อลูกค้าตรงกับ Customer Master ✓</div>' : ''}
       </div>`;
   }
   function render() {
