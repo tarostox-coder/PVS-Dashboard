@@ -8084,6 +8084,22 @@ document.addEventListener('DOMContentLoaded', init);
             const col = cols[cmap.map[field]];
             const allowed = new Set(list.values.filter(x => x.active).map(x => x.v.toLowerCase().trim()));
             if (!allowed.size) continue;
+            // Goal 5.2 — nearest allowed value, computed with the engine's own
+            // dice/levRatio (reuse, don't reimplement). Shown for reference ONLY;
+            // an out-of-list value is flagged, never auto-corrected.
+            const ei52 = EI();
+            const allowedOrig = list.values.filter(x => x.active).map(x => x.v);
+            const nearCache = {};
+            const nearest = (val) => {
+              if (val in nearCache) return nearCache[val];
+              let best = null, score = 0; const lv = val.toLowerCase();
+              if (ei52) for (const cand of allowedOrig) {
+                const cl = cand.toLowerCase();
+                const s = Math.max(ei52.dice ? ei52.dice(lv, cl) : 0, ei52.levRatio ? ei52.levRatio(lv, cl) : 0);
+                if (s > score) { score = s; best = cand; }
+              }
+              return (nearCache[val] = (score >= 0.5 ? { cand: best, score } : null));
+            };
             const uniq = new Set();
             table.rows.forEach((row, r) => {
               if (!table.sub[r]) return;
@@ -8097,7 +8113,10 @@ document.addEventListener('DOMContentLoaded', init);
               if (!v) return;
               if (!allowed.has(v.toLowerCase())) {
                 counts.invalidDropdown++;
-                pushIssue(issues, capMap, table, tIdx, 'invalid-dropdown', 'Invalid Dropdown — ' + list.title, SEV.warning, r, col.label, v, `"${v}" ไม่อยู่ในรายการ "${list.title}" (${list.sheet})`);
+                const nr = nearest(v);
+                const detail = `"${v}" ไม่อยู่ในรายการ "${list.title}" (${list.sheet})`
+                  + (nr ? ` · น่าจะหมายถึง “${nr.cand}” (${(nr.score * 100).toFixed(0)}%)` : '');
+                pushIssue(issues, capMap, table, tIdx, 'invalid-dropdown', 'Invalid Dropdown — ' + list.title, SEV.warning, r, col.label, v, detail);
               }
             });
           }
