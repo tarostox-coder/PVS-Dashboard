@@ -2217,6 +2217,23 @@ input[type="file"] { display: none; }
 .progress-bar-fill.warning { background: linear-gradient(90deg, var(--warning), #FCD34D); }
 .progress-bar-fill.critical { background: linear-gradient(90deg, var(--critical), #F87171); }
 .progress-bar-fill.success { background: linear-gradient(90deg, var(--success), #34D399); }
+/* Job-progress view (shared: Cleaning + Inspection) — clear done/pending/late */
+.jp-summary { margin: 2px 2px 14px; }
+.jp-bar { display: flex; height: 15px; border-radius: 8px; overflow: hidden; background: var(--card-elev); }
+.jp-seg { height: 100%; transition: width 0.5s ease; }
+.jp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
+.jp-chip-pct { margin-left: auto; font-weight: 700; color: var(--text); font-size: 14px; }
+.jp-list-head { font-size: 11.5px; color: var(--text-muted); margin: 4px 2px 6px; }
+.jp-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+.jp-row { display: grid; grid-template-columns: 1fr auto 84px auto; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); }
+.jp-row:last-child { border-bottom: 0; }
+.jp-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.jp-row-num { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jp-row-bar { width: 84px; height: 8px; border-radius: 4px; background: var(--card-elev); overflow: hidden; }
+.jp-row-fill { display: block; height: 100%; border-radius: 4px; }
+.jp-tag { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.jp-tag.late { background: color-mix(in srgb, var(--critical) 15%, transparent); color: var(--critical); }
+.jp-foot { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 
 /* ===================== MODAL ===================== */
 .modal-overlay {
@@ -4006,11 +4023,11 @@ input[type="file"] { display: none; }
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Cleaning Progress รายลูกค้า</div>
-            <div class="card-subtitle">แผน vs จริง · เดือนนี้</div>
+            <div class="card-title">ความคืบหน้างาน Cleaning</div>
+            <div class="card-subtitle">เสร็จ · รอทำ · ล่าช้า — และลูกค้าที่ต้องตามงาน</div>
           </div>
         </div>
-        <div class="progress-list" id="clProgress"></div>
+        <div id="clProgress"></div>
       </div>
       <div class="card">
         <div class="card-header">
@@ -4085,12 +4102,12 @@ input[type="file"] { display: none; }
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Inspection Progress (เดือนนี้)</div>
-            <div class="card-subtitle">PM Completion รายลูกค้า</div>
+            <div class="card-title">ความคืบหน้างาน Inspection (PM)</div>
+            <div class="card-subtitle">เสร็จ · รอทำ · ล่าช้า — และลูกค้าที่ต้องตามงาน</div>
           </div>
           <span class="text-mono" style="font-size:11px; color:var(--text-dim);"><span id="inspectionSummary">0/0</span></span>
         </div>
-        <div class="progress-list" id="inspectionList"></div>
+        <div id="inspectionList"></div>
       </div>
       <div class="card clickable" id="cardAlarms">
         <div class="card-header">
@@ -5672,14 +5689,91 @@ function openProvinceDrill(province) {
 }
 
 /* ============== TAB 3: CLEANING ============== */
+/* ============== Goal 6 — shared job-progress view (Cleaning + Inspection) ====
+ * The old per-customer "X/Y · %" list read as noise: every single-job customer
+ * showed 100%, burying the ones actually behind, and "แผน vs จริง" said little.
+ * This shared view leads with the overall เสร็จ / รอทำ / ล่าช้า split (one bar +
+ * counts), then lists ONLY customers with work left, late ones first — so the
+ * reader sees the state at a glance and exactly who to follow up. Buckets come
+ * from the template's real status values (เสร็จสิ้น / Delay(เลื่อน) / ไม่แล้ว
+ * เสร็จ / รอเริ่มงาน …) plus an overdue-by-plan-date check. */
+function jobState(c, todayISO) {
+  const s = String(c && c.status || '');
+  if (s === 'เสร็จสิ้น') return 'done';
+  if (/delay|เลื่อน|ไม่แล้วเสร็จ|ยกเลิก|overdue/i.test(s)) return 'late';
+  const pd = c && c.planDate ? String(c.planDate).slice(0, 10) : '';
+  if (pd && pd < todayISO) return 'late';                 // past its planned date, still not done
+  return 'pending';
+}
+function renderJobProgress(hostId, rows, colorVar, unit) {
+  const host = document.getElementById(hostId); if (!host) return;
+  unit = unit || 'งาน';
+  const todayISO = toLocalISO(today);
+  const tot = rows.length;
+  if (!tot) { host.innerHTML = '<div class="empty-state">ไม่มีงานในช่วง/ลูกค้าที่เลือก</div>'; return; }
+
+  let done = 0, pending = 0, late = 0;
+  const byCust = {};
+  rows.forEach(c => {
+    const st = jobState(c, todayISO);
+    if (st === 'done') done++; else if (st === 'late') late++; else pending++;
+    const k = c.customer || 'ไม่ระบุลูกค้า';
+    (byCust[k] || (byCust[k] = { done: 0, late: 0, pending: 0, total: 0 }));
+    byCust[k].total++; byCust[k][st]++;
+  });
+  const seg = v => (v / tot * 100).toFixed(2);
+  const donePct = Math.round(done / tot * 100);
+
+  const incomplete = Object.entries(byCust)
+    .filter(([, d]) => d.done < d.total)
+    .sort((a, b) => (b[1].late - a[1].late) || ((b[1].total - b[1].done) - (a[1].total - a[1].done)));
+  const doneCustN = Object.values(byCust).filter(d => d.done === d.total).length;
+
+  const rowsHtml = incomplete.slice(0, 40).map(([cust, d]) => {
+    const dp = Math.round(d.done / d.total * 100);
+    const tag = d.late ? `<span class="jp-tag late">⚠ ล่าช้า ${d.late}</span>` : '<span></span>';
+    return `<div class="jp-row">
+      <span class="jp-row-name" title="${escHtml(cust)}">${escHtml(cust)}</span>
+      <span class="jp-row-num">เสร็จ ${d.done}/${d.total} ${escHtml(unit)}</span>
+      <span class="jp-row-bar"><span class="jp-row-fill" style="width:${dp}%;background:${colorVar}"></span></span>
+      ${tag}
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="jp-summary">
+      <div class="jp-bar">
+        <span class="jp-seg" style="width:${seg(done)}%;background:var(--success)"></span>
+        <span class="jp-seg" style="width:${seg(pending)}%;background:var(--border)"></span>
+        <span class="jp-seg" style="width:${seg(late)}%;background:var(--critical)"></span>
+      </div>
+      <div class="jp-chips">
+        <span style="color:var(--success);font-weight:600">✓ เสร็จ ${fmtInt(done)}</span>
+        <span>● รอทำ ${fmtInt(pending)}</span>
+        <span style="color:var(--critical);font-weight:600">⚠ ล่าช้า ${fmtInt(late)}</span>
+        <span class="jp-chip-pct">${donePct}%</span>
+      </div>
+    </div>
+    ${incomplete.length
+      ? `<div class="jp-list-head">ลูกค้าที่ยังมีงานค้าง (${fmtInt(incomplete.length)}) — งานล่าช้าขึ้นก่อน</div>
+         <div class="jp-list">${rowsHtml}</div>`
+      : '<div class="empty-state" style="padding:16px">ทุกงานเสร็จครบแล้ว ✓</div>'}
+    ${doneCustN ? `<div class="jp-foot">✓ อีก ${fmtInt(doneCustN)} ลูกค้า เสร็จครบทุกงานแล้ว</div>` : ''}
+    ${incomplete.length > 40 ? `<div class="jp-foot">แสดง 40 จาก ${fmtInt(incomplete.length)} ลูกค้า</div>` : ''}`;
+}
+
 function renderCleaning() {
   destroyCharts();
   const tab = document.getElementById('tab-cleaning');
   if (!tab || !tab.classList.contains('active')) return;
 
   const monthCl = applyFilters(DATA.cleaning, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
+  const _todayISO = toLocalISO(today);
   const done = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
-  const delay = monthCl.filter(c => c.status === 'Delay').length;
+  // Goal 6 — count real late jobs (status Delay(เลื่อน)/ไม่แล้วเสร็จ or overdue).
+  // The old check matched the literal 'Delay', which never exists in the sheet,
+  // so this KPI always read 0.
+  const delay = monthCl.filter(c => jobState(c, _todayISO) === 'late').length;
   const totalKW = monthCl.reduce((s,c) => s + (c.kW||0), 0);
   // Goal 6.5 — Cleaning_MasterPlan has NO revenue column; the headline is now
   // the real operational metric (completion rate), not a fabricated kW×800.
@@ -5692,7 +5786,7 @@ function renderCleaning() {
   document.getElementById('clKWVal').textContent = totalKW.toFixed(2);
   document.getElementById('clKWSub').textContent = 'รวมทั้งหมด';
   document.getElementById('clDelayVal').textContent = delay;
-  document.getElementById('clDelaySub').textContent = `${delay} งานค้าง`;
+  document.getElementById('clDelaySub').textContent = `${delay} งานล่าช้า/เลื่อน`;
   document.getElementById('clSummary').textContent = `${done}/${monthCl.length} เสร็จสิ้น`;
 
   // Table
@@ -5708,22 +5802,8 @@ function renderCleaning() {
       </tr>`).join('')
     : '<tr><td colspan="6" class="empty-state">ไม่มีงาน Cleaning ในเดือนนี้</td></tr>';
 
-  // Progress per customer
-  const byCust = {};
-  monthCl.forEach(c => {
-    if (!byCust[c.customer]) byCust[c.customer] = { plan: 0, done: 0 };
-    byCust[c.customer].plan++;
-    if (c.status === 'เสร็จสิ้น') byCust[c.customer].done++;
-  });
-  document.getElementById('clProgress').innerHTML = Object.entries(byCust).map(([cust, d]) => {
-    const pct = d.plan ? (d.done / d.plan * 100) : 0;
-    const cls = pct >= 80 ? 'success' : pct >= 40 ? '' : 'warning';
-    return `<div class="progress-item">
-      <span class="progress-label">${cust}</span>
-      <span class="progress-num">${d.done}/${d.plan} · ${pct.toFixed(0)}%</span>
-      <div class="progress-bar-bg"><div class="progress-bar-fill ${cls}" style="width:${pct}%; background:var(--bu-cleaning);"></div></div>
-    </div>`;
-  }).join('') || '<div class="empty-state">ไม่มีแผนงาน Cleaning</div>';
+  // Goal 6 — shared, self-explanatory progress view (เสร็จ/รอทำ/ล่าช้า + who's behind).
+  renderJobProgress('clProgress', monthCl, getCSSVar('--bu-cleaning'), 'งาน');
 
   // Goal 6.5 — jobs per team (plan vs done, real counts) instead of kW×800 revenue.
   const teamStats = {};
@@ -5796,20 +5876,8 @@ function renderOM() {
   document.getElementById('omInsSub').textContent = `${inDone}/${monthIn.length} PM completed`;
   document.getElementById('inspectionSummary').textContent = `${inDone}/${monthIn.length}`;
 
-  const byCustIn = {};
-  monthIn.forEach(c => {
-    if (!byCustIn[c.customer]) byCustIn[c.customer] = { plan: 0, done: 0 };
-    byCustIn[c.customer].plan++;
-    if (c.status === 'เสร็จสิ้น') byCustIn[c.customer].done++;
-  });
-  document.getElementById('inspectionList').innerHTML = Object.entries(byCustIn).map(([cust, d]) => {
-    const pct = d.plan ? (d.done / d.plan * 100) : 0;
-    return `<div class="progress-item">
-      <span class="progress-label">${cust}</span>
-      <span class="progress-num">${d.done}/${d.plan} · ${pct.toFixed(0)}%</span>
-      <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%; background:var(--bu-om);"></div></div>
-    </div>`;
-  }).join('') || '<div class="empty-state">ไม่มี Inspection ในเดือนนี้</div>';
+  // Goal 6 — same shared progress view as Cleaning (Uniform Standard).
+  renderJobProgress('inspectionList', monthIn, getCSSVar('--bu-om'), 'ครั้ง');
 
   // Revenue Loss (Time-Specific)
   const rl = computeRevenueLoss();
