@@ -7938,7 +7938,7 @@ document.addEventListener('DOMContentLoaded', init);
     const todayISO = toISO(appToday());
     const counts = {
       missingRequired: 0, duplicates: 0, invalidValues: 0, invalidDates: 0,
-      invalidDropdown: 0, expiredContracts: 0, expiredPermits: 0,
+      invalidDropdown: 0, expiredContracts: 0, expiredPermits: 0, crossField: 0,
     };
 
     tables.forEach((table, tIdx) => {
@@ -8149,6 +8149,73 @@ document.addEventListener('DOMContentLoaded', init);
           }
         }
       } catch (e) {}
+
+      /* R10 · Cross-field logical inconsistencies (Goal 5.4) — a value that
+         contradicts ANOTHER field in the same row, distinct from a simple
+         missing-data flag. Registry-driven per dataset; flag only, never
+         corrected. Same shared rules run over every table uniformly. */
+      try {
+        if (cmap) {
+          // (a) Paid, but no received-money date — payment marked complete yet
+          //     the money-in date is blank (an internally inconsistent record).
+          const psIdx = cmap.map.paymentStatus, rdIdx = cmap.map.receivedDate;
+          if (psIdx !== undefined && rdIdx !== undefined) {
+            const psCol = cols[psIdx], rdCol = cols[rdIdx];
+            const PAID = /^(paid|ชำระแล้ว|จ่ายแล้ว|รับเงินแล้ว|เก็บเงินแล้ว|complete|completed)/i;
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const ps = cellToStr(row[psCol.key]).trim();
+              if (!PAID.test(ps)) return;
+              if (!dateKeyOf(row[rdCol.key])) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-paid-no-date', 'ชำระแล้วแต่ไม่มีวันรับเงิน', SEV.warning, r, rdCol.label, ps, `สถานะ "${ps}" แต่ "${rdCol.label}" ว่าง — ควรระบุวันรับเงิน`);
+              }
+            });
+          }
+          // (b) Negative days-overdue — aging cannot be negative.
+          const doIdx = cmap.map.daysOverdue;
+          if (doIdx !== undefined) {
+            const doCol = cols[doIdx];
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const v = row[doCol.key];
+              if (typeof v === 'number' && v < 0) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-negative-overdue', 'วันค้างชำระติดลบ', SEV.warning, r, doCol.label, v, `"${doCol.label}" = ${v} (ติดลบ) — จำนวนวันค้างชำระต้องไม่ติดลบ`);
+              }
+            });
+          }
+          // (c) kWp outside a plausible range — non-positive when present, or an
+          //     extreme high outlier vs the rest of the dataset. The high bound
+          //     is data-driven (robust Q3 + 3·IQR), NOT a fabricated magic
+          //     number, and only fires on a genuinely far-out value.
+          const kwpIdx = cmap.map.kWp;
+          if (kwpIdx !== undefined) {
+            const kwpCol = cols[kwpIdx];
+            const vals = [];
+            table.rows.forEach((row, r) => { if (table.sub[r] && typeof row[kwpCol.key] === 'number' && row[kwpCol.key] > 0) vals.push(row[kwpCol.key]); });
+            let hiBound = Infinity;
+            if (vals.length >= 8) {
+              const sorted = vals.slice().sort((a, b) => a - b);
+              const q = p => sorted[Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1)))];
+              const iqr = q(0.75) - q(0.25);
+              if (iqr > 0) hiBound = q(0.75) + 3 * iqr;
+            }
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const v = row[kwpCol.key];
+              if (typeof v !== 'number') return;
+              if (v <= 0) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-kwp-range', 'kWp ไม่สมเหตุสมผล', SEV.warning, r, kwpCol.label, v, `"${kwpCol.label}" = ${v} — กำลังติดตั้ง (kWp) ต้องมากกว่า 0`);
+              } else if (v > hiBound) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-kwp-range', 'kWp สูงผิดปกติ', SEV.info, r, kwpCol.label, v, `"${kwpCol.label}" = ${fmtInt(v)} สูงกว่าค่าปกติของชุดข้อมูลมาก (เกิน ${fmtInt(Math.round(hiBound))}) — ควรตรวจสอบ`);
+              }
+            });
+          }
+        }
+      } catch (e) {}
     });
 
     return { issues, counts };
@@ -8163,7 +8230,7 @@ document.addEventListener('DOMContentLoaded', init);
       weighted += CFG.SCORE_WEIGHT[it.severity] || 0.2;
     }
     const c = ruleResult.counts;
-    const totalIssues = c.missingRequired + c.duplicates + c.invalidValues + c.invalidDates + c.invalidDropdown;
+    const totalIssues = c.missingRequired + c.duplicates + c.invalidValues + c.invalidDates + c.invalidDropdown + c.crossField;
     const errorRate = totalRecords ? (flagged.size / totalRecords) * 100 : 0;
     const score = totalRecords ? Math.max(0, Math.round(100 * (1 - Math.min(1, weighted / totalRecords)))) : 100;
     const status = score >= CFG.SCORE_HEALTHY ? 'healthy' : score >= CFG.SCORE_WATCH ? 'watch' : 'critical';
