@@ -3936,9 +3936,9 @@ input[type="file"] { display: none; }
       </div>
       <div class="kpi-mini">
         <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
-        <div class="kpi-mini-label">Achievement %</div>
-        <div class="kpi-mini-value text-success"><span id="solarAchVal">0</span>%</div>
-        <div class="kpi-mini-trend neutral" id="solarAchSub">— vs เป้าเดือนนี้</div>
+        <div class="kpi-mini-label">มูลค่าเฉลี่ย/โครงการ</div>
+        <div class="kpi-mini-value text-success">฿<span id="solarAchVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="solarAchSub">— โครงการ</div>
       </div>
     </div>
 
@@ -4680,8 +4680,13 @@ function applyFilters(rows, dateField = 'date', custField = 'customer') {
     if (r.isDuplicate) return false;
     // Pass dateField = null to OPT OUT of the month filter (e.g. Permit is a
     // pipeline of cross-month open jobs, so it filters by customer/grade only).
-    if (FILTERS.month !== 'all' && dateField && r[dateField]) {
-      if (!String(r[dateField]).startsWith(FILTERS.month)) return false;
+    // Goal 6.4 — a row with NO date can't be attributed to a specific month, so
+    // when a month is selected it is EXCLUDED (not silently counted in every
+    // month, which was inflating each month by ~฿111M of undated revenue). It
+    // still appears under "ทุกเดือน".
+    if (FILTERS.month !== 'all' && dateField) {
+      const dv = r[dateField];
+      if (!dv || !String(dv).startsWith(FILTERS.month)) return false;
     }
     if (FILTERS.customer !== 'all' && r[custField] !== FILTERS.customer) return false;
     if (FILTERS.grade !== 'all') {
@@ -5143,7 +5148,13 @@ function renderHome() {
   const arRows = rows.filter(r => r.paymentStatus !== 'Paid');
   const arAmt = arRows.reduce((s,r) => s + r.revenue, 0);
   const collRate = totalRev > 0 ? (collected / totalRev * 100) : 0;
-  const targetPct = (totalRev / CONFIG.TARGET_MONTHLY) * 100;
+  // Goal 6.4 — achievement vs the real ฿10M/month target, made month-aware so
+  // "ทุกเดือน" compares against the target × number-of-months in view (average
+  // monthly achievement) instead of all-time revenue vs one month (the 1324%).
+  const monthsInView = FILTERS.month === 'all'
+    ? (new Set(rows.map(r => String(r.billingDate || '').slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m))).size || 1)
+    : 1;
+  const targetPct = (totalRev / (CONFIG.TARGET_MONTHLY * monthsInView)) * 100;
 
   const rl = computeRevenueLoss();
   const delayedPermits = applyFilters(DATA.permit_jobs, null, 'customer').filter(p => p.dueOffset < 0);   // Goal 6.8 — permit pipeline: customer/grade only, not month
@@ -5551,6 +5562,38 @@ function renderMonthlySummaryPanel() {
 }
 
 /* ============== TAB 2: HOME SOLAR & SME ============== */
+/* Goal 6.4 — complete Thailand province→region map (official 6 regions + BKK).
+ * Replaces a 7-of-77 hardcode where every unmapped province silently fell into
+ * "ภาคกลาง", making the Revenue-by-Region chart wrong. This is a fixed
+ * geographic fact (not business data), so it lives in code — Master_Data /
+ * Customer_Master are reference sheets, not the place for it. A province we
+ * genuinely can't classify becomes "ไม่ระบุภาค" — flagged, never guessed. */
+const REGION_PROVINCES = {
+  'กรุงเทพฯ': ['กรุงเทพ', 'กรุงเทพฯ', 'กรุงเทพมหานคร', 'bangkok'],
+  'ภาคเหนือ': ['เชียงราย', 'เชียงใหม่', 'น่าน', 'พะเยา', 'แพร่', 'แม่ฮ่องสอน', 'ลำปาง', 'ลำพูน', 'อุตรดิตถ์'],
+  'ภาคอีสาน': ['กาฬสินธุ์', 'ขอนแก่น', 'ชัยภูมิ', 'นครพนม', 'นครราชสีมา', 'บึงกาฬ', 'บุรีรัมย์', 'มหาสารคาม', 'มุกดาหาร', 'ยโสธร', 'ร้อยเอ็ด', 'เลย', 'ศรีสะเกษ', 'สกลนคร', 'สุรินทร์', 'หนองคาย', 'หนองบัวลำภู', 'อำนาจเจริญ', 'อุดรธานี', 'อุบลราชธานี'],
+  'ภาคกลาง': ['กำแพงเพชร', 'ชัยนาท', 'นครนายก', 'นครปฐม', 'นครสวรรค์', 'นนทบุรี', 'ปทุมธานี', 'พระนครศรีอยุธยา', 'อยุธยา', 'พิจิตร', 'พิษณุโลก', 'เพชรบูรณ์', 'ลพบุรี', 'สมุทรปราการ', 'สมุทรสงคราม', 'สมุทรสาคร', 'สิงห์บุรี', 'สุโขทัย', 'สุพรรณบุรี', 'สระบุรี', 'อ่างทอง', 'อุทัยธานี'],
+  'ภาคตะวันออก': ['จันทบุรี', 'ฉะเชิงเทรา', 'ชลบุรี', 'ตราด', 'ปราจีนบุรี', 'ระยอง', 'สระแก้ว'],
+  'ภาคตะวันตก': ['กาญจนบุรี', 'ตาก', 'ประจวบคีรีขันธ์', 'เพชรบุรี', 'ราชบุรี'],
+  'ภาคใต้': ['กระบี่', 'ชุมพร', 'ตรัง', 'นครศรีธรรมราช', 'นราธิวาส', 'ปัตตานี', 'พังงา', 'พัทลุง', 'ภูเก็ต', 'ยะลา', 'ระนอง', 'สงขลา', 'สตูล', 'สุราษฎร์ธานี'],
+};
+function _normProvince(p) {
+  return String(p == null ? '' : p).trim().toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/ฯ+$/, '')          // กรุงเทพฯ → กรุงเทพ
+    .replace(/ุ{2,}/g, 'ุ')      // สมุุทรปราการ (typo) → สมุทรปราการ
+    .replace(/ู{2,}/g, 'ู');
+}
+const _PROVINCE_REGION = (() => {
+  const m = {};
+  for (const region in REGION_PROVINCES) for (const p of REGION_PROVINCES[region]) m[_normProvince(p)] = region;
+  return m;
+})();
+function regionOf(province) {
+  if (province == null || String(province).trim() === '') return 'ไม่ระบุภาค';
+  return _PROVINCE_REGION[_normProvince(province)] || 'ไม่ระบุภาค';   // unknown → flagged, never guessed to ภาคกลาง
+}
+
 function renderSolar() {
   destroyCharts();
   const tab = document.getElementById('tab-solar');
@@ -5574,21 +5617,20 @@ function renderSolar() {
   document.getElementById('solarFcVal').textContent = fmtFull(fcSum);
   document.getElementById('solarFcSub').textContent = `Weighted ฿${fmtCurrency(fcWeighted)}`;
 
-  // Achievement vs monthly target (assume Solar target = 60% of total = 6M)
-  const solarTarget = 6_000_000;
-  const ach = Math.min(100, (totalRev / solarTarget) * 100);
-  document.getElementById('solarAchVal').textContent = ach.toFixed(1);
-  document.getElementById('solarAchSub').textContent = `vs ฿${fmtCurrency(solarTarget)} เป้า Solar`;
+  // Goal 6.4 — the old "Achievement %" compared solar revenue to a GUESSED
+  // 6M solar target ("assume 60% of total"). Solar has no separate target in
+  // the data (the real ฿10M/month company target is tracked on Home), and this
+  // template has no cost column so margin would be a meaningless 100%. Show a
+  // real, target-free, revenue-only metric instead: average value per project.
+  const avgDeal = rows.length ? (totalRev / rows.length) : 0;
+  document.getElementById('solarAchVal').textContent = fmtCurrency(avgDeal);
+  document.getElementById('solarAchSub').textContent = `${fmtInt(rows.length)} โครงการ`;
 
-  // Region grouping (simulated based on province)
-  const provinceRegion = {
-    'กรุงเทพฯ':'กรุงเทพฯ', 'ปทุมธานี':'ภาคกลาง', 'นครราชสีมา':'ภาคอีสาน',
-    'ขอนแก่น':'ภาคอีสาน', 'ชลบุรี':'ภาคตะวันออก', 'ระยอง':'ภาคตะวันออก',
-    'ภูเก็ต':'ภาคใต้',
-  };
+  // Goal 6.4 — revenue by region via the complete province→region map (unknown
+  // province → "ไม่ระบุภาค", never silently bucketed as ภาคกลาง).
   const regionTotals = {};
   rows.forEach(r => {
-    const reg = provinceRegion[r.province] || 'ภาคกลาง';
+    const reg = regionOf(r.province);
     regionTotals[reg] = (regionTotals[reg]||0) + r.revenue;
   });
   const regLabels = Object.keys(regionTotals);
@@ -5611,7 +5653,7 @@ function renderSolar() {
       onClick: (evt, els) => {
         if (els.length) {
           const reg = regLabels[els[0].index];
-          const rs = rows.filter(r => (provinceRegion[r.province]||'ภาคกลาง') === reg);
+          const rs = rows.filter(r => regionOf(r.province) === reg);
           openDrill(`Solar Region · ${reg}`, `รายการโครงการในภาค ${reg}`, rs,
             [
               { key: 'billingDate', label: 'วันที่' },
@@ -5660,7 +5702,7 @@ function renderSolar() {
   // Top Provinces table
   const provTotals = {};
   rows.forEach(r => {
-    if (!provTotals[r.province]) provTotals[r.province] = { count: 0, kW: 0, rev: 0, region: provinceRegion[r.province]||'ภาคกลาง' };
+    if (!provTotals[r.province]) provTotals[r.province] = { count: 0, kW: 0, rev: 0, region: regionOf(r.province) };
     provTotals[r.province].count++;
     provTotals[r.province].kW += (r.kW||0);
     provTotals[r.province].rev += r.revenue;
