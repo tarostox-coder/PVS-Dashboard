@@ -4638,7 +4638,9 @@ function applyFilters(rows, dateField = 'date', custField = 'customer') {
     // them here keeps every KPI sum AND its drill-down consistent, while the
     // flagged rows still show in the Data Quality Center + raw explorer tables.
     if (r.isDuplicate) return false;
-    if (FILTERS.month !== 'all' && r[dateField]) {
+    // Pass dateField = null to OPT OUT of the month filter (e.g. Permit is a
+    // pipeline of cross-month open jobs, so it filters by customer/grade only).
+    if (FILTERS.month !== 'all' && dateField && r[dateField]) {
       if (!String(r[dateField]).startsWith(FILTERS.month)) return false;
     }
     if (FILTERS.customer !== 'all' && r[custField] !== FILTERS.customer) return false;
@@ -5104,7 +5106,7 @@ function renderHome() {
   const targetPct = (totalRev / CONFIG.TARGET_MONTHLY) * 100;
 
   const rl = computeRevenueLoss();
-  const delayedPermits = applyFilters(DATA.permit_jobs, 'startDate', 'customer').filter(p => p.dueOffset < 0);   // Goal 6.8 — filter-consistent with the rest of Home
+  const delayedPermits = applyFilters(DATA.permit_jobs, null, 'customer').filter(p => p.dueOffset < 0);   // Goal 6.8 — permit pipeline: customer/grade only, not month
   const delayedRevenue = delayedPermits.reduce((s,p) => s + p.revenue, 0);
   const revAtRisk = rl.totalLoss + overdueAmt;
 
@@ -5939,7 +5941,7 @@ function renderPermit() {
   const tab = document.getElementById('tab-permit');
   if (!tab || !tab.classList.contains('active')) return;
 
-  const permits = applyFilters(DATA.permit_jobs, 'startDate', 'customer');   // Goal 6.8 — was raw DATA (filter ignored entirely)
+  const permits = applyFilters(DATA.permit_jobs, null, 'customer');   // Goal 6.8 — pipeline view: filter by customer/grade, NOT month (permits span months; dueDate blank)
   const delayed = permits.filter(p => p.dueOffset < 0);
   const stuckMoney = delayed.reduce((s,p) => s + p.revenue, 0);
   const released = permits.filter(p => p.status === 'อนุมัติแล้ว').reduce((s,p) => s + p.revenue, 0);
