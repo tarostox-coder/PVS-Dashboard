@@ -3747,7 +3747,7 @@ input[type="file"] { display: none; }
       <div class="hero-left">
         <div class="hero-card" id="cardHeroRevenue">
           <div class="hero-ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-          <div class="hero-label"><span class="hero-label-dot"></span>Revenue MTD · รายได้สะสมเดือนนี้</div>
+          <div class="hero-label"><span class="hero-label-dot"></span><span id="heroRevLabel">Revenue · รายได้รวมทุกเดือน</span></div>
           <div class="hero-amount"><span class="currency">฿</span><span id="heroRevVal">0</span></div>
           <div class="hero-sub">
             <span id="heroRevSub">— รายการ</span>
@@ -4301,7 +4301,9 @@ const DATA = {
   scada_summary: [],
 };
 
-const FILTERS = { month: '2026-05', customer: 'all', grade: 'all' };
+// Default to "ทุกเดือน" so the executive view always shows the FULL revenue
+// total (incl. rows without a billing date); month is an opt-in drill-down.
+const FILTERS = { month: 'all', customer: 'all', grade: 'all' };
 
 const CONFIG = {
   TARGET_MONTHLY: 10_000_000,
@@ -5162,7 +5164,11 @@ function renderHome() {
   const revAtRisk = rl.totalLoss + overdueAmt;
 
   document.getElementById('heroRevVal').textContent = fmtMoney(totalRev);
-  document.getElementById('heroRevSub').textContent = `${rows.length} รายการในเดือนนี้`;
+  // Period-aware labels — "ทุกเดือน" (full total, the executive default) vs a
+  // specific month drill-down.
+  const _allMonths = FILTERS.month === 'all';
+  document.getElementById('heroRevLabel').textContent = _allMonths ? 'Revenue · รายได้รวมทุกเดือน' : 'Revenue MTD · รายได้เดือนนี้';
+  document.getElementById('heroRevSub').textContent = _allMonths ? `${rows.length} รายการ (ทุกเดือน)` : `${rows.length} รายการในเดือนนี้`;
   const heroProgWidth = Math.min(100, targetPct);
   document.getElementById('heroProgBar').style.width = heroProgWidth + '%';
   document.getElementById('heroProgPct').textContent = targetPct.toFixed(1);
