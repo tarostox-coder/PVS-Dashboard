@@ -5104,7 +5104,7 @@ function renderHome() {
   const targetPct = (totalRev / CONFIG.TARGET_MONTHLY) * 100;
 
   const rl = computeRevenueLoss();
-  const delayedPermits = DATA.permit_jobs.filter(p => p.dueOffset < 0);
+  const delayedPermits = applyFilters(DATA.permit_jobs, 'startDate', 'customer').filter(p => p.dueOffset < 0);   // Goal 6.8 — filter-consistent with the rest of Home
   const delayedRevenue = delayedPermits.reduce((s,p) => s + p.revenue, 0);
   const revAtRisk = rl.totalLoss + overdueAmt;
 
@@ -5133,7 +5133,7 @@ function renderHome() {
   document.getElementById('dv2SolarRev').textContent = fmtMoney(solarRev);
   document.getElementById('dv2SolarStatus').textContent = `${solarRows.length} โครงการ · ${solarKW.toFixed(2)} kW`;
 
-  const monthCl = DATA.cleaning.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const monthCl = applyFilters(DATA.cleaning, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
   const clDone = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
   const clRev = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
   document.getElementById('dv2ClRev').textContent = fmtMoney(clRev);
@@ -5674,7 +5674,7 @@ function renderCleaning() {
   const tab = document.getElementById('tab-cleaning');
   if (!tab || !tab.classList.contains('active')) return;
 
-  const monthCl = DATA.cleaning.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const monthCl = applyFilters(DATA.cleaning, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
   const done = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
   const delay = monthCl.filter(c => c.status === 'Delay').length;
   const totalKW = monthCl.reduce((s,c) => s + (c.kW||0), 0);
@@ -5779,7 +5779,7 @@ function renderOM() {
   document.getElementById('omSvcSub').textContent = `${svc.length} Service Jobs`;
 
   // Inspection progress
-  const monthIn = DATA.inspection.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const monthIn = applyFilters(DATA.inspection, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
   const inDone = monthIn.filter(c => c.status === 'เสร็จสิ้น').length;
   const insPct = monthIn.length ? (inDone / monthIn.length * 100) : 0;
   document.getElementById('omInsVal').textContent = insPct.toFixed(1);
@@ -5939,7 +5939,7 @@ function renderPermit() {
   const tab = document.getElementById('tab-permit');
   if (!tab || !tab.classList.contains('active')) return;
 
-  const permits = DATA.permit_jobs;
+  const permits = applyFilters(DATA.permit_jobs, 'startDate', 'customer');   // Goal 6.8 — was raw DATA (filter ignored entirely)
   const delayed = permits.filter(p => p.dueOffset < 0);
   const stuckMoney = delayed.reduce((s,p) => s + p.revenue, 0);
   const released = permits.filter(p => p.status === 'อนุมัติแล้ว').reduce((s,p) => s + p.revenue, 0);
