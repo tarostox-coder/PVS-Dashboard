@@ -2946,6 +2946,17 @@ input[type="file"] { display: none; }
   gap: 14px;
   flex-wrap: wrap;
 }
+/* Goal 6.3 — slim honest metrics strip on Home (replaces the fake health score) */
+.home-status-strip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 20px;
+  padding: 9px 16px; margin-bottom: 16px;
+  border-radius: 10px; background: var(--card); border: 1px solid var(--border);
+}
+.hss-item { display: flex; align-items: baseline; gap: 8px; }
+.hss-label { font-size: 12px; color: var(--text-muted); }
+.hss-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hss-sep { width: 1px; align-self: stretch; background: var(--border); }
+@media (max-width: 640px) { .hss-sep { display: none; } }
 .health-banner-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; }
 .health-banner-icon {
   width: 38px; height: 38px;
@@ -3715,16 +3726,14 @@ input[type="file"] { display: none; }
 
   <div class="tab-pane" id="tab-home">
 
-    <div class="health-banner healthy" id="healthBannerNew">
-      <div class="health-banner-left">
-        <div class="health-banner-icon" id="healthBannerIcon">✓</div>
-        <div class="health-banner-text">
-          <div class="health-banner-label">Business Health วันนี้</div>
-          <div class="health-banner-status" id="healthBannerStatus">— กำลังคำนวณ —</div>
-          <div class="health-banner-detail" id="healthBannerDetail">โหลดข้อมูล...</div>
-        </div>
-      </div>
-      <div class="health-banner-score" id="healthBannerScore">—</div>
+    <!-- Goal 6.3 — no invented "Business Health" score. A slim strip of the real
+         underlying metrics, each coloured by its own threshold. -->
+    <div class="home-status-strip" id="homeStatusStrip">
+      <div class="hss-item"><span class="hss-label">Collection Rate</span><span class="hss-val" id="hssColl">—</span></div>
+      <div class="hss-sep"></div>
+      <div class="hss-item"><span class="hss-label">ทำเป้าเดือนนี้</span><span class="hss-val" id="hssTarget">—</span></div>
+      <div class="hss-sep"></div>
+      <div class="hss-item"><span class="hss-label">Permit เลยกำหนด</span><span class="hss-val" id="hssPermit">—</span></div>
     </div>
 
     <div class="section-bar">
@@ -5168,32 +5177,18 @@ function renderHome() {
   document.getElementById('dv2PermitStuck').textContent = fmtMoney(delayedRevenue);
   document.getElementById('dv2PermitStatus').textContent = `${delayedPermits.length} เอกสารดีเลย์ · เฉลี่ย ${delayedPermits.length > 0 ? (delayedPermits.reduce((s,p) => s + Math.abs(p.dueOffset), 0) / delayedPermits.length).toFixed(0) : 0}d`;
 
-  let healthScore = 100;
-  if (collRate < 60) healthScore -= 25;
-  else if (collRate < 80) healthScore -= 10;
-  if (overdueAmt > totalRev * 0.3) healthScore -= 20;
-  if (delayedPermits.length > 5) healthScore -= 15;
-  if (targetPct < 50) healthScore -= 20;
-  if (critOpen > 5) healthScore -= 15;
-  healthScore = Math.max(0, healthScore);
-
-  const banner = document.getElementById('healthBannerNew');
-  let icon, label, detail, cls;
-  if (healthScore >= 75) {
-    cls = 'healthy'; icon = '✓'; label = 'ธุรกิจสุขภาพดี';
-    detail = `Collection ${collRate.toFixed(0)}% · ทำเป้า ${targetPct.toFixed(0)}% · ดีเลย์ ${delayedPermits.length} เอกสาร`;
-  } else if (healthScore >= 50) {
-    cls = 'watch'; icon = '⚠'; label = 'ต้องเฝ้าระวัง';
-    detail = `Collection ${collRate.toFixed(0)}% · ทำเป้า ${targetPct.toFixed(0)}% · ${delayedPermits.length} permits ดีเลย์`;
-  } else {
-    cls = 'critical'; icon = '✕'; label = 'ต้องแก้ด่วน';
-    detail = `Collection ${collRate.toFixed(0)}% · ${critOpen} Critical alarms · เงินจม ฿${fmtCurrency(delayedRevenue)}`;
-  }
-  banner.className = 'health-banner ' + cls;
-  document.getElementById('healthBannerIcon').textContent = icon;
-  document.getElementById('healthBannerStatus').textContent = label;
-  document.getElementById('healthBannerDetail').textContent = detail;
-  document.getElementById('healthBannerScore').textContent = healthScore + '/100';
+  // Goal 6.3 — the invented composite "Business Health /100" (arbitrary
+  // -25/-10/-20/-15 deductions with no business basis) is removed. Show the
+  // three real metrics plainly, each coloured by its OWN natural threshold —
+  // no single blended number stands in for them.
+  const setStat = (id, text, level) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = text;
+    el.style.color = level === 'bad' ? 'var(--critical)' : level === 'warn' ? 'var(--warning)' : 'var(--success)';
+  };
+  setStat('hssColl', collRate.toFixed(0) + '%', collRate >= 80 ? 'good' : collRate >= 60 ? 'warn' : 'bad');
+  setStat('hssTarget', targetPct.toFixed(0) + '%', targetPct >= 80 ? 'good' : targetPct >= 50 ? 'warn' : 'bad');
+  setStat('hssPermit', fmtInt(delayedPermits.length) + ' รายการ', delayedPermits.length === 0 ? 'good' : delayedPermits.length <= 5 ? 'warn' : 'bad');
 
   const months = ['2026-01','2026-02','2026-03','2026-04','2026-05'];
   const labels = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.'];
