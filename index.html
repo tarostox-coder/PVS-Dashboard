@@ -1589,6 +1589,16 @@ html, body {
 }
 
 .topbar-spacer { flex: 1; }
+.month-indicator {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 10px;
+  background: var(--cyan-glow); border: 1px solid var(--border-bright);
+  color: var(--cyan); white-space: nowrap;
+}
+.month-indicator svg { width: 16px; height: 16px; flex-shrink: 0; }
+.month-indicator-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.month-indicator-value { font-size: 14px; font-weight: 700; color: var(--text); }
+@media (max-width: 720px) { .month-indicator-label { display: none; } }
 
 .topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -3671,6 +3681,11 @@ input[type="file"] { display: none; }
     <input id="globalSearchInput" type="text" autocomplete="off" placeholder="ค้นหา ลูกค้า / โครงการ / Record ID / Sheet…" title="ค้นหาทั้งแดชบอร์ด (กด Enter)" />
   </div>
   <div class="topbar-spacer"></div>
+  <div class="month-indicator" id="monthIndicator" title="ช่วงเวลาที่กำลังแสดง (เปลี่ยนได้ที่ตัวกรองด้านซ้าย)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    <span class="month-indicator-label">กำลังดู</span>
+    <span class="month-indicator-value" id="monthIndicatorText">ทุกเดือน</span>
+  </div>
 </div>
 
 
@@ -3783,10 +3798,10 @@ input[type="file"] { display: none; }
               <div class="card-subtitle" id="msSubtitle">รายเดือนเทียบเป้า ฿10,000,000</div>
             </div>
             <select id="msRangeSelect" class="ms-range-select" title="ช่วงเวลา (เฉพาะกราฟนี้ · ไม่ขึ้นกับ filter ด้านบน)">
-              <option value="3">3 เดือน</option>
               <option value="6">6 เดือน</option>
-              <option value="12" selected>12 เดือน</option>
-              <option value="all">ทั้งหมด</option>
+              <option value="12">12 เดือน</option>
+              <option value="24">24 เดือน</option>
+              <option value="all" selected>ทั้งหมด</option>
             </select>
           </div>
           <div class="ms-chart-wrap"><canvas id="chartMonthlySummary"></canvas></div>
@@ -5486,13 +5501,14 @@ function openRollupDrill(dsKey, ci, pi) {
  * valid-date rows only) → fallback to deriving monthly actuals from
  * DATA.revenue_actual. Always safe: never throws, shows empty-state if no data. */
 function getMonthlyData() {
-  if (window.MONTHLY && Array.isArray(window.MONTHLY.rows) && window.MONTHLY.rows.length) {
-    return { source: 'sheet', rows: window.MONTHLY.rows.map(r => ({ month: r._month, actual: r._actual || 0, target: r._target || 0 })) };
-  }
-  // Fallback: group revenue_actual by month
+  // Live monthly revenue-vs-target trend, derived from Revenue_Actual and
+  // responding to the customer/grade filter (dateField=null → NOT the single-
+  // month filter, so the trend keeps every month). Sorted ascending so the
+  // latest month sits at the right; the panel's range control shows the most
+  // recent N. Target = the real ฿10M/month goal.
   const map = {};
-  (DATA.revenue_actual || []).forEach(r => {
-    const m = (r.billingDate || '').slice(0, 7);
+  applyFilters(DATA.revenue_actual, null, 'customer').forEach(r => {
+    const m = String(r.billingDate || '').slice(0, 7);
     if (/^\d{4}-\d{2}$/.test(m)) map[m] = (map[m] || 0) + (r.revenue || 0);
   });
   const rows = Object.keys(map).sort().map(m => ({ month: m, actual: map[m], target: CONFIG.TARGET_MONTHLY }));
@@ -5523,7 +5539,7 @@ function renderMonthlySummaryPanel() {
   };
 
   // Section 1 — local (independent) range filter for the historical analytics panel.
-  const range = window.MS_RANGE || 12;
+  const range = window.MS_RANGE || 'all';
   const last = (range === 'all') ? rows : rows.slice(-range);
   const labels = last.map(r => mlabel(r.month));     // Thai: "พ.ค. 68"
   const actual = last.map(r => r.actual);
@@ -6458,13 +6474,22 @@ const _THAI_MONTHS = ['มกราคม','กุมภาพันธ์','ม
 /* V9 upgrade · Section 9 — readable Thai business date format. */
 const _THAI_MONTHS_ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.',
   'ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-function _thaiMonthLabel(ym) {
-  // ym = 'YYYY-MM' (Gregorian) → "พ.ค. 68" (abbrev. month + 2-digit Buddhist year).
+const _THAI_MONTHS_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+  'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+function _thaiMonthLabel(ym, full) {
+  // ym = 'YYYY-MM' (Gregorian). full=true → "พฤษภาคม 2569"; else "พ.ค. 68".
   const m = /^(\d{4})-(\d{2})$/.exec(ym);
   if (!m) return ym;
   const idx = parseInt(m[2], 10) - 1;
-  const beYear = String(parseInt(m[1], 10) + 543).slice(-2);
-  return (_THAI_MONTHS_ABBR[idx] || ('เดือน ' + m[2])) + ' ' + beYear;
+  const be = parseInt(m[1], 10) + 543;
+  if (full) return (_THAI_MONTHS_FULL[idx] || ('เดือน ' + m[2])) + ' ' + be;
+  return (_THAI_MONTHS_ABBR[idx] || ('เดือน ' + m[2])) + ' ' + String(be).slice(-2);
+}
+/* Top-bar chip showing which period is currently displayed. */
+function updateMonthIndicator() {
+  const el = document.getElementById('monthIndicatorText');
+  if (!el) return;
+  el.textContent = (FILTERS.month === 'all') ? 'ทุกเดือน' : _thaiMonthLabel(FILTERS.month, true);
 }
 /* Pull a 'YYYY-MM' key from any date-ish value without throwing */
 function _ymOf(v) {
@@ -6500,22 +6525,18 @@ function populateFilters() {
   if (monSel) {
     const monthSet = new Set();
     const addYM = v => { const ym = _ymOf(v); if (ym) monthSet.add(ym); };
-    (DATA.revenue_actual   || []).forEach(r => addYM(r.date));
-    (DATA.revenue_forecast || []).forEach(r => addYM(r.forecastMonth));
-    (DATA.alarm_status     || []).forEach(r => addYM(r.time));
-    (DATA.permit_jobs      || []).forEach(r => { addYM(r.startDate); addYM(r.dueDate); });
-    (DATA.cleaning         || []).forEach(r => addYM(r.planDate));
-    (DATA.inspection       || []).forEach(r => addYM(r.planDate));
-    (DATA.om_contracts     || []).forEach(r => addYM(r.startDate));
-    (DATA.scada_summary    || []).forEach(r => addYM(r.month));
+    // Only months that have real REVENUE (billing) — the executive-relevant
+    // period. Contract-start / alarm / permit dates and forward PM plans span
+    // many years and would flood the list with irrelevant historic/future months.
+    (DATA.revenue_actual || []).forEach(r => addYM(r.date || r.billingDate));
 
-    const months = [...monthSet].sort();           // ascending 'YYYY-MM'
+    const months = [...monthSet].sort().reverse();   // latest month first
     if (months.length) {
-      monSel.innerHTML = '<option value="all">ทุกเดือน</option>' +
-        months.map(m => `<option value="${m}">${_thaiMonthLabel(m)}</option>`).join('');
-      // Self-healing: if current month filter has no data, jump to the latest month present
+      monSel.innerHTML = '<option value="all">ทุกเดือน (ทั้งหมด)</option>' +
+        months.map(m => `<option value="${m}">${_thaiMonthLabel(m, true)}</option>`).join('');
+      // If the current month filter has no data, fall back to "ทุกเดือน".
       if (FILTERS.month !== 'all' && !months.includes(FILTERS.month)) {
-        FILTERS.month = months[months.length - 1];
+        FILTERS.month = 'all';
       }
       monSel.value = FILTERS.month;
     } else {
@@ -6547,8 +6568,10 @@ function populateFilters() {
 }
 
 function bindFilters() {
+  updateMonthIndicator();
   document.getElementById('filterMonth').addEventListener('change', e => {
     FILTERS.month = e.target.value;
+    updateMonthIndicator();
     renderActiveTab();
   });
   document.getElementById('filterCustomer').addEventListener('change', e => {
@@ -7350,7 +7373,7 @@ function init() {
   // Local range selector for the Monthly Analytics panel (independent of global filters)
   const msRangeSel = document.getElementById('msRangeSelect');
   if (msRangeSel) {
-    window.MS_RANGE = window.MS_RANGE || 12;
+    window.MS_RANGE = window.MS_RANGE || 'all';
     msRangeSel.addEventListener('change', e => {
       const v = e.target.value;
       window.MS_RANGE = (v === 'all') ? 'all' : parseInt(v, 10);
