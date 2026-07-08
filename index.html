@@ -4054,32 +4054,9 @@ input[type="file"] { display: none; }
   <!-- ============== TAB 4: O&M ================================== -->
   <!-- ============================================================ -->
   <div class="tab-pane" id="tab-om">
-    <div class="tab-section-title" style="border-left:3px solid var(--bu-om); padding-left:10px;">O&amp;M · Operations &amp; Maintenance + Time-Specific Revenue Loss</div>
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-om); padding-left:10px;">O&amp;M · Operations &amp; Maintenance</div>
 
-    <div class="card" style="margin-bottom:14px; cursor:pointer;" onclick="openRevenueLossFormulaDrill()">
-      <div class="card-header">
-        <div>
-          <div class="card-title">สูตร Revenue Loss · <span class="text-mono">Loss = kW × Efficiency × ชั่วโมงที่เสีย × ฿/kWh</span></div>
-          <div class="card-subtitle">ราคาค่าไฟ ฿4.50/kWh · คลิกเพื่อดูตัวอย่างคำนวณ</div>
-        </div>
-        <span class="click-hint">CLICK ▸ Details</span>
-      </div>
-      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px; font-size:12px;">
-        <div style="padding:10px 12px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);">
-          <div style="color:var(--critical); font-weight:600; margin-bottom:4px;">10:00–14:00 · แดดจัด</div>
-          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.85 (peak)</div>
-        </div>
-        <div style="padding:10px 12px; border-radius:8px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
-          <div style="color:var(--warning); font-weight:600; margin-bottom:4px;">08:00–10:00 / 14:00–17:00</div>
-          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.35 (shoulder)</div>
-        </div>
-        <div style="padding:10px 12px; border-radius:8px; background:var(--card-elev); border:1px solid var(--border);">
-          <div style="color:var(--text-dim); font-weight:600; margin-bottom:4px;">17:00–08:00 · กลางคืน</div>
-          <div style="color:var(--text-dim); font-size:11px;">Loss = 0 (ไม่มีแดด)</div>
-        </div>
-      </div>
-    </div>
-
+    <!-- Overview: the four O&M concerns at a glance (each from a different sheet) -->
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiOmSvc" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
@@ -4107,29 +4084,35 @@ input[type="file"] { display: none; }
       </div>
     </div>
 
-    <div class="ceo-grid" style="margin-top:14px;">
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">ความคืบหน้างาน Inspection (PM)</div>
-            <div class="card-subtitle">เสร็จ · รอทำ · ล่าช้า — และลูกค้าที่ต้องตามงาน</div>
-          </div>
-          <span class="text-mono" style="font-size:11px; color:var(--text-dim);"><span id="inspectionSummary">0/0</span></span>
-        </div>
-        <div id="inspectionList"></div>
-      </div>
-      <div class="card clickable" id="cardAlarms">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Alarm Distribution by Severity</div>
-            <div class="card-subtitle">Critical · Major · Minor · Warning</div>
-          </div>
-          <span class="click-hint">CLICK ▸</span>
-        </div>
-        <div class="chart-wrap-tall"><canvas id="chartAlarms"></canvas></div>
-      </div>
+    <!-- SECTION 1 — Inspection (PM), its own clearly labeled home -->
+    <div class="section-bar">
+      <div class="section-num">1</div>
+      <div class="section-title">Inspection · บำรุงรักษาเชิงป้องกัน (PM)</div>
+      <div class="section-sub">ที่มา: Inspection_MasterPlan · อัปเดตรายสัปดาห์</div>
+      <div class="section-spacer"></div>
+      <span class="text-mono" style="font-size:11px; color:var(--text-dim);">เสร็จ <span id="inspectionSummary">0/0</span></span>
+    </div>
+    <div class="card">
+      <div id="inspectionList"></div>
     </div>
 
+    <!-- SECTION 2 — Alarm & downtime monitoring -->
+    <div class="section-bar">
+      <div class="section-num">2</div>
+      <div class="section-title">Alarm &amp; Downtime · การแจ้งเตือนและเวลาหยุดทำงาน</div>
+      <div class="section-sub">ที่มา: Alarm_Status · อัปเดตรายวัน / เมื่อเกิดเหตุ</div>
+      <div class="section-spacer"></div>
+    </div>
+    <div class="card clickable" id="cardAlarms">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Alarm Distribution by Severity</div>
+          <div class="card-subtitle">Critical · Major · Minor · Warning</div>
+        </div>
+        <span class="click-hint">CLICK ▸</span>
+      </div>
+      <div class="chart-wrap-tall"><canvas id="chartAlarms"></canvas></div>
+    </div>
     <div class="card" style="margin-top:14px;">
       <div class="card-header">
         <div>
@@ -4142,6 +4125,37 @@ input[type="file"] { display: none; }
           <thead><tr><th>เวลา</th><th>Site</th><th>ประเภท</th><th class="text-right">kW</th><th class="text-right">Eff.</th><th class="text-right">Hours</th><th class="text-right">Loss (฿)</th><th>สถานะ</th></tr></thead>
           <tbody id="criticalAlarmsBody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- SECTION 3 — Revenue Loss (a computed estimate, not a sheet value) -->
+    <div class="section-bar">
+      <div class="section-num">3</div>
+      <div class="section-title">Revenue Loss · ประเมินรายได้ที่เสียจากเครื่องหยุด</div>
+      <div class="section-sub">ค่าประเมิน (คำนวณ ไม่ใช่ค่าจากชีต) · Loss = kW × Efficiency × ชม.ที่เสีย × ฿/kWh</div>
+      <div class="section-spacer"></div>
+    </div>
+    <div class="card" style="cursor:pointer;" onclick="openRevenueLossFormulaDrill()">
+      <div class="card-header">
+        <div>
+          <div class="card-title">สูตร Revenue Loss · <span class="text-mono">Loss = kW × Efficiency × ชั่วโมงที่เสีย × ฿/kWh</span></div>
+          <div class="card-subtitle">ราคาค่าไฟ ฿4.50/kWh · คลิกเพื่อดูตัวอย่างคำนวณ</div>
+        </div>
+        <span class="click-hint">CLICK ▸ Details</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px; font-size:12px;">
+        <div style="padding:10px 12px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);">
+          <div style="color:var(--critical); font-weight:600; margin-bottom:4px;">10:00–14:00 · แดดจัด</div>
+          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.85 (peak)</div>
+        </div>
+        <div style="padding:10px 12px; border-radius:8px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+          <div style="color:var(--warning); font-weight:600; margin-bottom:4px;">08:00–10:00 / 14:00–17:00</div>
+          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.35 (shoulder)</div>
+        </div>
+        <div style="padding:10px 12px; border-radius:8px; background:var(--card-elev); border:1px solid var(--border);">
+          <div style="color:var(--text-dim); font-weight:600; margin-bottom:4px;">17:00–08:00 · กลางคืน</div>
+          <div style="color:var(--text-dim); font-size:11px;">Loss = 0 (ไม่มีแดด)</div>
+        </div>
       </div>
     </div>
   </div>
