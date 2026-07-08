@@ -4816,7 +4816,8 @@ function computeRevenueLoss() {
 }
 
 function computeGauge() {
-  const rev = applyFilters(DATA.revenue_actual).reduce((s, r) => s + r.revenue, 0);
+  const gRows = applyFilters(DATA.revenue_actual);
+  const rev = gRows.reduce((s, r) => s + r.revenue, 0);
   const fcThisMonth = DATA.revenue_forecast.filter(f => {
     if (FILTERS.month !== 'all' && f.forecastMonth !== FILTERS.month) return false;
     if (FILTERS.customer !== 'all' && f.customer !== FILTERS.customer) return false;
@@ -4827,9 +4828,16 @@ function computeGauge() {
     return f.probability >= CONFIG.PROBABILITY_THRESHOLD;
   });
   const fcAmount = fcThisMonth.reduce((s, f) => s + f.revenue, 0);
-  const projected = rev + fcAmount;
+  // "PATH TO ฿10M" is a MONTHLY goal. When viewing "ทุกเดือน", compare the
+  // AVERAGE month to the target — not cumulative revenue vs a single month's
+  // target, which pegged the needle at 100% no matter what.
+  const gMonths = FILTERS.month === 'all'
+    ? (new Set(gRows.map(r => String(r.billingDate || '').slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m))).size || 1)
+    : 1;
+  const projectedTotal = rev + fcAmount;
+  const projected = projectedTotal / gMonths;             // per-month (avg when all)
   const pct = Math.min(100, (projected / CONFIG.TARGET_MONTHLY) * 100);
-  return { actual: rev, forecast: fcAmount, projected, pct, target: CONFIG.TARGET_MONTHLY, fcList: fcThisMonth };
+  return { actual: rev / gMonths, forecast: fcAmount / gMonths, projected, projectedTotal, months: gMonths, pct, target: CONFIG.TARGET_MONTHLY, fcList: fcThisMonth };
 }
 
 function computeAging() {
@@ -5276,11 +5284,13 @@ function renderHome() {
 
   const g = computeGauge();
   document.getElementById('gaugePercent').textContent = g.pct.toFixed(1) + '%';
-  document.getElementById('gaugeAmount').textContent = `฿${fmtCurrency(g.projected)} / ฿${fmtCurrency(g.target)}`;
+  const perMonth = g.months > 1 ? '/เดือน' : '';
+  document.getElementById('gaugeAmount').textContent = `฿${fmtCurrency(g.projected)}${perMonth} / ฿${fmtCurrency(g.target)}`;
   const gap = g.target - g.projected;
-  document.getElementById('gaugeStatus').innerHTML = gap <= 0
+  const avgNote = g.months > 1 ? `เฉลี่ยจาก ${g.months} เดือน · ` : '';
+  document.getElementById('gaugeStatus').innerHTML = avgNote + (gap <= 0
     ? '✓ เกินเป้า'
-    : (g.pct >= 80 ? '⚠ ใกล้เป้า' : '⛔ ห่างเป้า ' + fmtCurrency(gap));
+    : (g.pct >= 80 ? '⚠ ใกล้เป้า' : '⛔ ห่างเป้า ' + fmtCurrency(gap)));
   const gaugeCtx = document.getElementById('chartGauge').getContext('2d');
   // Semicircle speedometer with a needle + tail pointing at the achievement %.
   // Zones: 0-40 red · 40-70 amber · 70-100 green (green weighted so hitting the
