@@ -3832,7 +3832,7 @@ input[type="file"] { display: none; }
       <div class="dept-card-v2" style="--dept-color:#10B981;" onclick="document.querySelector('[data-tab=cleaning]').click()">
         <div class="dept-ic"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l1.8 3.7L19 8l-3.7 1.8L13 13l-1.8-3.7L7 8l3.7-1.8z"/><path d="M6 15l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg></div>
         <div class="dept-name">Cleaning</div>
-        <div class="dept-num">฿<span id="dv2ClRev">0</span></div>
+        <div class="dept-num"><span id="dv2ClRev">0</span><span style="font-size:0.5em; font-weight:600;">% เสร็จ</span></div>
         <div class="dept-status" id="dv2ClStatus">— งาน · เสร็จ 0/0</div>
         <div class="dept-link">เปิดแท็บ Cleaning →</div>
       </div>
@@ -3962,9 +3962,9 @@ input[type="file"] { display: none; }
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiClRev" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-        <div class="kpi-mini-label">Cleaning Revenue (เดือนนี้)</div>
-        <div class="kpi-mini-value" style="color:var(--bu-cleaning);">฿<span id="clRevVal">0</span></div>
-        <div class="kpi-mini-trend neutral" id="clRevSub">— งาน</div>
+        <div class="kpi-mini-label">อัตราเสร็จสิ้น (เดือนนี้)</div>
+        <div class="kpi-mini-value" style="color:var(--bu-cleaning);"><span id="clDoneRateVal">0</span><span style="font-size:0.55em; font-weight:600;">%</span></div>
+        <div class="kpi-mini-trend neutral" id="clRevSub">เสร็จ 0/0</div>
       </div>
       <div class="kpi-mini clickable" id="kpiClJobs" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg></div>
@@ -4015,8 +4015,8 @@ input[type="file"] { display: none; }
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Revenue per Team</div>
-            <div class="card-subtitle">ผลงานทีมตามรายได้</div>
+            <div class="card-title">งานต่อทีม · แผน vs เสร็จ</div>
+            <div class="card-subtitle">จำนวนงาน Cleaning ตามทีม (นับจากชีตจริง)</div>
           </div>
         </div>
         <div class="chart-wrap-tall"><canvas id="chartClTeam"></canvas></div>
@@ -4937,7 +4937,7 @@ function renderExec() {
   document.getElementById('execCharts').innerHTML = `
     <div class="card"><div class="card-header"><div>
       <div class="card-title">รายได้ตาม Business Unit</div>
-      <div class="card-subtitle">Solar · Cleaning · O&amp;M · Permit</div></div>
+      <div class="card-subtitle">Solar · O&amp;M · Permit · Cleaning* (*ประมาณจาก kW×800 — ชีตไม่มีคอลัมน์รายได้)</div></div>
       <div class="exec-toggle" id="execGrainToggle">
         <button data-grain="day" class="${grain === 'day' ? 'active' : ''}">วันนี้</button>
         <button data-grain="week" class="${grain === 'week' ? 'active' : ''}">7 วัน</button>
@@ -4954,13 +4954,13 @@ function renderExec() {
   const bu = execBURevenue(grain);
   CHARTS.execBU = registerChart('execBU', new Chart(document.getElementById('execBU').getContext('2d'), {
     type: 'bar',
-    data: { labels: ['Solar', 'Cleaning', 'O&M', 'Permit'], datasets: [{
+    data: { labels: ['Solar', 'Cleaning*', 'O&M', 'Permit'], datasets: [{
       data: [bu.solar, bu.cleaning, bu.om, bu.permit],
       backgroundColor: [getCSSVar('--bu-solar'), getCSSVar('--bu-cleaning'), getCSSVar('--bu-om'), getCSSVar('--bu-permit')],
       borderRadius: 8, maxBarThickness: 60,
     }]},
     options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) + (c.dataIndex === 1 ? ' (ประมาณจาก kW)' : '') } } },
       scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
                 y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true } },
       onClick: (evt, els) => { if (els.length) switchTab(['solar', 'cleaning', 'om', 'permit'][els[0].index]); }
@@ -5137,8 +5137,9 @@ function renderHome() {
 
   const monthCl = applyFilters(DATA.cleaning, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
   const clDone = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
-  const clRev = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
-  document.getElementById('dv2ClRev').textContent = fmtMoney(clRev);
+  // Goal 6.5 — Cleaning has no revenue column; show real completion %, not kW×800.
+  const clRate = monthCl.length ? Math.round(clDone / monthCl.length * 100) : 0;
+  document.getElementById('dv2ClRev').textContent = clRate;
   document.getElementById('dv2ClStatus').textContent = `${monthCl.length} งาน · เสร็จ ${clDone}/${monthCl.length}`;
 
   const omRows = getOMRows(rows);
@@ -5680,11 +5681,12 @@ function renderCleaning() {
   const done = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
   const delay = monthCl.filter(c => c.status === 'Delay').length;
   const totalKW = monthCl.reduce((s,c) => s + (c.kW||0), 0);
-  // Revenue from cleaning jobs (estimate: 800 ฿/kW per cleaning job)
-  const clRevenue = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
+  // Goal 6.5 — Cleaning_MasterPlan has NO revenue column; the headline is now
+  // the real operational metric (completion rate), not a fabricated kW×800.
+  const doneRate = monthCl.length ? (done / monthCl.length * 100) : 0;
 
-  document.getElementById('clRevVal').textContent = fmtFull(clRevenue);
-  document.getElementById('clRevSub').textContent = `${monthCl.length} งาน`;
+  document.getElementById('clDoneRateVal').textContent = doneRate.toFixed(0);
+  document.getElementById('clRevSub').textContent = `เสร็จ ${done}/${monthCl.length}`;
   document.getElementById('clMonthVal').textContent = monthCl.length;
   document.getElementById('clDoneSub').textContent = `เสร็จสิ้น ${done}/${monthCl.length}`;
   document.getElementById('clKWVal').textContent = totalKW.toFixed(2);
@@ -5723,25 +5725,31 @@ function renderCleaning() {
     </div>`;
   }).join('') || '<div class="empty-state">ไม่มีแผนงาน Cleaning</div>';
 
-  // Revenue per team chart
-  const teamRev = {};
+  // Goal 6.5 — jobs per team (plan vs done, real counts) instead of kW×800 revenue.
+  const teamStats = {};
   monthCl.forEach(c => {
-    teamRev[c.team] = (teamRev[c.team] || 0) + (c.kW||0) * 800;
+    const t = c.team || 'ไม่ระบุทีม';
+    if (!teamStats[t]) teamStats[t] = { plan: 0, done: 0 };
+    teamStats[t].plan++;
+    if (c.status === 'เสร็จสิ้น') teamStats[t].done++;
   });
+  const teamLabels = Object.keys(teamStats);
   const tCtx = document.getElementById('chartClTeam').getContext('2d');
   CHARTS.clTeam = registerChart('clTeam', new Chart(tCtx, {
     type: 'bar',
-    data: { labels: Object.keys(teamRev), datasets: [{
-      data: Object.values(teamRev),
-      backgroundColor: getCSSVar('--bu-cleaning'),
-      borderRadius: 6,
-    }]},
+    data: { labels: teamLabels, datasets: [
+      { label: 'แผน', data: teamLabels.map(t => teamStats[t].plan),
+        backgroundColor: getCSSVar('--border'), borderRadius: 6 },
+      { label: 'เสร็จ', data: teamLabels.map(t => teamStats[t].done),
+        backgroundColor: getCSSVar('--bu-cleaning'), borderRadius: 6 },
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.x)}` } } },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: getCSSVar('--text-dim') } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtInt(ctx.parsed.x)} งาน` } } },
       scales: {
-        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtAxis(v) } },
-        y: { grid: { display: false } }
+        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { precision: 0, color: getCSSVar('--text-dim') } },
+        y: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } }
       }
     }
   }));
