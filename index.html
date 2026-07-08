@@ -302,6 +302,9 @@
         contact:      { type: 'text',     syn: S(['ผู้ติดต่อ', 'contact', 'contact person', 'ผู้ประสานงาน']) },
         totalRevenue: { type: 'currency', syn: S(['รายได้รวม 12 เดือน', 'total revenue', 'รายได้รวม', 'รายได้ 12 เดือน', 'lifetime revenue']) },
         grade:        { type: 'text',     syn: S(['grade', 'เกรด', 'grade ลูกค้า', 'tier', 'ระดับลูกค้า']) },
+        province:     { type: 'text',     syn: S(['จังหวัด', 'province']) },
+        kWp:          { type: 'number',   syn: S(['ขนาดระบบ kwp', 'kwp', 'ขนาดระบบ', 'nameplate']) },
+        site:         { type: 'text',     syn: S(['ชื่อโครงการ site', 'ชื่อโครงการ', 'site', 'โครงการ']) },
       },
     },
     {
@@ -545,18 +548,47 @@
    * =========================================================================*/
   const ASSIGN_THRESHOLD = 0.6;  // require decent signature coverage + signal
 
+  // Goal 4.2 — the template's own @META datasetType maps 1:1 to a canonical
+  // dataset key. When present it is authoritative; fuzzy scoring is only a
+  // fallback for sheets WITHOUT an @META line (older files / pasted-in sheets),
+  // which keeps the "works on any structure" goal while making a real
+  // PVS_Template_V4 file deterministic instead of probabilistic.
+  const META_TYPE_TO_KEY = {
+    customer: 'customer_master', revenue: 'revenue_actual', forecast: 'revenue_forecast',
+    contract: 'om_contracts', cleaning: 'cleaning', inspection: 'inspection',
+    alarm: 'alarm_status', scada: 'scada_summary', permit: 'permit_jobs',
+  };
+
   function classify(detectedSheets) {
-    const candidates = []; // {sheet, dsKey, ...score}
+    const assignedDs = new Set(), assignedSheet = new Set(), result = [];
+
+    // Pass 1 — deterministic @META datasetType exact match (authoritative).
     for (const sh of detectedSheets) {
+      const dtype = sh.meta && sh.meta.datasetType;
+      const key = dtype && META_TYPE_TO_KEY[dtype];
+      if (!key || assignedDs.has(key) || assignedSheet.has(sh.name)) continue;
+      const ds = DATASETS.find(d => d.key === key);
+      if (!ds) continue;
+      const { map, matched } = mapColumns(sh.header.cols, ds);
+      result.push({ sheet: sh.name, dsKey: key, dataset: ds, map, matched, total: 1, sigCov: 1, matchedVia: 'meta' });
+      assignedDs.add(key); assignedSheet.add(sh.name);
+    }
+
+    // Pass 2 — fuzzy Dice/Levenshtein scoring, ONLY for sheets that did not
+    // resolve via @META datasetType above.
+    const candidates = [];
+    for (const sh of detectedSheets) {
+      if (assignedSheet.has(sh.name)) continue;
+      if (sh.meta && META_TYPE_TO_KEY[sh.meta.datasetType]) continue; // meta type known but ds already taken
       for (const ds of DATASETS) {
+        if (assignedDs.has(ds.key)) continue;
         const s = datasetScore(sh.header.cols, ds, sh.name);
         if (s.sigCov >= 0.5 && s.total >= ASSIGN_THRESHOLD) {
-          candidates.push({ sheet: sh.name, dsKey: ds.key, dataset: ds, ...s });
+          candidates.push({ sheet: sh.name, dsKey: ds.key, dataset: ds, ...s, matchedVia: 'heuristic' });
         }
       }
     }
     candidates.sort((a, b) => b.total - a.total);
-    const assignedDs = new Set(), assignedSheet = new Set(), result = [];
     for (const c of candidates) {
       if (assignedDs.has(c.dsKey) || assignedSheet.has(c.sheet)) continue;
       assignedDs.add(c.dsKey); assignedSheet.add(c.sheet);
@@ -800,7 +832,7 @@
           profit: r.profit != null ? r.profit : (revenue - cost),
           jobStatus: T.text(r.jobStatus), responsible: T.text(r.responsible),
           paymentStatus: T.text(r.paymentStatus) || 'Pending',
-          kW: r.kW || 0, province: T.text(r.province) || 'กรุงเทพฯ', site: T.text(r.site),
+          kW: r.kW || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated
         };
       }).filter(r => r.customer && (r.billingDate || r.revenue));
     },
@@ -819,8 +851,9 @@
     customer_master(rows, ctx, DATA) {
       const list = rows.map(r => ({
         name: T.text(r.name), group: T.text(r.group), businessType: T.text(r.businessType),
-        warrantyEnd: ctx.toLocalISO(r.warrantyEnd) || '', status: T.text(r.status) || 'Active',
+        warrantyEnd: ctx.toLocalISO(r.warrantyEnd) || '', status: T.text(r.status),   // Goal 4.3: no fabricated 'Active'
         contact: T.text(r.contact), grade: T.text(r.grade) || 'C', totalRevenue: r.totalRevenue || 0,
+        province: T.text(r.province), kWp: r.kWp || 0, site: T.text(r.site),           // single-source-of-truth for lookups
       })).filter(r => r.name);
       list.forEach(c => {
         if (!c.totalRevenue) c.totalRevenue = (DATA.revenue_actual || []).filter(r => r.customer === c.name).reduce((s, r) => s + r.revenue, 0);
@@ -835,16 +868,19 @@
       return rows.map(r => {
         const ts = r.time instanceof Date ? r.time.getTime() : Date.now();
         const startHour = new Date(ts).getHours();
-        const level = T.text(r.level) || 'Minor';
+        const level = T.text(r.level) || 'ไม่ระบุ';                 // Goal 4.3: no fabricated 'Minor'
+        // downtime keeps a level-based estimate only when a real level exists;
+        // an unknown level yields an unknown (0) downtime rather than a guess.
         const dt = (r.downtimeHrs && r.downtimeHrs > 0) ? r.downtimeHrs
-          : (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : 0.25);
-        const kW = (r.kW && r.kW > 0) ? r.kW : 100;
+          : (level === 'Critical' ? 8 : level === 'Major' ? 3 : level === 'Minor' ? 1 : level === 'Warning' ? 0.25 : 0);
+        const kW = (r.kW && r.kW > 0) ? r.kW : null;                // Goal 4.3: no fabricated 100
+        const kwMissing = (kW == null);
         return {
           time: ctx.toLocalDateTime(r.time) || T.text(r.time), timestamp: ts, hourOfDay: startHour,
           customer: T.text(r.customer) || firstToken(r.site), site: T.text(r.site),
           level, type: T.text(r.type), inverterId: T.text(r.inverterId), status: T.text(r.status),
-          kW, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
-          downtimeHrs: dt, revenueLoss: ctx.computeTimeSpecificLoss(kW, startHour, dt),
+          kW: kW == null ? 0 : kW, kwMissing, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
+          downtimeHrs: dt, revenueLoss: kwMissing ? 0 : ctx.computeTimeSpecificLoss(kW, startHour, dt),
           responsible: T.text(r.responsible),
         };
       }).filter(r => r.site || r.customer);
@@ -872,7 +908,7 @@
       return rows.map(r => ({
         customer: T.text(r.customer), site: T.text(r.site),
         startDate: ctx.toLocalISO(r.startDate) || '', endDate: ctx.toLocalISO(r.endDate) || '',
-        sla: r.sla != null ? r.sla : 95, fee: r.fee || 0, status: T.text(r.status) || 'Active',
+        sla: r.sla != null ? r.sla : null, fee: r.fee || 0, status: T.text(r.status),   // Goal 4.3: no fabricated 95 / 'Active'
       })).filter(r => r.customer);
     },
     scada_summary(rows, ctx) {
@@ -883,6 +919,311 @@
       })).filter(r => r.month);
     },
   };
+
+  /* ===========================================================================
+   * 9.5 STAGE E — RECONCILE (Goal 5.1: customer entity resolution)
+   *   Canonical customer dictionary = Customer_Master.name (declared single
+   *   source of truth). Every business row's customer string is resolved
+   *   against it, REUSING the same dice/levRatio utilities as header matching
+   *   — applied to VALUES. Per the Core Principle:
+   *     · normalized-EXACT variant (whitespace/case/punct/legal-prefix only)
+   *       → auto-canonicalize silently (overwrite customer, keep customerRaw)
+   *     · a real character difference (plausible typo), fuzzy ≥ MED
+   *       → FLAG as "possible duplicate" for a human; NEVER auto-merge
+   *     · no match → FLAG "not yet in Customer_Master"
+   *   This stage NEVER collapses rows: legitimate repeats (many billing
+   *   periods; one customer with many distinct sites) are the rollup's job
+   *   (Goal 5.5), not this one. It only canonicalizes the customer STRING.
+   * =========================================================================*/
+  // Strip only unambiguous legal-entity words. NOT 'มหาชน'/'public'/'plc' — a
+  // PLC and a Co.,Ltd of the same name can be distinct entities.
+  const ENTITY_STOPWORDS = /(บริษัท|บจก\.?|หจก\.?|ห้างหุ้นส่วนจำกัด|ห้างหุ้นส่วน|จำกัด|company|co\.?,?|ltd\.?|limited|corporation|corp\.?|inc\.?)/gi;
+  function normEntity(s) {
+    let v = T.text(s); if (!v) return '';
+    v = v.toLowerCase();
+    v = v.replace(ENTITY_STOPWORDS, ' ');
+    v = v.replace(/[.,\-_/\\'"“”‘’()\[\]]+/g, ' ');   // normalize punctuation/parens to space (keep the content)
+    v = v.replace(/\s+/g, ' ').trim();
+    return v;
+  }
+  const RECON = { MED: 0.72 };   // fuzzy ≥ MED (but not exact) → "possible"; below → unresolved
+
+  const WITH_CUSTOMER = ['revenue_actual', 'revenue_forecast', 'alarm_status', 'permit_jobs', 'cleaning', 'inspection', 'om_contracts', 'scada_summary'];
+  const CLUSTER_CAP = 1500;   // pairwise-cluster only up to this many distinct names (perf guard)
+
+  // Similarity used everywhere on VALUES — one shared definition (Uniform Standard).
+  function entitySim(normA, normB) { return Math.max(dice(normA, normB), 0.85 * levRatio(normA, normB)); }
+
+  // Goal 5.1b — connected-components clustering of a POOL of {raw,norm,count,sheets}
+  // entries by entitySim >= RECON.MED. Shared, dataset-agnostic; the caller pools
+  // rows from every sheet first, so this is never per-sheet.
+  function clusterEntities(entries) {
+    const items = entries.filter(e => e.norm);
+    const n = items.length, parent = items.map((_, i) => i);
+    const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+    if (n <= CLUSTER_CAP) {
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        if (entitySim(items[i].norm, items[j].norm) >= RECON.MED) { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
+      }
+    }
+    const groups = new Map();
+    for (let i = 0; i < n; i++) { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(items[i]); }
+    // entries whose norm was empty are handled separately (incomplete); they never cluster
+    return { clustered: [...groups.values()], capped: n > CLUSTER_CAP };
+  }
+
+  function reconcileEntities(data, report) {
+    const RESULT = { possibleDuplicates: [], unresolvedClusters: [], unresolvedSingletons: [], incomplete: [],
+                     exactCount: 0, autoCount: 0, canonCount: 0, incompleteCount: 0, clusterCapped: false };
+    try {
+      const canonRaw = [...new Set((data.customer_master || []).map(c => T.text(c.name)).filter(Boolean))];
+      if (!canonRaw.length) { report.reconcile = RESULT; return; }   // no dictionary → resolve nothing
+      const canonNorm = canonRaw.map(raw => ({ raw, norm: normEntity(raw) }));
+      const byNorm = new Map();
+      for (const c of canonNorm) if (c.norm && !byNorm.has(c.norm)) byNorm.set(c.norm, c.raw);
+
+      const cache = new Map(), possMap = new Map(), unresMap = new Map(), incMap = new Map();
+      function resolve(rawValue) {
+        const val = T.text(rawValue); if (!val) return null;
+        if (cache.has(val)) return cache.get(val);
+        const norm = normEntity(val);
+        let res;
+        if (!norm) {
+          // value reduced to nothing after stripping legal stopwords (e.g. only "บริษัท")
+          res = { canonical: val, flag: 'incomplete', norm: '' };
+        } else if (byNorm.has(norm)) {
+          const canon = byNorm.get(norm);
+          res = { canonical: canon, flag: (canon === val ? 'exact' : 'canonical'), norm, score: 1 };
+        } else {
+          let best = null, bestScore = 0;
+          for (const c of canonNorm) {
+            if (!c.norm) continue;
+            const sc = entitySim(norm, c.norm);
+            if (sc > bestScore) { bestScore = sc; best = c; }
+          }
+          if (best && bestScore >= RECON.MED) res = { canonical: val, flag: 'possible', score: +bestScore.toFixed(3), candidate: best.raw, norm };
+          else res = { canonical: val, flag: 'unresolved', score: +bestScore.toFixed(3), norm };
+        }
+        cache.set(val, res);
+        return res;
+      }
+
+      // --- Pass 1: resolve every customer-bearing row against Customer_Master ---
+      for (const k of WITH_CUSTOMER) {
+        (data[k] || []).forEach(row => {
+          const res = resolve(row.customer);
+          if (!res) return;
+          row.customerRaw = T.text(row.customer);       // keep original for display/audit
+          row.customerFlag = res.flag;
+          if (res.flag === 'exact' || res.flag === 'canonical') {
+            row.customer = res.canonical;               // aggregations consume the canonical spelling
+            if (res.flag === 'canonical') RESULT.autoCount++; else RESULT.exactCount++;
+          } else if (res.flag === 'possible') {
+            const key = row.customerRaw + '␟' + res.candidate;
+            if (!possMap.has(key)) possMap.set(key, { raw: row.customerRaw, candidate: res.candidate, score: res.score, count: 0, sheets: new Set() });
+            const e = possMap.get(key); e.count++; e.sheets.add(k);
+          } else if (res.flag === 'incomplete') {
+            if (!incMap.has(row.customerRaw)) incMap.set(row.customerRaw, { raw: row.customerRaw, count: 0, sheets: new Set() });
+            const e = incMap.get(row.customerRaw); e.count++; e.sheets.add(k);
+          } else {
+            if (!unresMap.has(row.customerRaw)) unresMap.set(row.customerRaw, { raw: row.customerRaw, norm: res.norm, count: 0, sheets: new Set() });
+            const e = unresMap.get(row.customerRaw); e.count++; e.sheets.add(k);
+          }
+        });
+      }
+
+      // --- Pass 2 (5.1b): cluster the POOLED unresolved names across ALL sheets ---
+      const pool = [...unresMap.values()].map(e => ({ raw: e.raw, norm: e.norm, count: e.count, sheets: e.sheets }));
+      const { clustered, capped } = clusterEntities(pool);
+      RESULT.clusterCapped = capped;
+      const labelOfRaw = new Map();                     // rawValue -> suggested cluster label (multi-member only)
+      const clusters = [], singletons = [];
+      for (const grp of clustered) {
+        if (grp.length >= 2) {
+          const members = grp.slice().sort((a, b) => b.raw.length - a.raw.length || b.count - a.count);
+          const label = members[0].raw;                 // "most complete-looking" = longest, then most rows
+          const sheets = new Set(); let rowCount = 0;
+          members.forEach(m => { m.sheets.forEach(s => sheets.add(s)); rowCount += m.count; labelOfRaw.set(m.raw, label); });
+          clusters.push({ label, memberCount: members.length, rowCount, sheets: [...sheets],
+                          members: members.map(m => ({ raw: m.raw, count: m.count, sheets: [...m.sheets] })) });
+        } else {
+          const m = grp[0]; singletons.push({ raw: m.raw, count: m.count, sheets: [...m.sheets] });
+        }
+      }
+
+      // Re-flag clustered rows as 'unresolved-clustered' (suggestion only — the raw
+      // customer string is NEVER overwritten; nothing is auto-added to Customer_Master).
+      for (const k of WITH_CUSTOMER) {
+        (data[k] || []).forEach(row => {
+          if (row.customerFlag === 'unresolved' && labelOfRaw.has(row.customerRaw)) {
+            row.customerFlag = 'unresolved-clustered';
+            row.customerCluster = labelOfRaw.get(row.customerRaw);
+          }
+        });
+      }
+
+      RESULT.possibleDuplicates = [...possMap.values()].map(e => ({ raw: e.raw, candidate: e.candidate, score: e.score, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.score - a.score);
+      RESULT.unresolvedClusters = clusters.sort((a, b) => b.rowCount - a.rowCount);
+      RESULT.unresolvedSingletons = singletons.sort((a, b) => b.count - a.count);
+      RESULT.incomplete = [...incMap.values()].map(e => ({ raw: e.raw, count: e.count, sheets: [...e.sheets] })).sort((a, b) => b.count - a.count);
+      RESULT.incompleteCount = RESULT.incomplete.reduce((s, e) => s + e.count, 0);
+      RESULT.canonCount = RESULT.exactCount + RESULT.autoCount;
+    } catch (e) { report.warnings.push('reconcile failed: ' + e); }
+    report.reconcile = RESULT;
+  }
+
+  /* ===========================================================================
+   * 9.6 STAGE E — DUPLICATE-ROW DETECTION (Goal 5.3)
+   *   One shared mechanism over EVERY dataset (Uniform Standard) driven by a
+   *   per-dataset key config. Two rows are "likely duplicates" only when the
+   *   whole key matches — which for revenue means customer + project + date +
+   *   amount, so genuine separate billing periods (different date OR amount)
+   *   are never flagged. The FIRST occurrence is kept; the rest are flagged
+   *   `isDuplicate` (never deleted) so downstream sums can skip them while the
+   *   rows still show, flagged, in the tables + Data Quality Center.
+   * =========================================================================*/
+  const DUP_KEYS = {
+    revenue_actual:   ['customer', 'project', 'billingDate', 'revenue'],
+    revenue_forecast: ['customer', 'project', 'forecastMonth', 'revenue'],
+    permit_jobs:      ['customer', 'docType', 'startDate', 'revenue'],
+    cleaning:         ['customer', 'site', 'planDate'],
+    inspection:       ['customer', 'site', 'planDate'],
+    alarm_status:     ['customer', 'site', 'time', 'type'],
+    om_contracts:     ['customer', 'site', 'startDate', 'endDate'],
+    scada_summary:    ['customer', 'site', 'month'],
+  };
+  function dupKeyPart(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+    const s = String(v).trim();
+    const m = s.match(/^\d{4}-\d{2}-\d{2}/); if (m) return m[0];   // date → day precision
+    return s.toLowerCase();
+  }
+  function detectDuplicates(data, report) {
+    const summary = [], items = []; let total = 0; const ITEM_CAP = 400;
+    try {
+      for (const k in DUP_KEYS) {
+        const rows = data[k]; if (!Array.isArray(rows) || !rows.length) continue;
+        const fields = DUP_KEYS[k];
+        const groups = new Map();
+        rows.forEach((row, i) => {
+          row.isDuplicate = false;
+          const parts = fields.map(f => dupKeyPart(row[f]));
+          // Core Principle: only flag when the WHOLE key is present. A single
+          // missing part (e.g. a blank billing date) makes duplication ambiguous
+          // — matching customer+amount alone would wrongly drop genuine revenue —
+          // so an incomplete key can never be judged a duplicate; the row stays.
+          if (parts.some(p => p === '')) return;
+          const key = parts.join('␟');
+          if (!groups.has(key)) groups.set(key, { first: i, idxs: [i], parts });
+          else groups.get(key).idxs.push(i);
+        });
+        let dup = 0, grpN = 0;
+        for (const g of groups.values()) {
+          if (g.idxs.length < 2) continue;
+          grpN++;
+          g.idxs.slice(1).forEach(i => { rows[i].isDuplicate = true; rows[i].duplicateOf = g.first; dup++; });
+          if (items.length < ITEM_CAP) items.push({ dataset: k, fields, values: g.parts, occurrences: g.idxs.length });
+        }
+        if (dup) { summary.push({ dataset: k, keyFields: fields, duplicates: dup, groups: grpN, total: rows.length }); total += dup; }
+      }
+    } catch (e) { report.warnings.push('duplicate detection failed: ' + e); }
+    report.duplicates = { summary, items: items.sort((a, b) => b.occurrences - a.occurrences), total };
+  }
+
+  /* ===========================================================================
+   * 9.7 STAGE E — HIERARCHICAL ROLLUP  (Goal 5.5)
+   *   One shared, config-driven rollup over every relevant dataset (Uniform
+   *   Standard). Builds a 3-level tree per dataset for the executive / BU views:
+   *     1. Customer  — grouped by the EXACT canonicalized name (5.1 already
+   *        aligned typos to Customer_Master; here we only ever exact-match).
+   *     2. Project   — grouped by EXACT project string, never fuzzy: two real
+   *        sites with similar names must stay separate. Same customer + same
+   *        project → one line summing its billing periods ("N งวด"). Same
+   *        customer + different project → separate lines under the customer.
+   *     3. Period    — each surviving row (one invoice / billing period).
+   *   Guardrails:
+   *     • Excludes rows flagged isDuplicate (Goal 5.3) so a rollup total always
+   *       equals the KPI sum that applyFilters produces — never double-counted.
+   *     • A BLANK project can't be confirmed to be "the same project" as any
+   *       other blank, so it NEVER merges — each blank row is its own line,
+   *       flagged resolved:false (Core Principle: flag ambiguity, don't fabricate
+   *       a shared project). Same rule for a blank customer.
+   *     • Sums only additive money fields (revenue/cost/profit). kW is an
+   *       AVERAGE metric (Revenue_Actual) and kWp a nameplate (Customer_Master) —
+   *       neither is summed here, so the two are never conflated.
+   * =========================================================================*/
+  const ROLLUP_SPECS = {
+    revenue_actual:   { customer: 'customer', project: 'project', period: 'billingDate',   periodLabel: 'งวด',  sum: ['revenue', 'cost', 'profit'] },
+    revenue_forecast: { customer: 'customer', project: 'project', period: 'forecastMonth', periodLabel: 'เดือน', sum: ['revenue'] },
+  };
+  function rollupOne(rows, spec) {
+    const sumFields = spec.sum;
+    const zero = () => { const o = {}; sumFields.forEach(f => o[f] = 0); return o; };
+    const addInto = (acc, row) => { sumFields.forEach(f => { acc[f] += Number(row[f]) || 0; }); };
+
+    const custMap = new Map();
+    let rowsCounted = 0, dupExcluded = 0, blankCust = 0, blankProj = 0;
+
+    rows.forEach((row, idx) => {
+      if (row.isDuplicate) { dupExcluded++; return; }         // stay consistent with KPI sums
+      rowsCounted++;
+      const custName = (row[spec.customer] == null ? '' : String(row[spec.customer]).trim());
+      const custResolved = custName !== '';
+      const custKey = custResolved ? custName : ' nocust';
+      if (!custResolved) blankCust++;
+
+      const projName = (row[spec.project] == null ? '' : String(row[spec.project]).trim());
+      const projResolved = projName !== '';
+      const projKey = projResolved ? projName : (' noproj:' + idx);   // blank never merges
+      if (!projResolved) blankProj++;
+
+      let c = custMap.get(custKey);
+      if (!c) { c = { customer: custResolved ? custName : '(ไม่ระบุลูกค้า)', resolved: custResolved, totals: zero(), projMap: new Map() }; custMap.set(custKey, c); }
+      addInto(c.totals, row);
+
+      let p = c.projMap.get(projKey);
+      if (!p) { p = { project: projResolved ? projName : '(ไม่ระบุโครงการ)', resolved: projResolved, totals: zero(), periods: [] }; c.projMap.set(projKey, p); }
+      addInto(p.totals, row);
+      const pv = {}; sumFields.forEach(f => pv[f] = Number(row[f]) || 0);
+      p.periods.push({ rowIndex: idx, period: dupKeyPart(row[spec.period]) || '', raw: row[spec.period] != null ? row[spec.period] : '', values: pv });
+    });
+
+    const primary = sumFields[0];
+    const totals = zero();
+    const customers = [...custMap.values()].map(c => {
+      const projects = [...c.projMap.values()].map(p => ({
+        project: p.project, resolved: p.resolved, totals: p.totals, periodCount: p.periods.length, periods: p.periods,
+      })).sort((a, b) => (b.totals[primary] || 0) - (a.totals[primary] || 0));
+      sumFields.forEach(f => { totals[f] += c.totals[f]; });
+      return {
+        customer: c.customer, resolved: c.resolved, totals: c.totals,
+        projectCount: projects.length,
+        periodCount: projects.reduce((s, p) => s + p.periodCount, 0),
+        projects,
+      };
+    }).sort((a, b) => (b.totals[primary] || 0) - (a.totals[primary] || 0));
+
+    return {
+      sumFields, periodLabel: spec.periodLabel || 'งวด', primaryField: primary,
+      customers, totals,
+      customerCount: customers.length,
+      projectCount: customers.reduce((s, c) => s + c.projectCount, 0),
+      periodCount: customers.reduce((s, c) => s + c.periodCount, 0),
+      rowsCounted, duplicatesExcluded: dupExcluded, blankCustomer: blankCust, blankProject: blankProj,
+    };
+  }
+  function buildRollups(data, report) {
+    const out = {};
+    try {
+      for (const k in ROLLUP_SPECS) {
+        const rows = data[k];
+        if (!Array.isArray(rows) || !rows.length) continue;
+        out[k] = rollupOne(rows, ROLLUP_SPECS[k]);
+      }
+    } catch (e) { report.warnings.push('rollup build failed: ' + e); }
+    report.rollups = out;
+  }
 
   /* ===========================================================================
    * 10. ORCHESTRATOR
@@ -958,14 +1299,17 @@
         // cleaning signature). Committing it would overwrite real DATA with [].
         // Skip the assignment entirely so the sheet falls through to Stage D and
         // is handled generically instead.
-        if (!derived || !derived.length) {
+        // Defer a 0-row match to generic handling ONLY for fuzzy matches (a
+        // spurious grazing match must not overwrite real DATA with []). An
+        // authoritative @META match is trusted even when empty (renderIfEmpty).
+        if ((!derived || !derived.length) && a.matchedVia !== 'meta') {
           report.warnings.push(`assignment ${a.sheet}->${ds.key} produced 0 rows; deferred to generic handling`);
           continue;
         }
         data[ds.key] = derived;
         report.sheetsAssigned++;
-        report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2) };
-        report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2) });
+        report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2), matchedVia: a.matchedVia || 'heuristic' };
+        report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2), matchedVia: a.matchedVia || 'heuristic' });
         // V10.1 (additive): keep a FULL-FIDELITY generic table of every
         // classified sheet (all columns incl. record ids / audit stamps that
         // the canonical derive step intentionally drops). Consumed by the
@@ -1004,16 +1348,33 @@
         if (assignedNames.has(sh.name)) continue;
         try {
           const generic = extractGeneric(sh.grid, sh.header);
-          if (generic && generic.rows.length) {
+          const metaRole = sh.meta && sh.meta.datasetRole;
+          const renderIfEmpty = sh.meta && /^true$/i.test(String(sh.meta.renderIfEmpty || ''));
+          // Goal 4.1 — the template's declared datasetRole is authoritative and
+          // overrides the fragile heuristic: 'support' is ALWAYS suppressed
+          // (hard, not a soft score penalty), 'business' ALWAYS gets a tab
+          // (renderIfEmpty=true still gets an empty-state tab, never dropped).
+          if (generic && (generic.rows.length || (metaRole === 'business' && renderIfEmpty))) {
             generic.name = sh.name;
-            generic.meta = sh.meta || null;          // V10.1: @META hint pass-through
-            generic.intent = classifyIntent(generic);
-            if (generic.intent.datasetIntent === 'business') {
-              report.unclassified.push(generic);
-              Debug.log(`◆ ${sh.name} → business tab (${generic.rows.length} rows, ${generic.columns.length} cols, BRS ${generic.intent.businessRelevanceScore})`);
-            } else {
+            generic.meta = sh.meta || null;
+            if (metaRole === 'support') {
+              generic.intent = { datasetIntent: 'support', via: 'meta', businessRelevanceScore: null, sheetConfidenceScore: null, signals: { metaRole: 'support' } };
               report.referenceSheets.push(generic);
-              Debug.log(`◇ ${sh.name} → ${generic.intent.datasetIntent} (suppressed; BRS ${generic.intent.businessRelevanceScore}, name="${generic.intent.signals.nameHit}")`);
+              Debug.log(`◇ ${sh.name} → support (@META datasetRole; hard-suppressed)`);
+            } else if (metaRole === 'business') {
+              generic.intent = { datasetIntent: 'business', via: 'meta', businessRelevanceScore: null, sheetConfidenceScore: null, signals: { metaRole: 'business' } };
+              report.unclassified.push(generic);
+              Debug.log(`◆ ${sh.name} → business tab (@META datasetRole)`);
+            } else {
+              generic.intent = classifyIntent(generic);
+              generic.intent.via = 'heuristic';
+              if (generic.intent.datasetIntent === 'business') {
+                report.unclassified.push(generic);
+                Debug.log(`◆ ${sh.name} → business tab (heuristic, BRS ${generic.intent.businessRelevanceScore})`);
+              } else {
+                report.referenceSheets.push(generic);
+                Debug.log(`◇ ${sh.name} → ${generic.intent.datasetIntent} (heuristic; BRS ${generic.intent.businessRelevanceScore})`);
+              }
             }
           } else {
             report.skippedSheets.push({ name: sh.name, reason: 'no data rows' });
@@ -1021,6 +1382,34 @@
         } catch (e) { report.warnings.push(`unclassified ${sh.name} failed: ${e}`); }
       }
     } catch (e) { report.warnings.push('unclassified capture failed: ' + e); }
+
+    // Stage E — Goal 5.1: reconcile customer entity names against Customer_Master
+    // BEFORE any downstream lookup/rollup, so canonicalized names improve the
+    // exact province lookup below and never fragment aggregations by typo.
+    reconcileEntities(data, report);
+
+    // Stage E — Goal 5.3: flag literal duplicate rows (shared, all datasets) so
+    // KPI/revenue sums don't double-count. Runs after reconcile (canonical
+    // customer) and before province/grade so those see the flags.
+    detectDuplicates(data, report);
+
+    // Stage E — Goal 5.5: build the customer→project→period rollup used by the
+    // executive/BU views. Runs AFTER reconcile (exact names) and detectDuplicates
+    // (its totals exclude flagged duplicates), so a rollup line always equals the
+    // KPI sum for the same slice. Purely additive: report.rollups only.
+    buildRollups(data, report);
+
+    // Goal 4.3 — resolve a missing Revenue_Actual province by an EXACT lookup
+    // against Customer_Master (the declared single source of truth). No exact
+    // match → 'ไม่ระบุ' (a visibly distinct unknown bucket), never a fabricated
+    // default. Exact match only here; fuzzy entity resolution is Goal 5.
+    try {
+      const provByCustomer = {};
+      (data.customer_master || []).forEach(c => { if (c.name && c.province) provByCustomer[c.name] = c.province; });
+      (data.revenue_actual || []).forEach(r => {
+        if (!r.province) { r.province = provByCustomer[r.customer] || 'ไม่ระบุ'; }
+      });
+    } catch (e) { report.warnings.push('province resolve failed: ' + e); }
 
     // Recompute customer grades once revenue is known (self-heal ordering)
     try {
@@ -1057,7 +1446,7 @@
 
   const API = {
     run, buildFromSheets, readWorkbook,
-    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric },
+    _internal: { Normalize, dice, levRatio, headerScore, detectHeader, mapColumns, datasetScore, classify, DATASETS, sheetToGrid, parseSheetMeta, extractGeneric, META_TYPE_TO_KEY, normEntity, reconcileEntities, clusterEntities, entitySim, detectDuplicates, DUP_KEYS, buildRollups, rollupOne, ROLLUP_SPECS },
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -1828,6 +2217,23 @@ input[type="file"] { display: none; }
 .progress-bar-fill.warning { background: linear-gradient(90deg, var(--warning), #FCD34D); }
 .progress-bar-fill.critical { background: linear-gradient(90deg, var(--critical), #F87171); }
 .progress-bar-fill.success { background: linear-gradient(90deg, var(--success), #34D399); }
+/* Job-progress view (shared: Cleaning + Inspection) — clear done/pending/late */
+.jp-summary { margin: 2px 2px 14px; }
+.jp-bar { display: flex; height: 15px; border-radius: 8px; overflow: hidden; background: var(--card-elev); }
+.jp-seg { height: 100%; transition: width 0.5s ease; }
+.jp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
+.jp-chip-pct { margin-left: auto; font-weight: 700; color: var(--text); font-size: 14px; }
+.jp-list-head { font-size: 11.5px; color: var(--text-muted); margin: 4px 2px 6px; }
+.jp-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+.jp-row { display: grid; grid-template-columns: 1fr auto 84px auto; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); }
+.jp-row:last-child { border-bottom: 0; }
+.jp-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.jp-row-num { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jp-row-bar { width: 84px; height: 8px; border-radius: 4px; background: var(--card-elev); overflow: hidden; }
+.jp-row-fill { display: block; height: 100%; border-radius: 4px; }
+.jp-tag { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.jp-tag.late { background: color-mix(in srgb, var(--critical) 15%, transparent); color: var(--critical); }
+.jp-foot { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 
 /* ===================== MODAL ===================== */
 .modal-overlay {
@@ -2540,6 +2946,17 @@ input[type="file"] { display: none; }
   gap: 14px;
   flex-wrap: wrap;
 }
+/* Goal 6.3 — slim honest metrics strip on Home (replaces the fake health score) */
+.home-status-strip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 20px;
+  padding: 9px 16px; margin-bottom: 16px;
+  border-radius: 10px; background: var(--card); border: 1px solid var(--border);
+}
+.hss-item { display: flex; align-items: baseline; gap: 8px; }
+.hss-label { font-size: 12px; color: var(--text-muted); }
+.hss-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hss-sep { width: 1px; align-self: stretch; background: var(--border); }
+@media (max-width: 640px) { .hss-sep { display: none; } }
 .health-banner-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; }
 .health-banner-icon {
   width: 38px; height: 38px;
@@ -3002,6 +3419,22 @@ input[type="file"] { display: none; }
 .dq-result-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .dq-result-sub { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
 .dq-expand-btn { background: none; border: none; color: var(--cyan); cursor: pointer; font-family: inherit; font-size: 11.5px; padding: 2px 6px; }
+/* Exception Queue (Goal 5 DoD) */
+.dq-exc-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 10px 2px 12px; }
+.dq-exc-spacer { flex: 1; }
+.dq-exc-pill { font-family: inherit; font-size: 12px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  background: var(--card-elev); color: var(--text-dim); border: 1px solid var(--border); }
+.dq-exc-pill:hover { border-color: var(--cyan); }
+.dq-exc-pill.on { background: var(--cyan); color: #fff; border-color: var(--cyan); }
+.dq-exc-pill-n { font-weight: 700; opacity: 0.85; margin-left: 3px; }
+.dq-exc-sel { font-family: inherit; font-size: 12px; padding: 5px 9px; border-radius: 8px;
+  background: var(--card-elev); color: var(--text); border: 1px solid var(--border); }
+.dq-exc-acts { white-space: nowrap; }
+.dq-exc-btn { font-family: inherit; font-size: 11px; padding: 3px 9px; margin: 0 2px; border-radius: 6px; cursor: pointer;
+  background: var(--card-elev); color: var(--text-dim); border: 1px solid var(--border); }
+.dq-exc-btn:hover { border-color: var(--cyan); color: var(--text); }
+.dq-exc-btn.ok:hover { border-color: var(--success); color: var(--success); }
+.dq-exc-btn.mute:hover { border-color: var(--text-muted); color: var(--text-muted); }
 .dq-detail-row td { background: color-mix(in srgb, var(--card-elev) 70%, transparent) !important; }
 .dq-changes { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .dq-changes th, .dq-changes td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--grid-line); }
@@ -3293,16 +3726,14 @@ input[type="file"] { display: none; }
 
   <div class="tab-pane" id="tab-home">
 
-    <div class="health-banner healthy" id="healthBannerNew">
-      <div class="health-banner-left">
-        <div class="health-banner-icon" id="healthBannerIcon">✓</div>
-        <div class="health-banner-text">
-          <div class="health-banner-label">Business Health วันนี้</div>
-          <div class="health-banner-status" id="healthBannerStatus">— กำลังคำนวณ —</div>
-          <div class="health-banner-detail" id="healthBannerDetail">โหลดข้อมูล...</div>
-        </div>
-      </div>
-      <div class="health-banner-score" id="healthBannerScore">—</div>
+    <!-- Goal 6.3 — no invented "Business Health" score. A slim strip of the real
+         underlying metrics, each coloured by its own threshold. -->
+    <div class="home-status-strip" id="homeStatusStrip">
+      <div class="hss-item"><span class="hss-label">Collection Rate</span><span class="hss-val" id="hssColl">—</span></div>
+      <div class="hss-sep"></div>
+      <div class="hss-item"><span class="hss-label">ทำเป้าเดือนนี้</span><span class="hss-val" id="hssTarget">—</span></div>
+      <div class="hss-sep"></div>
+      <div class="hss-item"><span class="hss-label">Permit เลยกำหนด</span><span class="hss-val" id="hssPermit">—</span></div>
     </div>
 
     <div class="section-bar">
@@ -3316,7 +3747,7 @@ input[type="file"] { display: none; }
       <div class="hero-left">
         <div class="hero-card" id="cardHeroRevenue">
           <div class="hero-ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-          <div class="hero-label"><span class="hero-label-dot"></span>Revenue MTD · รายได้สะสมเดือนนี้</div>
+          <div class="hero-label"><span class="hero-label-dot"></span><span id="heroRevLabel">Revenue · รายได้รวมทุกเดือน</span></div>
           <div class="hero-amount"><span class="currency">฿</span><span id="heroRevVal">0</span></div>
           <div class="hero-sub">
             <span id="heroRevSub">— รายการ</span>
@@ -3427,7 +3858,7 @@ input[type="file"] { display: none; }
       <div class="dept-card-v2" style="--dept-color:#10B981;" onclick="document.querySelector('[data-tab=cleaning]').click()">
         <div class="dept-ic"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l1.8 3.7L19 8l-3.7 1.8L13 13l-1.8-3.7L7 8l3.7-1.8z"/><path d="M6 15l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg></div>
         <div class="dept-name">Cleaning</div>
-        <div class="dept-num">฿<span id="dv2ClRev">0</span></div>
+        <div class="dept-num"><span id="dv2ClRev">0</span><span style="font-size:0.5em; font-weight:600;">% เสร็จ</span></div>
         <div class="dept-status" id="dv2ClStatus">— งาน · เสร็จ 0/0</div>
         <div class="dept-link">เปิดแท็บ Cleaning →</div>
       </div>
@@ -3460,6 +3891,15 @@ input[type="file"] { display: none; }
 
     <div class="section-bar">
       <div class="section-num">5</div>
+      <div class="section-title">รายได้ตามลูกค้า → โครงการ</div>
+      <div class="section-sub">รวมยอดตามลูกค้าและโครงการ (จับคู่ชื่อแบบตรงเป๊ะ · ไม่รวมแถวซ้ำ) · คลิกโครงการเพื่อดูรายงวด</div>
+      <div class="section-spacer"></div>
+    </div>
+
+    <div id="rollupHost"></div>
+
+    <div class="section-bar">
+      <div class="section-num">6</div>
       <div class="section-title">จุดที่ต้องดูแลด่วน</div>
       <div class="section-sub">Top issues ที่ทำให้เงินรั่ว · เรียงตามมูลค่า</div>
       <div class="section-spacer"></div>
@@ -3496,9 +3936,9 @@ input[type="file"] { display: none; }
       </div>
       <div class="kpi-mini">
         <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
-        <div class="kpi-mini-label">Achievement %</div>
-        <div class="kpi-mini-value text-success"><span id="solarAchVal">0</span>%</div>
-        <div class="kpi-mini-trend neutral" id="solarAchSub">— vs เป้าเดือนนี้</div>
+        <div class="kpi-mini-label">มูลค่าเฉลี่ย/โครงการ</div>
+        <div class="kpi-mini-value text-success">฿<span id="solarAchVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="solarAchSub">— โครงการ</div>
       </div>
     </div>
 
@@ -3548,9 +3988,9 @@ input[type="file"] { display: none; }
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiClRev" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-        <div class="kpi-mini-label">Cleaning Revenue (เดือนนี้)</div>
-        <div class="kpi-mini-value" style="color:var(--bu-cleaning);">฿<span id="clRevVal">0</span></div>
-        <div class="kpi-mini-trend neutral" id="clRevSub">— งาน</div>
+        <div class="kpi-mini-label">อัตราเสร็จสิ้น (เดือนนี้)</div>
+        <div class="kpi-mini-value" style="color:var(--bu-cleaning);"><span id="clDoneRateVal">0</span><span style="font-size:0.55em; font-weight:600;">%</span></div>
+        <div class="kpi-mini-trend neutral" id="clRevSub">เสร็จ 0/0</div>
       </div>
       <div class="kpi-mini clickable" id="kpiClJobs" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg></div>
@@ -3592,17 +4032,17 @@ input[type="file"] { display: none; }
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Cleaning Progress รายลูกค้า</div>
-            <div class="card-subtitle">แผน vs จริง · เดือนนี้</div>
+            <div class="card-title">ความคืบหน้างาน Cleaning</div>
+            <div class="card-subtitle">เสร็จ · รอทำ · ล่าช้า — และลูกค้าที่ต้องตามงาน</div>
           </div>
         </div>
-        <div class="progress-list" id="clProgress"></div>
+        <div id="clProgress"></div>
       </div>
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Revenue per Team</div>
-            <div class="card-subtitle">ผลงานทีมตามรายได้</div>
+            <div class="card-title">งานต่อทีม · แผน vs เสร็จ</div>
+            <div class="card-subtitle">จำนวนงาน Cleaning ตามทีม (นับจากชีตจริง)</div>
           </div>
         </div>
         <div class="chart-wrap-tall"><canvas id="chartClTeam"></canvas></div>
@@ -3614,32 +4054,9 @@ input[type="file"] { display: none; }
   <!-- ============== TAB 4: O&M ================================== -->
   <!-- ============================================================ -->
   <div class="tab-pane" id="tab-om">
-    <div class="tab-section-title" style="border-left:3px solid var(--bu-om); padding-left:10px;">O&amp;M · Operations &amp; Maintenance + Time-Specific Revenue Loss</div>
+    <div class="tab-section-title" style="border-left:3px solid var(--bu-om); padding-left:10px;">O&amp;M · Operations &amp; Maintenance</div>
 
-    <div class="card" style="margin-bottom:14px; cursor:pointer;" onclick="openRevenueLossFormulaDrill()">
-      <div class="card-header">
-        <div>
-          <div class="card-title">สูตร Revenue Loss · <span class="text-mono">Loss = kW × Efficiency × ชั่วโมงที่เสีย × ฿/kWh</span></div>
-          <div class="card-subtitle">ราคาค่าไฟ ฿4.50/kWh · คลิกเพื่อดูตัวอย่างคำนวณ</div>
-        </div>
-        <span class="click-hint">CLICK ▸ Details</span>
-      </div>
-      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px; font-size:12px;">
-        <div style="padding:10px 12px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);">
-          <div style="color:var(--critical); font-weight:600; margin-bottom:4px;">10:00–14:00 · แดดจัด</div>
-          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.85 (peak)</div>
-        </div>
-        <div style="padding:10px 12px; border-radius:8px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
-          <div style="color:var(--warning); font-weight:600; margin-bottom:4px;">08:00–10:00 / 14:00–17:00</div>
-          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.35 (shoulder)</div>
-        </div>
-        <div style="padding:10px 12px; border-radius:8px; background:var(--card-elev); border:1px solid var(--border);">
-          <div style="color:var(--text-dim); font-weight:600; margin-bottom:4px;">17:00–08:00 · กลางคืน</div>
-          <div style="color:var(--text-dim); font-size:11px;">Loss = 0 (ไม่มีแดด)</div>
-        </div>
-      </div>
-    </div>
-
+    <!-- Overview: the four O&M concerns at a glance (each from a different sheet) -->
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiOmSvc" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
@@ -3667,29 +4084,35 @@ input[type="file"] { display: none; }
       </div>
     </div>
 
-    <div class="ceo-grid" style="margin-top:14px;">
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Inspection Progress (เดือนนี้)</div>
-            <div class="card-subtitle">PM Completion รายลูกค้า</div>
-          </div>
-          <span class="text-mono" style="font-size:11px; color:var(--text-dim);"><span id="inspectionSummary">0/0</span></span>
-        </div>
-        <div class="progress-list" id="inspectionList"></div>
-      </div>
-      <div class="card clickable" id="cardAlarms">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Alarm Distribution by Severity</div>
-            <div class="card-subtitle">Critical · Major · Minor · Warning</div>
-          </div>
-          <span class="click-hint">CLICK ▸</span>
-        </div>
-        <div class="chart-wrap-tall"><canvas id="chartAlarms"></canvas></div>
-      </div>
+    <!-- SECTION 1 — Inspection (PM), its own clearly labeled home -->
+    <div class="section-bar">
+      <div class="section-num">1</div>
+      <div class="section-title">Inspection · บำรุงรักษาเชิงป้องกัน (PM)</div>
+      <div class="section-sub">ที่มา: Inspection_MasterPlan · อัปเดตรายสัปดาห์</div>
+      <div class="section-spacer"></div>
+      <span class="text-mono" style="font-size:11px; color:var(--text-dim);">เสร็จ <span id="inspectionSummary">0/0</span></span>
+    </div>
+    <div class="card">
+      <div id="inspectionList"></div>
     </div>
 
+    <!-- SECTION 2 — Alarm & downtime monitoring -->
+    <div class="section-bar">
+      <div class="section-num">2</div>
+      <div class="section-title">Alarm &amp; Downtime · การแจ้งเตือนและเวลาหยุดทำงาน</div>
+      <div class="section-sub">ที่มา: Alarm_Status · อัปเดตรายวัน / เมื่อเกิดเหตุ</div>
+      <div class="section-spacer"></div>
+    </div>
+    <div class="card clickable" id="cardAlarms">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Alarm Distribution by Severity</div>
+          <div class="card-subtitle">Critical · Major · Minor · Warning</div>
+        </div>
+        <span class="click-hint">CLICK ▸</span>
+      </div>
+      <div class="chart-wrap-tall"><canvas id="chartAlarms"></canvas></div>
+    </div>
     <div class="card" style="margin-top:14px;">
       <div class="card-header">
         <div>
@@ -3702,6 +4125,37 @@ input[type="file"] { display: none; }
           <thead><tr><th>เวลา</th><th>Site</th><th>ประเภท</th><th class="text-right">kW</th><th class="text-right">Eff.</th><th class="text-right">Hours</th><th class="text-right">Loss (฿)</th><th>สถานะ</th></tr></thead>
           <tbody id="criticalAlarmsBody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- SECTION 3 — Revenue Loss (a computed estimate, not a sheet value) -->
+    <div class="section-bar">
+      <div class="section-num">3</div>
+      <div class="section-title">Revenue Loss · ประเมินรายได้ที่เสียจากเครื่องหยุด</div>
+      <div class="section-sub">ค่าประเมิน (คำนวณ ไม่ใช่ค่าจากชีต) · Loss = kW × Efficiency × ชม.ที่เสีย × ฿/kWh</div>
+      <div class="section-spacer"></div>
+    </div>
+    <div class="card" style="cursor:pointer;" onclick="openRevenueLossFormulaDrill()">
+      <div class="card-header">
+        <div>
+          <div class="card-title">สูตร Revenue Loss · <span class="text-mono">Loss = kW × Efficiency × ชั่วโมงที่เสีย × ฿/kWh</span></div>
+          <div class="card-subtitle">ราคาค่าไฟ ฿4.50/kWh · คลิกเพื่อดูตัวอย่างคำนวณ</div>
+        </div>
+        <span class="click-hint">CLICK ▸ Details</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px; font-size:12px;">
+        <div style="padding:10px 12px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);">
+          <div style="color:var(--critical); font-weight:600; margin-bottom:4px;">10:00–14:00 · แดดจัด</div>
+          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.85 (peak)</div>
+        </div>
+        <div style="padding:10px 12px; border-radius:8px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+          <div style="color:var(--warning); font-weight:600; margin-bottom:4px;">08:00–10:00 / 14:00–17:00</div>
+          <div style="color:var(--text-dim); font-size:11px;">Efficiency = 0.35 (shoulder)</div>
+        </div>
+        <div style="padding:10px 12px; border-radius:8px; background:var(--card-elev); border:1px solid var(--border);">
+          <div style="color:var(--text-dim); font-weight:600; margin-bottom:4px;">17:00–08:00 · กลางคืน</div>
+          <div style="color:var(--text-dim); font-size:11px;">Loss = 0 (ไม่มีแดด)</div>
+        </div>
       </div>
     </div>
   </div>
@@ -3775,6 +4229,10 @@ input[type="file"] { display: none; }
     <div class="tab-section-title" style="border-left:3px solid var(--bu-summary); padding-left:10px;">Data Quality &amp; Audit Center · ศูนย์ตรวจสอบคุณภาพข้อมูล</div>
     <div id="dqSearchHost"></div>
     <div id="dqHealthHost"></div>
+    <div id="dqExceptionHost"></div>
+    <div id="dqConfidenceHost"></div>
+    <div id="dqReconcileHost"></div>
+    <div id="dqDuplicateHost"></div>
     <div id="dqKpiHost"></div>
     <div id="dqFilterHost"></div>
     <div id="dqValidationHost"></div>
@@ -3843,7 +4301,9 @@ const DATA = {
   scada_summary: [],
 };
 
-const FILTERS = { month: '2026-05', customer: 'all', grade: 'all' };
+// Default to "ทุกเดือน" so the executive view always shows the FULL revenue
+// total (incl. rows without a billing date); month is an opt-in drill-down.
+const FILTERS = { month: 'all', customer: 'all', grade: 'all' };
 
 const CONFIG = {
   TARGET_MONTHLY: 10_000_000,
@@ -3899,8 +4359,10 @@ function generateSampleData() {
     'Chonburi':'ชลบุรี', 'Rayong':'ระยอง', 'Pattaya':'ชลบุรี',
     'Korat':'นครราชสีมา', 'Khon Kaen':'ขอนแก่น', 'Phuket':'ภูเก็ต'
   };
-  const services = ['Monitoring','Cleaning','Inspection','Service','Permit','EPC Solar'];
-  const cats = ['O&M Contract','After Sale Service','Permit/เอกสาร','Installation','Spare Parts','Emergency Service'];
+  const services = ['Monitoring','Cleaning','Inspection','Service','Construction','EPC Solar'];
+  // Demo uses the SAME Revenue Category taxonomy as the real template so the
+  // shared solar/O&M selectors behave identically in demo and production.
+  const cats = ['O&M','Permit','งานบ้าน','งานติดตั้ง'];
   const teams = ["P'It","P'Tik","P'Mon","P'Jay","Engineer A","Engineer B"];
   const payStatus = ['Paid','Paid','Pending','Overdue','Partial','Paid'];
 
@@ -3917,10 +4379,10 @@ function generateSampleData() {
     const day = rint(1, 28);
     const cat = rand(cats);
     let rev;
-    if (cat === 'Installation') rev = rint(800000, 4500000);
-    else if (cat === 'O&M Contract') rev = rint(45000, 280000);
-    else if (cat === 'Permit/เอกสาร') rev = rint(30000, 150000);
-    else if (cat === 'Emergency Service') rev = rint(15000, 90000);
+    if (cat === 'งานติดตั้ง') rev = rint(800000, 4500000);
+    else if (cat === 'งานบ้าน') rev = rint(120000, 700000);
+    else if (cat === 'O&M') rev = rint(45000, 280000);
+    else if (cat === 'Permit') rev = rint(30000, 150000);
     else rev = rint(25000, 350000);
     const cost = Math.floor(rev * (0.55 + Math.random() * 0.23));
     const cust = rand(customers);
@@ -3973,7 +4435,7 @@ function generateSampleData() {
       revenue: rev,
       cost,
       profit: rev - cost,
-      kW: cat === 'Installation' ? rint(50, 800) : rint(20, 250),
+      kW: cat === 'งานติดตั้ง' ? rint(50, 800) : rint(20, 250),
       province: siteProvince[site] || 'กรุงเทพฯ',
       responsible: rand(teams),
       paymentStatus,
@@ -4213,8 +4675,20 @@ function getCSSVar(name) { return getComputedStyle(document.documentElement).get
 
 function applyFilters(rows, dateField = 'date', custField = 'customer') {
   return rows.filter(r => {
-    if (FILTERS.month !== 'all' && r[dateField]) {
-      if (!String(r[dateField]).startsWith(FILTERS.month)) return false;
+    // Goal 5.3 — single shared exclusion point for literal duplicate rows.
+    // Rows are flagged (never deleted) by DataEngine.detectDuplicates; excluding
+    // them here keeps every KPI sum AND its drill-down consistent, while the
+    // flagged rows still show in the Data Quality Center + raw explorer tables.
+    if (r.isDuplicate) return false;
+    // Pass dateField = null to OPT OUT of the month filter (e.g. Permit is a
+    // pipeline of cross-month open jobs, so it filters by customer/grade only).
+    // Goal 6.4 — a row with NO date can't be attributed to a specific month, so
+    // when a month is selected it is EXCLUDED (not silently counted in every
+    // month, which was inflating each month by ~฿111M of undated revenue). It
+    // still appears under "ทุกเดือน".
+    if (FILTERS.month !== 'all' && dateField) {
+      const dv = r[dateField];
+      if (!dv || !String(dv).startsWith(FILTERS.month)) return false;
     }
     if (FILTERS.customer !== 'all' && r[custField] !== FILTERS.customer) return false;
     if (FILTERS.grade !== 'all') {
@@ -4393,8 +4867,24 @@ function fmtMoney(n) { return Math.round(n || 0).toLocaleString(); }
  * outputs (no re-parsing, no new data model) and reuses existing compute
  * helpers + drill-downs. kW (Revenue_Actual, averaged) and kWp (nameplate)
  * are never conflated here; this view deals in revenue/% and counts. */
-function execIsSolar(r) { return r.category === 'Installation' || r.service === 'EPC Solar' || r.service === 'Monitoring'; }
-function execIsOM(r) { return r.service === 'Service' || r.category === 'O&M Contract'; }
+/* Goal 6.1 — SINGLE SOURCE OF TRUTH for business-unit revenue buckets.
+ * Grounded in the real template's Revenue Category values (Master_Data list
+ * "หมวดหมู่รายได้"): Solar & SME = งานติดตั้ง + งานบ้าน · O&M = O&M · Permit =
+ * Permit. Category is single-valued and clean; service is often multi-valued
+ * ("Cleaning, Inspection"), so the bucket is category-driven per the data
+ * owner's decision — and Monitoring (category O&M) therefore counts as O&M,
+ * not Solar. These predicates/selectors are used by EVERY tab and the
+ * Executive view so a metric is never redefined in two places.
+ * (Legacy English demo categories kept as aliases so old files still render.) */
+const SOLAR_CATEGORIES = ['งานติดตั้ง', 'งานบ้าน', 'Installation'];
+const OM_CATEGORIES = ['O&M', 'O&M Contract'];
+function isSolarRow(r) { return r && SOLAR_CATEGORIES.indexOf(r.category) >= 0; }
+function isOMRow(r) { return r && OM_CATEGORIES.indexOf(r.category) >= 0; }
+function getSolarRows(rows) { return (rows || []).filter(isSolarRow); }
+function getOMRows(rows) { return (rows || []).filter(isOMRow); }
+// Back-compat aliases (same single definition) for existing call sites.
+function execIsSolar(r) { return isSolarRow(r); }
+function execIsOM(r) { return isOMRow(r); }
 function execTerminated(s) { return /terminat|ยกเลิก|สิ้นสุด|หมดสัญญา|expired/i.test(String(s || '')); }
 
 /** BU revenue over a rolling window (day / week / month). Independent of the
@@ -4429,13 +4919,14 @@ function renderExec() {
   const revAtRisk = rl.totalLoss + overdueAmt;
   const g = computeGauge();
 
-  // SLA / uptime: average of O&M contract SLA (fallback 95); Contract health:
-  // Active ÷ (total excluding Terminated).
+  // SLA / uptime: average of REAL O&M contract SLA values only. Goal 2 #2 /
+  // Goal 4.3 — never fabricate 95 when none is entered; show it as unknown.
+  // Contract health: Active ÷ (total excluding Terminated).
   const oms = DATA.om_contracts || [];
   const nonTerm = oms.filter(c => !execTerminated(c.status));
   const activeC = oms.filter(c => /active|ใช้งาน/i.test(String(c.status || ''))).length;
   const slaVals = oms.map(c => (typeof c.sla === 'number' ? c.sla : null)).filter(v => v != null);
-  const slaAvg = slaVals.length ? slaVals.reduce((a, b) => a + b, 0) / slaVals.length : 95;
+  const slaAvg = slaVals.length ? slaVals.reduce((a, b) => a + b, 0) / slaVals.length : null;
   const contractHealth = nonTerm.length ? (activeC / nonTerm.length * 100) : (oms.length ? 100 : 0);
 
   // Data Quality score (reuse the DQ engine; safe if unavailable).
@@ -4453,7 +4944,7 @@ function renderExec() {
       svg: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', drill: () => cardClick('cardGauge') },
     { cls: 'success', label: 'Collection Rate', value: collRate.toFixed(1) + '%', meta: `เก็บแล้ว ฿${fmtCurrency(collected)}`,
       svg: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>', drill: () => cardClick('cardCashflow') },
-    { cls: 'warning', label: 'SLA / Uptime', value: slaAvg.toFixed(1) + '%', meta: `${activeC} สัญญา Active`,
+    { cls: 'warning', label: 'SLA / Uptime', value: slaAvg != null ? slaAvg.toFixed(1) + '%' : 'ไม่มีข้อมูล', meta: `${activeC} สัญญา Active`,
       svg: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', drill: () => switchTab('om') },
     { cls: 'critical', label: 'Revenue at Risk', value: '฿' + fmtMoney(revAtRisk), meta: `Loss + Overdue`,
       svg: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', drill: () => cardClick('cardRevLoss') },
@@ -4493,7 +4984,7 @@ function renderExec() {
   document.getElementById('execCharts').innerHTML = `
     <div class="card"><div class="card-header"><div>
       <div class="card-title">รายได้ตาม Business Unit</div>
-      <div class="card-subtitle">Solar · Cleaning · O&amp;M · Permit</div></div>
+      <div class="card-subtitle">Solar · O&amp;M · Permit · Cleaning* (*ประมาณจาก kW×800 — ชีตไม่มีคอลัมน์รายได้)</div></div>
       <div class="exec-toggle" id="execGrainToggle">
         <button data-grain="day" class="${grain === 'day' ? 'active' : ''}">วันนี้</button>
         <button data-grain="week" class="${grain === 'week' ? 'active' : ''}">7 วัน</button>
@@ -4510,13 +5001,13 @@ function renderExec() {
   const bu = execBURevenue(grain);
   CHARTS.execBU = registerChart('execBU', new Chart(document.getElementById('execBU').getContext('2d'), {
     type: 'bar',
-    data: { labels: ['Solar', 'Cleaning', 'O&M', 'Permit'], datasets: [{
+    data: { labels: ['Solar', 'Cleaning*', 'O&M', 'Permit'], datasets: [{
       data: [bu.solar, bu.cleaning, bu.om, bu.permit],
       backgroundColor: [getCSSVar('--bu-solar'), getCSSVar('--bu-cleaning'), getCSSVar('--bu-om'), getCSSVar('--bu-permit')],
       borderRadius: 8, maxBarThickness: 60,
     }]},
     options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) + (c.dataIndex === 1 ? ' (ประมาณจาก kW)' : '') } } },
       scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
                 y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true } },
       onClick: (evt, els) => { if (els.length) switchTab(['solar', 'cleaning', 'om', 'permit'][els[0].index]); }
@@ -4585,12 +5076,17 @@ function renderExec() {
 /** Ring gauge (0-100) with a centered %; color-graded value text. */
 function execRing(canvasId, pct, color, centerId) {
   const el = document.getElementById(canvasId); if (!el) return;
-  const v = Math.max(0, Math.min(100, pct || 0));
+  const unknown = (pct == null || isNaN(pct));               // Goal 4.3: distinguish "no data" from 0%
+  const v = unknown ? 0 : Math.max(0, Math.min(100, pct));
   const c = document.getElementById(centerId);
-  if (c) { c.textContent = (pct || 0).toFixed(0) + '%'; c.style.color = color; }
+  if (c) {
+    c.textContent = unknown ? '—' : pct.toFixed(0) + '%';
+    c.style.color = unknown ? getCSSVar('--text-muted') : color;
+    c.style.fontSize = unknown ? '20px' : '';
+  }
   CHARTS[canvasId] = registerChart(canvasId, new Chart(el.getContext('2d'), {
     type: 'doughnut',
-    data: { datasets: [{ data: [v, 100 - v], backgroundColor: [color, getCSSVar('--card-elev')], borderWidth: 0, cutout: '76%' }] },
+    data: { datasets: [{ data: unknown ? [0, 100] : [v, 100 - v], backgroundColor: [color, getCSSVar('--card-elev')], borderWidth: 0, cutout: '76%' }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } } }
   }));
 }
@@ -4654,15 +5150,25 @@ function renderHome() {
   const arRows = rows.filter(r => r.paymentStatus !== 'Paid');
   const arAmt = arRows.reduce((s,r) => s + r.revenue, 0);
   const collRate = totalRev > 0 ? (collected / totalRev * 100) : 0;
-  const targetPct = (totalRev / CONFIG.TARGET_MONTHLY) * 100;
+  // Goal 6.4 — achievement vs the real ฿10M/month target, made month-aware so
+  // "ทุกเดือน" compares against the target × number-of-months in view (average
+  // monthly achievement) instead of all-time revenue vs one month (the 1324%).
+  const monthsInView = FILTERS.month === 'all'
+    ? (new Set(rows.map(r => String(r.billingDate || '').slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m))).size || 1)
+    : 1;
+  const targetPct = (totalRev / (CONFIG.TARGET_MONTHLY * monthsInView)) * 100;
 
   const rl = computeRevenueLoss();
-  const delayedPermits = DATA.permit_jobs.filter(p => p.dueOffset < 0);
+  const delayedPermits = applyFilters(DATA.permit_jobs, null, 'customer').filter(p => p.dueOffset < 0);   // Goal 6.8 — permit pipeline: customer/grade only, not month
   const delayedRevenue = delayedPermits.reduce((s,p) => s + p.revenue, 0);
   const revAtRisk = rl.totalLoss + overdueAmt;
 
   document.getElementById('heroRevVal').textContent = fmtMoney(totalRev);
-  document.getElementById('heroRevSub').textContent = `${rows.length} รายการในเดือนนี้`;
+  // Period-aware labels — "ทุกเดือน" (full total, the executive default) vs a
+  // specific month drill-down.
+  const _allMonths = FILTERS.month === 'all';
+  document.getElementById('heroRevLabel').textContent = _allMonths ? 'Revenue · รายได้รวมทุกเดือน' : 'Revenue MTD · รายได้เดือนนี้';
+  document.getElementById('heroRevSub').textContent = _allMonths ? `${rows.length} รายการ (ทุกเดือน)` : `${rows.length} รายการในเดือนนี้`;
   const heroProgWidth = Math.min(100, targetPct);
   document.getElementById('heroProgBar').style.width = heroProgWidth + '%';
   document.getElementById('heroProgPct').textContent = targetPct.toFixed(1);
@@ -4680,19 +5186,20 @@ function renderHome() {
   document.getElementById('qsRiskVal').textContent = fmtMoney(revAtRisk);
   document.getElementById('qsRiskMeta').textContent = `Loss ฿${fmtCurrency(rl.totalLoss)} + Overdue ฿${fmtCurrency(overdueAmt)}`;
 
-  const solarRows = rows.filter(r => r.category === 'Installation' || r.service === 'EPC Solar');
+  const solarRows = getSolarRows(rows);
   const solarRev = solarRows.reduce((s,r) => s + r.revenue, 0);
   const solarKW = solarRows.reduce((s,r) => s + (r.kW||0), 0);
   document.getElementById('dv2SolarRev').textContent = fmtMoney(solarRev);
   document.getElementById('dv2SolarStatus').textContent = `${solarRows.length} โครงการ · ${solarKW.toFixed(2)} kW`;
 
-  const monthCl = DATA.cleaning.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const monthCl = applyFilters(DATA.cleaning, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
   const clDone = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
-  const clRev = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
-  document.getElementById('dv2ClRev').textContent = fmtMoney(clRev);
+  // Goal 6.5 — Cleaning has no revenue column; show real completion %, not kW×800.
+  const clRate = monthCl.length ? Math.round(clDone / monthCl.length * 100) : 0;
+  document.getElementById('dv2ClRev').textContent = clRate;
   document.getElementById('dv2ClStatus').textContent = `${monthCl.length} งาน · เสร็จ ${clDone}/${monthCl.length}`;
 
-  const omRows = rows.filter(r => r.service === 'Service' || r.category === 'O&M Contract');
+  const omRows = getOMRows(rows);
   const omRev = omRows.reduce((s,r) => s + r.revenue, 0);
   const critOpen = rl.alarms.filter(a => a.level === 'Critical' && a.status === 'เปิดอยู่').length;
   document.getElementById('dv2OMRev').textContent = fmtMoney(omRev);
@@ -4701,32 +5208,18 @@ function renderHome() {
   document.getElementById('dv2PermitStuck').textContent = fmtMoney(delayedRevenue);
   document.getElementById('dv2PermitStatus').textContent = `${delayedPermits.length} เอกสารดีเลย์ · เฉลี่ย ${delayedPermits.length > 0 ? (delayedPermits.reduce((s,p) => s + Math.abs(p.dueOffset), 0) / delayedPermits.length).toFixed(0) : 0}d`;
 
-  let healthScore = 100;
-  if (collRate < 60) healthScore -= 25;
-  else if (collRate < 80) healthScore -= 10;
-  if (overdueAmt > totalRev * 0.3) healthScore -= 20;
-  if (delayedPermits.length > 5) healthScore -= 15;
-  if (targetPct < 50) healthScore -= 20;
-  if (critOpen > 5) healthScore -= 15;
-  healthScore = Math.max(0, healthScore);
-
-  const banner = document.getElementById('healthBannerNew');
-  let icon, label, detail, cls;
-  if (healthScore >= 75) {
-    cls = 'healthy'; icon = '✓'; label = 'ธุรกิจสุขภาพดี';
-    detail = `Collection ${collRate.toFixed(0)}% · ทำเป้า ${targetPct.toFixed(0)}% · ดีเลย์ ${delayedPermits.length} เอกสาร`;
-  } else if (healthScore >= 50) {
-    cls = 'watch'; icon = '⚠'; label = 'ต้องเฝ้าระวัง';
-    detail = `Collection ${collRate.toFixed(0)}% · ทำเป้า ${targetPct.toFixed(0)}% · ${delayedPermits.length} permits ดีเลย์`;
-  } else {
-    cls = 'critical'; icon = '✕'; label = 'ต้องแก้ด่วน';
-    detail = `Collection ${collRate.toFixed(0)}% · ${critOpen} Critical alarms · เงินจม ฿${fmtCurrency(delayedRevenue)}`;
-  }
-  banner.className = 'health-banner ' + cls;
-  document.getElementById('healthBannerIcon').textContent = icon;
-  document.getElementById('healthBannerStatus').textContent = label;
-  document.getElementById('healthBannerDetail').textContent = detail;
-  document.getElementById('healthBannerScore').textContent = healthScore + '/100';
+  // Goal 6.3 — the invented composite "Business Health /100" (arbitrary
+  // -25/-10/-20/-15 deductions with no business basis) is removed. Show the
+  // three real metrics plainly, each coloured by its OWN natural threshold —
+  // no single blended number stands in for them.
+  const setStat = (id, text, level) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = text;
+    el.style.color = level === 'bad' ? 'var(--critical)' : level === 'warn' ? 'var(--warning)' : 'var(--success)';
+  };
+  setStat('hssColl', collRate.toFixed(0) + '%', collRate >= 80 ? 'good' : collRate >= 60 ? 'warn' : 'bad');
+  setStat('hssTarget', targetPct.toFixed(0) + '%', targetPct >= 80 ? 'good' : targetPct >= 50 ? 'warn' : 'bad');
+  setStat('hssPermit', fmtInt(delayedPermits.length) + ' รายการ', delayedPermits.length === 0 ? 'good' : delayedPermits.length <= 5 ? 'warn' : 'bad');
 
   const months = ['2026-01','2026-02','2026-03','2026-04','2026-05'];
   const labels = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.'];
@@ -4877,7 +5370,117 @@ function renderHome() {
         </div>`).join('')
     : '<div class="empty-state">ไม่มีจุดที่ต้องดูแล ✓</div>';
 
+  // Goal 5.5 — customer→project rollup, computed on the SAME filtered rows as
+  // the hero KPIs above so its total always reconciles with them.
+  renderRollup('rollupHost', 'revenue_actual', rows);
+
   renderMonthlySummaryPanel();
+}
+
+/* ============== Goal 5.5 — HIERARCHICAL ROLLUP (presentation) ==============
+ * Renders the customer→project→period tree from the engine's single shared
+ * rollupOne() (Uniform Standard) over the CURRENTLY FILTERED rows, so the tree
+ * total equals the KPI above it. Levels 1–2 (customer, project) show summed;
+ * level 3 (individual billing periods) opens in the existing drill-down modal
+ * (reused, not rebuilt). Different or blank projects never merge (engine 9.7);
+ * kW is never summed (kW≠kWp). */
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+window.__rollupCache = window.__rollupCache || {};
+function renderRollup(hostId, dsKey, sourceRows) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const eng = window.DataEngine && window.DataEngine._internal;
+  const spec = eng && eng.ROLLUP_SPECS && eng.ROLLUP_SPECS[dsKey];
+  if (!eng || !spec || typeof eng.rollupOne !== 'function') { host.innerHTML = ''; return; }
+
+  const roll = eng.rollupOne(sourceRows || [], spec);
+  window.__rollupCache[dsKey] = { roll, rows: sourceRows || [] };
+  const primary = roll.primaryField;
+
+  if (!roll.customers.length) {
+    host.innerHTML = '<div class="card"><div class="empty-state">ไม่มีข้อมูลรายได้ในช่วงที่กรอง</div></div>';
+    return;
+  }
+
+  const groups = roll.customers.map((c, ci) => {
+    const projRows = c.projects.map((p, pi) => {
+      const label = p.resolved ? escHtml(p.project)
+        : `<span style="color:var(--warning)">${escHtml(p.project)} ⚠</span>`;
+      return `<tr class="rollup-proj-row rp-${ci}" style="display:none;cursor:pointer;" onclick="openRollupDrill('${dsKey}',${ci},${pi})">
+        <td style="padding-left:30px;">${label}</td>
+        <td class="text-center text-mono">${p.periodCount} ${escHtml(roll.periodLabel)}</td>
+        <td class="text-right text-mono">฿${fmtCurrency(p.totals[primary])}</td>
+        <td class="text-center" style="color:var(--text-muted)">ดูงวด ›</td>
+      </tr>`;
+    }).join('');
+    return `<tbody>
+      <tr class="rollup-cust-row" onclick="toggleRollupCust(${ci})" style="cursor:pointer;">
+        <td><span class="rollup-caret" id="rollupCaret-${ci}">▸</span> <strong>${escHtml(c.customer)}</strong></td>
+        <td class="text-center text-mono">${c.projectCount} โครงการ · ${c.periodCount} ${escHtml(roll.periodLabel)}</td>
+        <td class="text-right text-mono"><strong>฿${fmtCurrency(c.totals[primary])}</strong></td>
+        <td></td>
+      </tr>${projRows}
+    </tbody>`;
+  }).join('');
+
+  const blankNote = roll.blankProject ? ` · ${roll.blankProject} แถวไม่มีชื่อโครงการ (ขึ้นธง ไม่ถูกยุบรวม)` : '';
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-header"><div>
+        <div class="card-title">รวม ฿${fmtCurrency(roll.totals[primary])} · ${roll.customerCount} ลูกค้า · ${roll.projectCount} โครงการ · ${roll.periodCount} ${escHtml(roll.periodLabel)}</div>
+        <div class="card-subtitle">คลิกชื่อลูกค้าเพื่อกางโครงการ · คลิกโครงการเพื่อดูรายงวด${blankNote}</div>
+      </div></div>
+      <div class="table-wrap" style="max-height:440px;">
+        <table class="data-table"><thead><tr>
+          <th>ลูกค้า / โครงการ</th><th class="text-center">โครงการ · งวด</th><th class="text-right">รายได้</th><th></th>
+        </tr></thead>${groups}</table>
+      </div>
+    </div>`;
+}
+function toggleRollupCust(ci) {
+  const rows = document.querySelectorAll('.rp-' + ci);
+  const caret = document.getElementById('rollupCaret-' + ci);
+  let opened = false;
+  rows.forEach(r => { const show = r.style.display === 'none'; r.style.display = show ? '' : 'none'; opened = show; });
+  if (caret) caret.textContent = opened ? '▾' : '▸';
+}
+function openRollupDrill(dsKey, ci, pi) {
+  const cache = window.__rollupCache[dsKey]; if (!cache) return;
+  const c = cache.roll.customers[ci]; if (!c) return;
+  const p = c.projects[pi]; if (!p) return;
+  const src = cache.rows;
+  const isRev = dsKey === 'revenue_actual';
+  const rows = p.periods.map(per => {
+    const row = src[per.rowIndex] || {};
+    if (isRev) {
+      return {
+        billingDate: row.billingDate || per.raw || '—',
+        revenue: row.revenue != null ? row.revenue : per.values.revenue,
+        cost: row.cost != null ? row.cost : '',
+        profit: row.profit != null ? row.profit : '',
+        paymentStatus: row.paymentStatus || '',
+      };
+    }
+    return { period: per.raw || per.period || '—', revenue: per.values.revenue };
+  });
+  const cols = isRev ? [
+    { key: 'billingDate', label: 'วันที่บิล' },
+    { key: 'revenue', label: 'รายได้', right: true, fmt: v => '฿' + fmtCurrency(v) },
+    { key: 'cost', label: 'ต้นทุน', right: true, fmt: v => v === '' ? '—' : '฿' + fmtCurrency(v) },
+    { key: 'profit', label: 'กำไร', right: true, fmt: v => v === '' ? '—' : '฿' + fmtCurrency(v) },
+    { key: 'paymentStatus', label: 'สถานะจ่าย', badge: true },
+  ] : [
+    { key: 'period', label: 'งวด' },
+    { key: 'revenue', label: 'รายได้', right: true, fmt: v => '฿' + fmtCurrency(v) },
+  ];
+  const primary = cache.roll.primaryField;
+  const summary = [
+    { label: 'รายได้รวมโครงการ', value: '฿' + fmtCurrency(p.totals[primary]) },
+    { label: 'จำนวนงวด', value: p.periodCount + ' ' + cache.roll.periodLabel },
+  ];
+  openDrill(`${c.customer} · ${p.project}`, 'รายงวด (billing periods) ของโครงการนี้ — ไม่รวมแถวซ้ำ', rows, cols, summary);
 }
 
 /* Monthly Summary panel — embedded on the Home page (right column).
@@ -4965,14 +5568,46 @@ function renderMonthlySummaryPanel() {
 }
 
 /* ============== TAB 2: HOME SOLAR & SME ============== */
+/* Goal 6.4 — complete Thailand province→region map (official 6 regions + BKK).
+ * Replaces a 7-of-77 hardcode where every unmapped province silently fell into
+ * "ภาคกลาง", making the Revenue-by-Region chart wrong. This is a fixed
+ * geographic fact (not business data), so it lives in code — Master_Data /
+ * Customer_Master are reference sheets, not the place for it. A province we
+ * genuinely can't classify becomes "ไม่ระบุภาค" — flagged, never guessed. */
+const REGION_PROVINCES = {
+  'กรุงเทพฯ': ['กรุงเทพ', 'กรุงเทพฯ', 'กรุงเทพมหานคร', 'bangkok'],
+  'ภาคเหนือ': ['เชียงราย', 'เชียงใหม่', 'น่าน', 'พะเยา', 'แพร่', 'แม่ฮ่องสอน', 'ลำปาง', 'ลำพูน', 'อุตรดิตถ์'],
+  'ภาคอีสาน': ['กาฬสินธุ์', 'ขอนแก่น', 'ชัยภูมิ', 'นครพนม', 'นครราชสีมา', 'บึงกาฬ', 'บุรีรัมย์', 'มหาสารคาม', 'มุกดาหาร', 'ยโสธร', 'ร้อยเอ็ด', 'เลย', 'ศรีสะเกษ', 'สกลนคร', 'สุรินทร์', 'หนองคาย', 'หนองบัวลำภู', 'อำนาจเจริญ', 'อุดรธานี', 'อุบลราชธานี'],
+  'ภาคกลาง': ['กำแพงเพชร', 'ชัยนาท', 'นครนายก', 'นครปฐม', 'นครสวรรค์', 'นนทบุรี', 'ปทุมธานี', 'พระนครศรีอยุธยา', 'อยุธยา', 'พิจิตร', 'พิษณุโลก', 'เพชรบูรณ์', 'ลพบุรี', 'สมุทรปราการ', 'สมุทรสงคราม', 'สมุทรสาคร', 'สิงห์บุรี', 'สุโขทัย', 'สุพรรณบุรี', 'สระบุรี', 'อ่างทอง', 'อุทัยธานี'],
+  'ภาคตะวันออก': ['จันทบุรี', 'ฉะเชิงเทรา', 'ชลบุรี', 'ตราด', 'ปราจีนบุรี', 'ระยอง', 'สระแก้ว'],
+  'ภาคตะวันตก': ['กาญจนบุรี', 'ตาก', 'ประจวบคีรีขันธ์', 'เพชรบุรี', 'ราชบุรี'],
+  'ภาคใต้': ['กระบี่', 'ชุมพร', 'ตรัง', 'นครศรีธรรมราช', 'นราธิวาส', 'ปัตตานี', 'พังงา', 'พัทลุง', 'ภูเก็ต', 'ยะลา', 'ระนอง', 'สงขลา', 'สตูล', 'สุราษฎร์ธานี'],
+};
+function _normProvince(p) {
+  return String(p == null ? '' : p).trim().toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/ฯ+$/, '')          // กรุงเทพฯ → กรุงเทพ
+    .replace(/ุ{2,}/g, 'ุ')      // สมุุทรปราการ (typo) → สมุทรปราการ
+    .replace(/ู{2,}/g, 'ู');
+}
+const _PROVINCE_REGION = (() => {
+  const m = {};
+  for (const region in REGION_PROVINCES) for (const p of REGION_PROVINCES[region]) m[_normProvince(p)] = region;
+  return m;
+})();
+function regionOf(province) {
+  if (province == null || String(province).trim() === '') return 'ไม่ระบุภาค';
+  return _PROVINCE_REGION[_normProvince(province)] || 'ไม่ระบุภาค';   // unknown → flagged, never guessed to ภาคกลาง
+}
+
 function renderSolar() {
   destroyCharts();
   const tab = document.getElementById('tab-solar');
   if (!tab || !tab.classList.contains('active')) return;
 
-  // Filter solar-related categories (Installation + everything with Solar revenue)
-  const isSolarCat = (r) => r.category === 'Installation' || r.service === 'EPC Solar' || r.service === 'Monitoring';
-  const rows = applyFilters(DATA.revenue_actual).filter(isSolarCat);
+  // Goal 6.1 — solar rows via the shared, category-driven selector (งานติดตั้ง +
+  // งานบ้าน). Same definition the Home + Executive views use.
+  const rows = getSolarRows(applyFilters(DATA.revenue_actual));
   const totalRev = rows.reduce((s,r) => s + r.revenue, 0);
   const totalKW = rows.reduce((s,r) => s + (r.kW||0), 0);
   const count = rows.length;
@@ -4988,21 +5623,20 @@ function renderSolar() {
   document.getElementById('solarFcVal').textContent = fmtFull(fcSum);
   document.getElementById('solarFcSub').textContent = `Weighted ฿${fmtCurrency(fcWeighted)}`;
 
-  // Achievement vs monthly target (assume Solar target = 60% of total = 6M)
-  const solarTarget = 6_000_000;
-  const ach = Math.min(100, (totalRev / solarTarget) * 100);
-  document.getElementById('solarAchVal').textContent = ach.toFixed(1);
-  document.getElementById('solarAchSub').textContent = `vs ฿${fmtCurrency(solarTarget)} เป้า Solar`;
+  // Goal 6.4 — the old "Achievement %" compared solar revenue to a GUESSED
+  // 6M solar target ("assume 60% of total"). Solar has no separate target in
+  // the data (the real ฿10M/month company target is tracked on Home), and this
+  // template has no cost column so margin would be a meaningless 100%. Show a
+  // real, target-free, revenue-only metric instead: average value per project.
+  const avgDeal = rows.length ? (totalRev / rows.length) : 0;
+  document.getElementById('solarAchVal').textContent = fmtCurrency(avgDeal);
+  document.getElementById('solarAchSub').textContent = `${fmtInt(rows.length)} โครงการ`;
 
-  // Region grouping (simulated based on province)
-  const provinceRegion = {
-    'กรุงเทพฯ':'กรุงเทพฯ', 'ปทุมธานี':'ภาคกลาง', 'นครราชสีมา':'ภาคอีสาน',
-    'ขอนแก่น':'ภาคอีสาน', 'ชลบุรี':'ภาคตะวันออก', 'ระยอง':'ภาคตะวันออก',
-    'ภูเก็ต':'ภาคใต้',
-  };
+  // Goal 6.4 — revenue by region via the complete province→region map (unknown
+  // province → "ไม่ระบุภาค", never silently bucketed as ภาคกลาง).
   const regionTotals = {};
   rows.forEach(r => {
-    const reg = provinceRegion[r.province] || 'ภาคกลาง';
+    const reg = regionOf(r.province);
     regionTotals[reg] = (regionTotals[reg]||0) + r.revenue;
   });
   const regLabels = Object.keys(regionTotals);
@@ -5025,7 +5659,7 @@ function renderSolar() {
       onClick: (evt, els) => {
         if (els.length) {
           const reg = regLabels[els[0].index];
-          const rs = rows.filter(r => (provinceRegion[r.province]||'ภาคกลาง') === reg);
+          const rs = rows.filter(r => regionOf(r.province) === reg);
           openDrill(`Solar Region · ${reg}`, `รายการโครงการในภาค ${reg}`, rs,
             [
               { key: 'billingDate', label: 'วันที่' },
@@ -5074,7 +5708,7 @@ function renderSolar() {
   // Top Provinces table
   const provTotals = {};
   rows.forEach(r => {
-    if (!provTotals[r.province]) provTotals[r.province] = { count: 0, kW: 0, rev: 0, region: provinceRegion[r.province]||'ภาคกลาง' };
+    if (!provTotals[r.province]) provTotals[r.province] = { count: 0, kW: 0, rev: 0, region: regionOf(r.province) };
     provTotals[r.province].count++;
     provTotals[r.province].kW += (r.kW||0);
     provTotals[r.province].rev += r.revenue;
@@ -5112,26 +5746,104 @@ function openProvinceDrill(province) {
 }
 
 /* ============== TAB 3: CLEANING ============== */
+/* ============== Goal 6 — shared job-progress view (Cleaning + Inspection) ====
+ * The old per-customer "X/Y · %" list read as noise: every single-job customer
+ * showed 100%, burying the ones actually behind, and "แผน vs จริง" said little.
+ * This shared view leads with the overall เสร็จ / รอทำ / ล่าช้า split (one bar +
+ * counts), then lists ONLY customers with work left, late ones first — so the
+ * reader sees the state at a glance and exactly who to follow up. Buckets come
+ * from the template's real status values (เสร็จสิ้น / Delay(เลื่อน) / ไม่แล้ว
+ * เสร็จ / รอเริ่มงาน …) plus an overdue-by-plan-date check. */
+function jobState(c, todayISO) {
+  const s = String(c && c.status || '');
+  if (s === 'เสร็จสิ้น') return 'done';
+  if (/delay|เลื่อน|ไม่แล้วเสร็จ|ยกเลิก|overdue/i.test(s)) return 'late';
+  const pd = c && c.planDate ? String(c.planDate).slice(0, 10) : '';
+  if (pd && pd < todayISO) return 'late';                 // past its planned date, still not done
+  return 'pending';
+}
+function renderJobProgress(hostId, rows, colorVar, unit) {
+  const host = document.getElementById(hostId); if (!host) return;
+  unit = unit || 'งาน';
+  const todayISO = toLocalISO(today);
+  const tot = rows.length;
+  if (!tot) { host.innerHTML = '<div class="empty-state">ไม่มีงานในช่วง/ลูกค้าที่เลือก</div>'; return; }
+
+  let done = 0, pending = 0, late = 0;
+  const byCust = {};
+  rows.forEach(c => {
+    const st = jobState(c, todayISO);
+    if (st === 'done') done++; else if (st === 'late') late++; else pending++;
+    const k = c.customer || 'ไม่ระบุลูกค้า';
+    (byCust[k] || (byCust[k] = { done: 0, late: 0, pending: 0, total: 0 }));
+    byCust[k].total++; byCust[k][st]++;
+  });
+  const seg = v => (v / tot * 100).toFixed(2);
+  const donePct = Math.round(done / tot * 100);
+
+  const incomplete = Object.entries(byCust)
+    .filter(([, d]) => d.done < d.total)
+    .sort((a, b) => (b[1].late - a[1].late) || ((b[1].total - b[1].done) - (a[1].total - a[1].done)));
+  const doneCustN = Object.values(byCust).filter(d => d.done === d.total).length;
+
+  const rowsHtml = incomplete.slice(0, 40).map(([cust, d]) => {
+    const dp = Math.round(d.done / d.total * 100);
+    const tag = d.late ? `<span class="jp-tag late">⚠ ล่าช้า ${d.late}</span>` : '<span></span>';
+    return `<div class="jp-row">
+      <span class="jp-row-name" title="${escHtml(cust)}">${escHtml(cust)}</span>
+      <span class="jp-row-num">เสร็จ ${d.done}/${d.total} ${escHtml(unit)}</span>
+      <span class="jp-row-bar"><span class="jp-row-fill" style="width:${dp}%;background:${colorVar}"></span></span>
+      ${tag}
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="jp-summary">
+      <div class="jp-bar">
+        <span class="jp-seg" style="width:${seg(done)}%;background:var(--success)"></span>
+        <span class="jp-seg" style="width:${seg(pending)}%;background:var(--border)"></span>
+        <span class="jp-seg" style="width:${seg(late)}%;background:var(--critical)"></span>
+      </div>
+      <div class="jp-chips">
+        <span style="color:var(--success);font-weight:600">✓ เสร็จ ${fmtInt(done)}</span>
+        <span>● รอทำ ${fmtInt(pending)}</span>
+        <span style="color:var(--critical);font-weight:600">⚠ ล่าช้า ${fmtInt(late)}</span>
+        <span class="jp-chip-pct">${donePct}%</span>
+      </div>
+    </div>
+    ${incomplete.length
+      ? `<div class="jp-list-head">ลูกค้าที่ยังมีงานค้าง (${fmtInt(incomplete.length)}) — งานล่าช้าขึ้นก่อน</div>
+         <div class="jp-list">${rowsHtml}</div>`
+      : '<div class="empty-state" style="padding:16px">ทุกงานเสร็จครบแล้ว ✓</div>'}
+    ${doneCustN ? `<div class="jp-foot">✓ อีก ${fmtInt(doneCustN)} ลูกค้า เสร็จครบทุกงานแล้ว</div>` : ''}
+    ${incomplete.length > 40 ? `<div class="jp-foot">แสดง 40 จาก ${fmtInt(incomplete.length)} ลูกค้า</div>` : ''}`;
+}
+
 function renderCleaning() {
   destroyCharts();
   const tab = document.getElementById('tab-cleaning');
   if (!tab || !tab.classList.contains('active')) return;
 
-  const monthCl = DATA.cleaning.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const monthCl = applyFilters(DATA.cleaning, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
+  const _todayISO = toLocalISO(today);
   const done = monthCl.filter(c => c.status === 'เสร็จสิ้น').length;
-  const delay = monthCl.filter(c => c.status === 'Delay').length;
+  // Goal 6 — count real late jobs (status Delay(เลื่อน)/ไม่แล้วเสร็จ or overdue).
+  // The old check matched the literal 'Delay', which never exists in the sheet,
+  // so this KPI always read 0.
+  const delay = monthCl.filter(c => jobState(c, _todayISO) === 'late').length;
   const totalKW = monthCl.reduce((s,c) => s + (c.kW||0), 0);
-  // Revenue from cleaning jobs (estimate: 800 ฿/kW per cleaning job)
-  const clRevenue = monthCl.reduce((s,c) => s + (c.kW||0) * 800, 0);
+  // Goal 6.5 — Cleaning_MasterPlan has NO revenue column; the headline is now
+  // the real operational metric (completion rate), not a fabricated kW×800.
+  const doneRate = monthCl.length ? (done / monthCl.length * 100) : 0;
 
-  document.getElementById('clRevVal').textContent = fmtFull(clRevenue);
-  document.getElementById('clRevSub').textContent = `${monthCl.length} งาน`;
+  document.getElementById('clDoneRateVal').textContent = doneRate.toFixed(0);
+  document.getElementById('clRevSub').textContent = `เสร็จ ${done}/${monthCl.length}`;
   document.getElementById('clMonthVal').textContent = monthCl.length;
   document.getElementById('clDoneSub').textContent = `เสร็จสิ้น ${done}/${monthCl.length}`;
   document.getElementById('clKWVal').textContent = totalKW.toFixed(2);
   document.getElementById('clKWSub').textContent = 'รวมทั้งหมด';
   document.getElementById('clDelayVal').textContent = delay;
-  document.getElementById('clDelaySub').textContent = `${delay} งานค้าง`;
+  document.getElementById('clDelaySub').textContent = `${delay} งานล่าช้า/เลื่อน`;
   document.getElementById('clSummary').textContent = `${done}/${monthCl.length} เสร็จสิ้น`;
 
   // Table
@@ -5147,42 +5859,34 @@ function renderCleaning() {
       </tr>`).join('')
     : '<tr><td colspan="6" class="empty-state">ไม่มีงาน Cleaning ในเดือนนี้</td></tr>';
 
-  // Progress per customer
-  const byCust = {};
-  monthCl.forEach(c => {
-    if (!byCust[c.customer]) byCust[c.customer] = { plan: 0, done: 0 };
-    byCust[c.customer].plan++;
-    if (c.status === 'เสร็จสิ้น') byCust[c.customer].done++;
-  });
-  document.getElementById('clProgress').innerHTML = Object.entries(byCust).map(([cust, d]) => {
-    const pct = d.plan ? (d.done / d.plan * 100) : 0;
-    const cls = pct >= 80 ? 'success' : pct >= 40 ? '' : 'warning';
-    return `<div class="progress-item">
-      <span class="progress-label">${cust}</span>
-      <span class="progress-num">${d.done}/${d.plan} · ${pct.toFixed(0)}%</span>
-      <div class="progress-bar-bg"><div class="progress-bar-fill ${cls}" style="width:${pct}%; background:var(--bu-cleaning);"></div></div>
-    </div>`;
-  }).join('') || '<div class="empty-state">ไม่มีแผนงาน Cleaning</div>';
+  // Goal 6 — shared, self-explanatory progress view (เสร็จ/รอทำ/ล่าช้า + who's behind).
+  renderJobProgress('clProgress', monthCl, getCSSVar('--bu-cleaning'), 'งาน');
 
-  // Revenue per team chart
-  const teamRev = {};
+  // Goal 6.5 — jobs per team (plan vs done, real counts) instead of kW×800 revenue.
+  const teamStats = {};
   monthCl.forEach(c => {
-    teamRev[c.team] = (teamRev[c.team] || 0) + (c.kW||0) * 800;
+    const t = c.team || 'ไม่ระบุทีม';
+    if (!teamStats[t]) teamStats[t] = { plan: 0, done: 0 };
+    teamStats[t].plan++;
+    if (c.status === 'เสร็จสิ้น') teamStats[t].done++;
   });
+  const teamLabels = Object.keys(teamStats);
   const tCtx = document.getElementById('chartClTeam').getContext('2d');
   CHARTS.clTeam = registerChart('clTeam', new Chart(tCtx, {
     type: 'bar',
-    data: { labels: Object.keys(teamRev), datasets: [{
-      data: Object.values(teamRev),
-      backgroundColor: getCSSVar('--bu-cleaning'),
-      borderRadius: 6,
-    }]},
+    data: { labels: teamLabels, datasets: [
+      { label: 'แผน', data: teamLabels.map(t => teamStats[t].plan),
+        backgroundColor: getCSSVar('--border'), borderRadius: 6 },
+      { label: 'เสร็จ', data: teamLabels.map(t => teamStats[t].done),
+        backgroundColor: getCSSVar('--bu-cleaning'), borderRadius: 6 },
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `฿${fmtFull(ctx.parsed.x)}` } } },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: getCSSVar('--text-dim') } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtInt(ctx.parsed.x)} งาน` } } },
       scales: {
-        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿'+fmtAxis(v) } },
-        y: { grid: { display: false } }
+        x: { grid: { color: getCSSVar('--grid-line') }, ticks: { precision: 0, color: getCSSVar('--text-dim') } },
+        y: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } }
       }
     }
   }));
@@ -5214,34 +5918,23 @@ function renderOM() {
   const tab = document.getElementById('tab-om');
   if (!tab || !tab.classList.contains('active')) return;
 
-  // Service revenue (current month, category not Installation)
-  const svc = applyFilters(DATA.revenue_actual).filter(r => r.service === 'Service' || r.category === 'O&M Contract');
+  // Goal 6.1 — O&M revenue via the shared, category-driven selector (category
+  // = O&M, which includes Monitoring). Same definition every other view uses.
+  const svc = getOMRows(applyFilters(DATA.revenue_actual));
   const svcTotal = svc.reduce((s,r) => s + r.revenue, 0);
   document.getElementById('omSvcVal').textContent = fmtFull(svcTotal);
   document.getElementById('omSvcSub').textContent = `${svc.length} Service Jobs`;
 
   // Inspection progress
-  const monthIn = DATA.inspection.filter(c => FILTERS.month === 'all' || c.planDate.startsWith(FILTERS.month));
+  const monthIn = applyFilters(DATA.inspection, 'planDate', 'customer');   // Goal 6.8 — respect month + customer + grade (was month-only)
   const inDone = monthIn.filter(c => c.status === 'เสร็จสิ้น').length;
   const insPct = monthIn.length ? (inDone / monthIn.length * 100) : 0;
   document.getElementById('omInsVal').textContent = insPct.toFixed(1);
   document.getElementById('omInsSub').textContent = `${inDone}/${monthIn.length} PM completed`;
   document.getElementById('inspectionSummary').textContent = `${inDone}/${monthIn.length}`;
 
-  const byCustIn = {};
-  monthIn.forEach(c => {
-    if (!byCustIn[c.customer]) byCustIn[c.customer] = { plan: 0, done: 0 };
-    byCustIn[c.customer].plan++;
-    if (c.status === 'เสร็จสิ้น') byCustIn[c.customer].done++;
-  });
-  document.getElementById('inspectionList').innerHTML = Object.entries(byCustIn).map(([cust, d]) => {
-    const pct = d.plan ? (d.done / d.plan * 100) : 0;
-    return `<div class="progress-item">
-      <span class="progress-label">${cust}</span>
-      <span class="progress-num">${d.done}/${d.plan} · ${pct.toFixed(0)}%</span>
-      <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%; background:var(--bu-om);"></div></div>
-    </div>`;
-  }).join('') || '<div class="empty-state">ไม่มี Inspection ในเดือนนี้</div>';
+  // Goal 6 — same shared progress view as Cleaning (Uniform Standard).
+  renderJobProgress('inspectionList', monthIn, getCSSVar('--bu-om'), 'ครั้ง');
 
   // Revenue Loss (Time-Specific)
   const rl = computeRevenueLoss();
@@ -5381,7 +6074,7 @@ function renderPermit() {
   const tab = document.getElementById('tab-permit');
   if (!tab || !tab.classList.contains('active')) return;
 
-  const permits = DATA.permit_jobs;
+  const permits = applyFilters(DATA.permit_jobs, null, 'customer');   // Goal 6.8 — pipeline view: filter by customer/grade, NOT month (permits span months; dueDate blank)
   const delayed = permits.filter(p => p.dueOffset < 0);
   const stuckMoney = delayed.reduce((s,p) => s + p.revenue, 0);
   const released = permits.filter(p => p.status === 'อนุมัติแล้ว').reduce((s,p) => s + p.revenue, 0);
@@ -7162,6 +7855,7 @@ document.addEventListener('DOMContentLoaded', init);
     events: [],        // audit log (persisted)
     snapshot: null,    // previous-import snapshot (persisted)
     filters: { from: '', to: '', user: 'all', sheet: 'all', customer: 'all', project: 'all', province: 'all', action: 'all', status: 'all' },
+    excFilter: { status: 'open', source: 'all', severity: 'all' },   // Exception Queue view (Goal 5 DoD)
     searchIndex: null, // lazy — rebuilt after data changes
     expanded: {},      // audit event id -> bool
     lastReport: null,
@@ -7416,7 +8110,7 @@ document.addEventListener('DOMContentLoaded', init);
     const todayISO = toISO(appToday());
     const counts = {
       missingRequired: 0, duplicates: 0, invalidValues: 0, invalidDates: 0,
-      invalidDropdown: 0, expiredContracts: 0, expiredPermits: 0,
+      invalidDropdown: 0, expiredContracts: 0, expiredPermits: 0, crossField: 0,
     };
 
     tables.forEach((table, tIdx) => {
@@ -7562,6 +8256,22 @@ document.addEventListener('DOMContentLoaded', init);
             const col = cols[cmap.map[field]];
             const allowed = new Set(list.values.filter(x => x.active).map(x => x.v.toLowerCase().trim()));
             if (!allowed.size) continue;
+            // Goal 5.2 — nearest allowed value, computed with the engine's own
+            // dice/levRatio (reuse, don't reimplement). Shown for reference ONLY;
+            // an out-of-list value is flagged, never auto-corrected.
+            const ei52 = EI();
+            const allowedOrig = list.values.filter(x => x.active).map(x => x.v);
+            const nearCache = {};
+            const nearest = (val) => {
+              if (val in nearCache) return nearCache[val];
+              let best = null, score = 0; const lv = val.toLowerCase();
+              if (ei52) for (const cand of allowedOrig) {
+                const cl = cand.toLowerCase();
+                const s = Math.max(ei52.dice ? ei52.dice(lv, cl) : 0, ei52.levRatio ? ei52.levRatio(lv, cl) : 0);
+                if (s > score) { score = s; best = cand; }
+              }
+              return (nearCache[val] = (score >= 0.5 ? { cand: best, score } : null));
+            };
             const uniq = new Set();
             table.rows.forEach((row, r) => {
               if (!table.sub[r]) return;
@@ -7575,7 +8285,10 @@ document.addEventListener('DOMContentLoaded', init);
               if (!v) return;
               if (!allowed.has(v.toLowerCase())) {
                 counts.invalidDropdown++;
-                pushIssue(issues, capMap, table, tIdx, 'invalid-dropdown', 'Invalid Dropdown — ' + list.title, SEV.warning, r, col.label, v, `"${v}" ไม่อยู่ในรายการ "${list.title}" (${list.sheet})`);
+                const nr = nearest(v);
+                const detail = `"${v}" ไม่อยู่ในรายการ "${list.title}" (${list.sheet})`
+                  + (nr ? ` · น่าจะหมายถึง “${nr.cand}” (${(nr.score * 100).toFixed(0)}%)` : '');
+                pushIssue(issues, capMap, table, tIdx, 'invalid-dropdown', 'Invalid Dropdown — ' + list.title, SEV.warning, r, col.label, v, detail);
               }
             });
           }
@@ -7608,6 +8321,73 @@ document.addEventListener('DOMContentLoaded', init);
           }
         }
       } catch (e) {}
+
+      /* R10 · Cross-field logical inconsistencies (Goal 5.4) — a value that
+         contradicts ANOTHER field in the same row, distinct from a simple
+         missing-data flag. Registry-driven per dataset; flag only, never
+         corrected. Same shared rules run over every table uniformly. */
+      try {
+        if (cmap) {
+          // (a) Paid, but no received-money date — payment marked complete yet
+          //     the money-in date is blank (an internally inconsistent record).
+          const psIdx = cmap.map.paymentStatus, rdIdx = cmap.map.receivedDate;
+          if (psIdx !== undefined && rdIdx !== undefined) {
+            const psCol = cols[psIdx], rdCol = cols[rdIdx];
+            const PAID = /^(paid|ชำระแล้ว|จ่ายแล้ว|รับเงินแล้ว|เก็บเงินแล้ว|complete|completed)/i;
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const ps = cellToStr(row[psCol.key]).trim();
+              if (!PAID.test(ps)) return;
+              if (!dateKeyOf(row[rdCol.key])) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-paid-no-date', 'ชำระแล้วแต่ไม่มีวันรับเงิน', SEV.warning, r, rdCol.label, ps, `สถานะ "${ps}" แต่ "${rdCol.label}" ว่าง — ควรระบุวันรับเงิน`);
+              }
+            });
+          }
+          // (b) Negative days-overdue — aging cannot be negative.
+          const doIdx = cmap.map.daysOverdue;
+          if (doIdx !== undefined) {
+            const doCol = cols[doIdx];
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const v = row[doCol.key];
+              if (typeof v === 'number' && v < 0) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-negative-overdue', 'วันค้างชำระติดลบ', SEV.warning, r, doCol.label, v, `"${doCol.label}" = ${v} (ติดลบ) — จำนวนวันค้างชำระต้องไม่ติดลบ`);
+              }
+            });
+          }
+          // (c) kWp outside a plausible range — non-positive when present, or an
+          //     extreme high outlier vs the rest of the dataset. The high bound
+          //     is data-driven (robust Q3 + 3·IQR), NOT a fabricated magic
+          //     number, and only fires on a genuinely far-out value.
+          const kwpIdx = cmap.map.kWp;
+          if (kwpIdx !== undefined) {
+            const kwpCol = cols[kwpIdx];
+            const vals = [];
+            table.rows.forEach((row, r) => { if (table.sub[r] && typeof row[kwpCol.key] === 'number' && row[kwpCol.key] > 0) vals.push(row[kwpCol.key]); });
+            let hiBound = Infinity;
+            if (vals.length >= 8) {
+              const sorted = vals.slice().sort((a, b) => a - b);
+              const q = p => sorted[Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1)))];
+              const iqr = q(0.75) - q(0.25);
+              if (iqr > 0) hiBound = q(0.75) + 3 * iqr;
+            }
+            table.rows.forEach((row, r) => {
+              if (!table.sub[r]) return;
+              const v = row[kwpCol.key];
+              if (typeof v !== 'number') return;
+              if (v <= 0) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-kwp-range', 'kWp ไม่สมเหตุสมผล', SEV.warning, r, kwpCol.label, v, `"${kwpCol.label}" = ${v} — กำลังติดตั้ง (kWp) ต้องมากกว่า 0`);
+              } else if (v > hiBound) {
+                counts.crossField++;
+                pushIssue(issues, capMap, table, tIdx, 'xfield-kwp-range', 'kWp สูงผิดปกติ', SEV.info, r, kwpCol.label, v, `"${kwpCol.label}" = ${fmtInt(v)} สูงกว่าค่าปกติของชุดข้อมูลมาก (เกิน ${fmtInt(Math.round(hiBound))}) — ควรตรวจสอบ`);
+              }
+            });
+          }
+        }
+      } catch (e) {}
     });
 
     return { issues, counts };
@@ -7622,7 +8402,7 @@ document.addEventListener('DOMContentLoaded', init);
       weighted += CFG.SCORE_WEIGHT[it.severity] || 0.2;
     }
     const c = ruleResult.counts;
-    const totalIssues = c.missingRequired + c.duplicates + c.invalidValues + c.invalidDates + c.invalidDropdown;
+    const totalIssues = c.missingRequired + c.duplicates + c.invalidValues + c.invalidDates + c.invalidDropdown + c.crossField;
     const errorRate = totalRecords ? (flagged.size / totalRecords) * 100 : 0;
     const score = totalRecords ? Math.max(0, Math.round(100 * (1 - Math.min(1, weighted / totalRecords)))) : 100;
     const status = score >= CFG.SCORE_HEALTHY ? 'healthy' : score >= CFG.SCORE_WATCH ? 'watch' : 'critical';
@@ -8392,12 +9172,344 @@ document.addEventListener('DOMContentLoaded', init);
     try { renderAudit(); } catch (e) { console.warn('DQ audit failed:', e); }
     try { renderTimeline(); } catch (e) { console.warn('DQ timeline failed:', e); }
   }
+  // Goal 4.4 — show how each dataset was matched (declared @META vs fuzzy
+  // heuristic) so ops can catch template drift (renamed sheet / missing @META)
+  // the moment it happens, instead of when a wrong/duplicate tab appears.
+  function renderConfidence() {
+    const h = host('dqConfidenceHost'); if (!h) return;
+    const rep = STATE.lastReport;
+    const asg = (rep && rep.assignments) || [];
+    if (!asg.length) { h.innerHTML = ''; return; }
+    const meta = asg.filter(a => a.matchedVia === 'meta').length;
+    const heur = asg.length - meta;
+    const rows = asg.slice().sort((a, b) => (a.matchedVia === 'meta' ? 1 : 0) - (b.matchedVia === 'meta' ? 1 : 0)).map(a => {
+      const viaMeta = a.matchedVia === 'meta';
+      const badge = viaMeta
+        ? '<span class="badge badge-paid">@META</span>'
+        : '<span class="badge badge-pending">heuristic</span>';
+      return `<tr><td>${esc(a.sheet)}</td><td class="text-mono">${esc(a.dataset)}</td><td>${badge}</td><td class="text-right text-mono">${fmtInt(a.rows)}</td></tr>`;
+    }).join('');
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Dataset Match Confidence · การจับคู่ชีต</div>
+          <div class="card-subtitle">${fmtInt(meta)} via @META · ${fmtInt(heur)} via heuristic — heuristic = ตรวจสอบว่าชีตถูกเปลี่ยนชื่อ/ไม่มี @META</div>
+        </div></div>
+        <div class="table-wrap" style="max-height:280px;"><table class="data-table"><thead><tr>
+          <th>Sheet</th><th>Dataset</th><th>Matched via</th><th class="text-right">Rows</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>
+        ${heur ? '<div style="padding:8px 12px;color:var(--warning);font-size:11.5px">⚠ มี ' + heur + ' ชีตที่จับคู่ด้วย heuristic — ตรวจว่ามี @META ครบหรือชื่อชีตถูกเปลี่ยน</div>' : ''}
+      </div>`;
+  }
+  // Goal 5.1 — Entity Resolution: possible-duplicate customer names (human
+  // must confirm — never auto-merged) + customers not yet in Customer_Master.
+  function renderReconcile() {
+    const h = host('dqReconcileHost'); if (!h) return;
+    const rec = STATE.lastReport && STATE.lastReport.reconcile;
+    if (!rec) { h.innerHTML = ''; return; }
+    const poss = rec.possibleDuplicates || [];
+    const clusters = rec.unresolvedClusters || [];
+    const singles = rec.unresolvedSingletons || [];
+    const incomplete = rec.incomplete || [];
+    if (!poss.length && !clusters.length && !singles.length && !incomplete.length && !rec.canonCount) { h.innerHTML = ''; return; }
+
+    // possible duplicates (typo of a real Customer_Master name)
+    const possRows = poss.slice(0, 150).map(p => `
+      <tr><td><strong>${esc(p.raw)}</strong></td><td>${esc(p.candidate)}</td>
+      <td class="text-center"><span class="badge badge-pending">${(p.score * 100).toFixed(0)}%</span></td>
+      <td class="text-right text-mono">${fmtInt(p.count)}</td><td>${esc(p.sheets.join(', '))}</td></tr>`).join('');
+
+    // 5.1b — clustered "new customers to add", grouped (label = suggested spelling)
+    const clusterRows = clusters.slice(0, 150).map(c => {
+      const variants = c.members.map(m => `${esc(m.raw)} (${fmtInt(m.count)})`).join(' · ');
+      return `<tr><td><strong>${esc(c.label)}</strong><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${variants}</div></td>
+        <td class="text-center text-mono">${fmtInt(c.memberCount)}</td>
+        <td class="text-right text-mono">${fmtInt(c.rowCount)}</td><td>${esc(c.sheets.join(', '))}</td></tr>`;
+    }).join('');
+
+    // singletons — a single distinct name not in Customer_Master and not clustered
+    const singleRows = singles.slice(0, 150).map(u => `
+      <tr><td>${esc(u.raw)}</td><td class="text-right text-mono">${fmtInt(u.count)}</td><td>${esc(u.sheets.join(', '))}</td></tr>`).join('');
+
+    // incomplete — customer cell reduced to nothing after stripping legal words
+    const incRows = incomplete.slice(0, 100).map(u => `
+      <tr><td>"${esc(u.raw)}"</td><td class="text-right text-mono">${fmtInt(u.count)}</td><td>${esc(u.sheets.join(', '))}</td></tr>`).join('');
+
+    const newCustTotal = clusters.length + singles.length;
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Entity Resolution · จับคู่ชื่อลูกค้ากับ Customer Master</div>
+          <div class="card-subtitle">${fmtInt(rec.canonCount)} auto-canonicalized · ${fmtInt(poss.length)} อาจซ้ำ/พิมพ์ผิด · ${fmtInt(clusters.length)} กลุ่มลูกค้าใหม่ (${fmtInt(newCustTotal)} รายการรวมเดี่ยว) · ${fmtInt(incomplete.length)} ค่าไม่สมบูรณ์</div>
+        </div></div>
+
+        ${poss.length ? `<div style="font-size:12px;font-weight:600;color:var(--warning);padding:4px 2px 8px">⚠ อาจซ้ำ/พิมพ์ผิดของชื่อที่มีอยู่แล้ว — ยังไม่รวมให้ ต้องให้คนยืนยัน</div>
+          <div class="table-wrap" style="max-height:240px;"><table class="data-table"><thead><tr>
+          <th>ค่าที่กรอก</th><th>ใกล้เคียงกับ (Customer Master)</th><th class="text-center">คะแนน</th><th class="text-right">แถว</th><th>ชีต</th>
+          </tr></thead><tbody>${possRows}</tbody></table></div>` : ''}
+
+        ${clusters.length ? `<div style="font-size:12px;font-weight:600;color:var(--cyan);padding:14px 2px 8px">🆕 ลูกค้าใหม่ที่ควรเพิ่มใน Customer Master (จัดกลุ่มชื่อที่คล้ายกันข้ามชีตแล้ว — ป้ายชื่อเป็นแค่คำแนะนำ ยังไม่รวมข้อมูลจริง)</div>
+          <div class="table-wrap" style="max-height:300px;"><table class="data-table"><thead><tr>
+          <th>ชื่อที่แนะนำ · รูปแบบที่พบ</th><th class="text-center">จำนวนรูปแบบ</th><th class="text-right">แถวรวม</th><th>ชีต</th>
+          </tr></thead><tbody>${clusterRows}</tbody></table></div>` : ''}
+
+        ${singles.length ? `<div style="font-size:12px;font-weight:600;color:var(--text-dim);padding:14px 2px 8px">ลูกค้าใหม่ (ชื่อเดี่ยว ไม่มีรูปแบบซ้ำ) — ยังไม่มีใน Customer Master</div>
+          <div class="table-wrap" style="max-height:220px;"><table class="data-table"><thead><tr>
+          <th>ชื่อลูกค้า</th><th class="text-right">แถว</th><th>ชีต</th>
+          </tr></thead><tbody>${singleRows}</tbody></table></div>` : ''}
+
+        ${incomplete.length ? `<div style="font-size:12px;font-weight:600;color:var(--critical);padding:14px 2px 8px">ค่าไม่สมบูรณ์ (เหลือแค่คำนำหน้า เช่น "บริษัท") — ต้องกลับไปกรอกชื่อจริง</div>
+          <div class="table-wrap" style="max-height:180px;"><table class="data-table"><thead><tr>
+          <th>ค่าที่กรอก</th><th class="text-right">แถว</th><th>ชีต</th>
+          </tr></thead><tbody>${incRows}</tbody></table></div>` : ''}
+
+        ${(!poss.length && !clusters.length && !singles.length && !incomplete.length) ? '<div class="empty-state">ทุกชื่อลูกค้าตรงกับ Customer Master ✓</div>' : ''}
+      </div>`;
+  }
+  // Goal 5.3 — flagged literal-duplicate rows (site/customer + date + amount).
+  // The engine flags, never deletes; sums exclude them via the shared
+  // applyFilters. This panel shows them, grouped, so a person can reconcile.
+  const DUP_DS_LABELS = {
+    revenue_actual: 'รายได้ (Revenue Actual)', revenue_forecast: 'Forecast', permit_jobs: 'Permit',
+    cleaning: 'Cleaning', inspection: 'Inspection', alarm_status: 'Alarm',
+    om_contracts: 'O&M Contracts', scada_summary: 'SCADA',
+  };
+  const DUP_FIELD_LABELS = {
+    customer: 'ลูกค้า', project: 'โครงการ', site: 'ไซต์', billingDate: 'วันที่บิล',
+    forecastMonth: 'เดือน', planDate: 'วันที่แผน', startDate: 'วันเริ่ม', endDate: 'วันสิ้นสุด',
+    time: 'เวลา', month: 'เดือน', type: 'ประเภท', docType: 'ประเภทเอกสาร', revenue: 'ยอดเงิน',
+  };
+  function renderDuplicates() {
+    const h = host('dqDuplicateHost'); if (!h) return;
+    const dup = STATE.lastReport && STATE.lastReport.duplicates;
+    if (!dup || !dup.total) { h.innerHTML = ''; return; }
+    const summary = dup.summary || [];
+    const items = dup.items || [];
+
+    const sumRows = summary.map(s => `
+      <tr><td><strong>${esc(DUP_DS_LABELS[s.dataset] || s.dataset)}</strong></td>
+      <td>${esc(s.keyFields.map(f => DUP_FIELD_LABELS[f] || f).join(' + '))}</td>
+      <td class="text-right text-mono">${fmtInt(s.groups)}</td>
+      <td class="text-right text-mono">${fmtInt(s.duplicates)}</td>
+      <td class="text-right text-mono">${fmtInt(s.total)}</td></tr>`).join('');
+
+    const itemRows = items.slice(0, 150).map(it => {
+      const key = it.fields.map((f, i) => {
+        const v = it.values[i];
+        return `<span style="color:var(--text-muted)">${esc(DUP_FIELD_LABELS[f] || f)}:</span> ${esc(v === '' ? '—' : v)}`;
+      }).join(' · ');
+      return `<tr><td>${esc(DUP_DS_LABELS[it.dataset] || it.dataset)}</td>
+        <td style="font-size:12px">${key}</td>
+        <td class="text-center"><span class="badge badge-pending">×${fmtInt(it.occurrences)}</span></td></tr>`;
+    }).join('');
+
+    const capped = items.length > 150 ? `<div style="font-size:11px;color:var(--text-muted);padding:6px 2px">แสดง 150 กลุ่มแรกจาก ${fmtInt(items.length)} กลุ่ม</div>` : '';
+
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Duplicate Rows · แถวซ้ำ (ไม่นับซ้ำในยอดรวม)</div>
+          <div class="card-subtitle">${fmtInt(dup.total)} แถวถูกตีธง "ซ้ำ" ใน ${fmtInt(summary.length)} ชุดข้อมูล — แถวแรกของแต่ละกลุ่มถูกเก็บไว้ ที่เหลือไม่ถูกนำไปรวมยอด/KPI แต่ยังแสดงในตารางดิบ (ไม่มีการลบ)</div>
+        </div></div>
+
+        <div style="font-size:12px;font-weight:600;color:var(--warning);padding:4px 2px 8px">⚠ นับเป็นซ้ำเฉพาะเมื่อ "ทั้งคีย์" ตรงกัน (เช่น รายได้ = ลูกค้า+โครงการ+วันที่+ยอด) — งวดบิลจริงที่ต่างวันหรือต่างยอด จะไม่ถูกตีธง</div>
+
+        <div class="table-wrap" style="max-height:180px;"><table class="data-table"><thead><tr>
+          <th>ชุดข้อมูล</th><th>คีย์ที่ใช้ตรวจ</th><th class="text-right">กลุ่มซ้ำ</th><th class="text-right">แถวซ้ำ</th><th class="text-right">แถวทั้งหมด</th>
+        </tr></thead><tbody>${sumRows}</tbody></table></div>
+
+        ${itemRows ? `<div style="font-size:12px;font-weight:600;color:var(--text-dim);padding:14px 2px 8px">กลุ่มที่ซ้ำ (เรียงตามจำนวนครั้งที่พบ)</div>
+        <div class="table-wrap" style="max-height:320px;"><table class="data-table"><thead><tr>
+          <th>ชุดข้อมูล</th><th>คีย์</th><th class="text-center">พบซ้ำ</th>
+        </tr></thead><tbody>${itemRows}</tbody></table></div>${capped}` : ''}
+      </div>`;
+  }
+  /* ========================================================================
+   * Goal 5 DoD — UNIFIED EXCEPTION QUEUE
+   *   Merges every data-quality exception the pipeline can raise into ONE
+   *   list of {id, type, severity, sheet, row, field, detail, status}:
+   *     • validation rules (runRules): missing / duplicate / invalid /
+   *       date-order / negative / dropdown (5.2) / expired / cross-field (5.4)
+   *     • entity-resolution flags (5.1): possible-dup / incomplete / new-customer
+   *     • literal duplicate rows (5.3)
+   *   Per-item status is persisted in localStorage, keyed by stable content so
+   *   it survives re-import, letting a person work through the list one by one.
+   * ======================================================================*/
+  const EXC_STATUS_LABEL = { open: 'ยังไม่จัดการ', ack: 'รับทราบ', resolved: 'แก้แล้ว', ignored: 'ข้าม/ไม่เกี่ยว' };
+  const EXC_STORE_KEY = 'dq_exception_status_v1';
+  let _excStatus = null;
+  function excStore() {
+    if (_excStatus) return _excStatus;
+    try { _excStatus = JSON.parse(localStorage.getItem(EXC_STORE_KEY) || '{}') || {}; } catch (e) { _excStatus = {}; }
+    return _excStatus;
+  }
+  function excGet(id) { const s = excStore()[id]; return s ? s.status : 'open'; }
+  function excSet(id, status) {
+    const s = excStore();
+    if (status === 'open') delete s[id]; else s[id] = { status, ts: Date.now() };
+    try { localStorage.setItem(EXC_STORE_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+  function excId(parts) {
+    const ei = EI(); const basis = parts.join('|');
+    return ei && ei.fnv1a ? ('x' + ei.fnv1a(basis).toString(36)) : ('x' + basis.replace(/[^a-z0-9]/gi, '').slice(0, 40));
+  }
+  function collectExceptions() {
+    const out = [];
+    // (1) validation-rule issues — already {rule,label,severity,sheet,field,detail,tIdx,rowIdx,recordId,value}
+    for (const it of (STATE.issues || [])) {
+      const idKey = it.recordId || ('#' + it.tIdx + ':' + it.rowIdx);
+      out.push({
+        id: excId(['rule', it.rule, it.sheet, idKey, it.field]),
+        type: it.rule, typeLabel: it.label, source: 'rule', severity: it.severity,
+        sheet: it.sheet, tIdx: it.tIdx, rowIdx: it.rowIdx, recordId: it.recordId,
+        field: it.field, value: it.value, detail: it.detail,
+      });
+    }
+    const rep = STATE.lastReport || {};
+    const rec = rep.reconcile;
+    if (rec) {
+      (rec.possibleDuplicates || []).forEach(p => out.push({
+        id: excId(['recon-possible', p.raw, p.candidate]),
+        type: 'recon-possible', typeLabel: 'อาจซ้ำ/พิมพ์ผิดชื่อลูกค้า', source: 'entity', severity: 'warning',
+        sheet: (p.sheets || []).join(', '), field: 'customer', value: p.raw, rowIdx: -1,
+        detail: `"${p.raw}" ใกล้เคียง "${p.candidate}" (${(p.score * 100).toFixed(0)}%) · ${p.count} แถว — ยืนยันว่าเป็นคนเดียวกันหรือไม่`,
+      }));
+      (rec.incomplete || []).forEach(u => out.push({
+        id: excId(['recon-incomplete', u.raw]),
+        type: 'recon-incomplete', typeLabel: 'ชื่อลูกค้าไม่สมบูรณ์', source: 'entity', severity: 'critical',
+        sheet: (u.sheets || []).join(', '), field: 'customer', value: u.raw, rowIdx: -1,
+        detail: `"${u.raw}" เหลือแค่คำนำหน้า (${u.count} แถว) — ต้องกลับไปกรอกชื่อจริง`,
+      }));
+      const newCust = (u, kind) => out.push({
+        id: excId(['recon-new', u.label || u.raw]),
+        type: 'recon-newcustomer', typeLabel: 'ลูกค้าใหม่ (ยังไม่มีใน Customer_Master)', source: 'entity', severity: 'info',
+        sheet: (u.sheets || []).join(', '), field: 'customer', value: u.label || u.raw, rowIdx: -1,
+        detail: kind === 'cluster'
+          ? `กลุ่มชื่อคล้ายกัน ${u.memberCount} รูปแบบ · ${u.rowCount} แถว — ควรเพิ่มใน Customer_Master`
+          : `"${u.raw}" (${u.count} แถว) — ยังไม่มีใน Customer_Master`,
+      });
+      (rec.unresolvedClusters || []).forEach(c => newCust(c, 'cluster'));
+      (rec.unresolvedSingletons || []).forEach(u => newCust(u, 'single'));
+    }
+    const dup = rep.duplicates;
+    if (dup) {
+      (dup.items || []).forEach(it => out.push({
+        id: excId(['dup', it.dataset, (it.values || []).join('~')]),
+        type: 'duplicate-row', typeLabel: 'แถวซ้ำ (ไม่นับในยอดรวม)', source: 'duplicate', severity: 'warning',
+        sheet: it.dataset, field: (it.fields || []).join('+'), value: (it.values || []).join(' · '), rowIdx: -1,
+        detail: `พบซ้ำ ${it.occurrences} ครั้ง (คีย์: ${(it.values || []).join(' · ')}) — เก็บแถวแรก ที่เหลือไม่ถูกนับยอด`,
+      }));
+    }
+    out.forEach(e => { e.status = excGet(e.id); });
+    return out;
+  }
+  function renderExceptionQueue() {
+    const h = host('dqExceptionHost'); if (!h) return;
+    const all = collectExceptions();
+    if (!all.length) { h.innerHTML = ''; return; }
+    const f = STATE.excFilter;
+    const openAll = all.filter(e => e.status === 'open');
+    const sevN = s => openAll.filter(e => e.severity === s).length;
+    const statusCount = st => all.filter(e => e.status === st).length;
+
+    const shownAll = all.filter(e =>
+      (f.status === 'all' || e.status === f.status) &&
+      (f.source === 'all' || e.source === f.source) &&
+      (f.severity === 'all' || e.severity === f.severity));
+    const cap = CFG.MAX_RENDER_ISSUES || 300;
+    const shown = shownAll.slice(0, cap);
+
+    const sevRank = { critical: 0, warning: 1, info: 2 };
+    shown.sort((a, b) => (sevRank[a.severity] - sevRank[b.severity]) || a.source.localeCompare(b.source));
+
+    const statusPill = (key, label) => {
+      const n = key === 'all' ? all.length : statusCount(key);
+      const on = f.status === key;
+      return `<button class="dq-exc-pill${on ? ' on' : ''}" data-exc-fstatus="${key}">${label} <span class="dq-exc-pill-n">${fmtInt(n)}</span></button>`;
+    };
+    const srcOpts = ['all', 'rule', 'entity', 'duplicate'].map(s =>
+      `<option value="${s}"${f.source === s ? ' selected' : ''}>${s === 'all' ? 'ทุกแหล่ง' : s === 'rule' ? 'กฎธุรกิจ' : s === 'entity' ? 'ชื่อลูกค้า (5.1)' : 'แถวซ้ำ (5.3)'}</option>`).join('');
+    const sevOpts = ['all', 'critical', 'warning', 'info'].map(s =>
+      `<option value="${s}"${f.severity === s ? ' selected' : ''}>${s === 'all' ? 'ทุกระดับ' : s}</option>`).join('');
+
+    const rows = shown.map((e, i) => {
+      const actionable = e.rowIdx != null && e.rowIdx >= 0 && e.tIdx != null;
+      const acts = e.status === 'open'
+        ? `<button class="dq-exc-btn" data-exc-set="ack" data-exc-i="${i}">รับทราบ</button>
+           <button class="dq-exc-btn ok" data-exc-set="resolved" data-exc-i="${i}">แก้แล้ว</button>
+           <button class="dq-exc-btn mute" data-exc-set="ignored" data-exc-i="${i}">ข้าม</button>`
+        : `<span class="badge ${e.status === 'resolved' ? 'badge-partial' : e.status === 'ignored' ? 'badge-partial' : 'badge-pending'}">${EXC_STATUS_LABEL[e.status]}</span>
+           <button class="dq-exc-btn" data-exc-set="open" data-exc-i="${i}">คืนค่า</button>`;
+      return `<tr${actionable ? ` data-exc-drill="${i}" style="cursor:pointer;"` : ''}>
+        <td>${sevBadge(e.severity)}</td>
+        <td>${esc(e.typeLabel)}</td>
+        <td>${esc(e.sheet) || '—'}</td>
+        <td>${esc(e.field) || '—'}</td>
+        <td>${esc(e.detail)}</td>
+        <td class="dq-exc-acts">${acts}</td>
+      </tr>`;
+    }).join('');
+
+    const note = shownAll.length > shown.length
+      ? `<div style="padding:8px 12px;color:var(--text-muted);font-size:11.5px">แสดง ${fmtInt(shown.length)} จาก ${fmtInt(shownAll.length)} รายการ — ใช้ตัวกรองเพื่อลดขอบเขต</div>` : '';
+
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Exception Queue · คิวรายการที่ต้องจัดการ</div>
+          <div class="card-subtitle">รวมทุก exception จากกฎธุรกิจ · การจับคู่ชื่อลูกค้า (5.1) · แถวซ้ำ (5.3) — ไล่จัดการทีละรายการ สถานะถูกจำไว้</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--text-dim)">
+          ยังไม่จัดการ <strong style="color:var(--critical)">${fmtInt(openAll.length)}</strong><br>
+          <span style="font-size:11px">🔴 ${fmtInt(sevN('critical'))} · 🟡 ${fmtInt(sevN('warning'))} · 🔵 ${fmtInt(sevN('info'))}</span>
+        </div></div>
+
+        <div class="dq-exc-bar">
+          ${statusPill('open', 'ยังไม่จัดการ')}${statusPill('ack', 'รับทราบ')}${statusPill('resolved', 'แก้แล้ว')}${statusPill('ignored', 'ข้าม')}${statusPill('all', 'ทั้งหมด')}
+          <span class="dq-exc-spacer"></span>
+          <select class="dq-exc-sel" data-exc-fsource>${srcOpts}</select>
+          <select class="dq-exc-sel" data-exc-fseverity>${sevOpts}</select>
+        </div>
+
+        ${shownAll.length ? `<div class="table-wrap" style="max-height:460px;"><table class="data-table"><thead><tr>
+          <th>ระดับ</th><th>ประเภท</th><th>Sheet</th><th>Field</th><th>รายละเอียด</th><th>จัดการ</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>${note}`
+        : '<div class="empty-state">ไม่มีรายการในสถานะ/ตัวกรองที่เลือก ✓</div>'}
+      </div>`;
+
+    h.onclick = (e2) => {
+      const setBtn = e2.target.closest('[data-exc-set]');
+      if (setBtn) {
+        e2.stopPropagation();
+        const it = shown[+setBtn.dataset.excI]; if (!it) return;
+        excSet(it.id, setBtn.dataset.excSet);
+        renderExceptionQueue();
+        try { renderHealth(); } catch (e) {}
+        return;
+      }
+      const pill = e2.target.closest('[data-exc-fstatus]');
+      if (pill) { STATE.excFilter.status = pill.dataset.excFstatus; renderExceptionQueue(); return; }
+      const dr = e2.target.closest('[data-exc-drill]');
+      if (dr) { const it = shown[+dr.dataset.excDrill]; if (it && it.rowIdx >= 0) drillRecord(it.tIdx, it.rowIdx); }
+    };
+    h.onchange = (e2) => {
+      const src = e2.target.closest('[data-exc-fsource]');
+      if (src) { STATE.excFilter.source = src.value; renderExceptionQueue(); return; }
+      const sev = e2.target.closest('[data-exc-fseverity]');
+      if (sev) { STATE.excFilter.severity = sev.value; renderExceptionQueue(); }
+    };
+  }
+
   function render() {
     const pane = document.getElementById('tab-dq');
     if (!pane || !pane.classList.contains('active')) return;
     try { ensureComputed(); } catch (e) { console.warn('DQ compute failed:', e); }
     try { ensureSearchCard(); } catch (e) {}
     try { renderHealth(); } catch (e) {}
+    try { renderExceptionQueue(); } catch (e) {}
+    try { renderConfidence(); } catch (e) {}
+    try { renderReconcile(); } catch (e) {}
+    try { renderDuplicates(); } catch (e) {}
     try { ensureFilterBar(); } catch (e) {}
     renderDynamic();
   }
