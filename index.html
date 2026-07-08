@@ -4317,8 +4317,10 @@ function generateSampleData() {
     'Chonburi':'ชลบุรี', 'Rayong':'ระยอง', 'Pattaya':'ชลบุรี',
     'Korat':'นครราชสีมา', 'Khon Kaen':'ขอนแก่น', 'Phuket':'ภูเก็ต'
   };
-  const services = ['Monitoring','Cleaning','Inspection','Service','Permit','EPC Solar'];
-  const cats = ['O&M Contract','After Sale Service','Permit/เอกสาร','Installation','Spare Parts','Emergency Service'];
+  const services = ['Monitoring','Cleaning','Inspection','Service','Construction','EPC Solar'];
+  // Demo uses the SAME Revenue Category taxonomy as the real template so the
+  // shared solar/O&M selectors behave identically in demo and production.
+  const cats = ['O&M','Permit','งานบ้าน','งานติดตั้ง'];
   const teams = ["P'It","P'Tik","P'Mon","P'Jay","Engineer A","Engineer B"];
   const payStatus = ['Paid','Paid','Pending','Overdue','Partial','Paid'];
 
@@ -4335,10 +4337,10 @@ function generateSampleData() {
     const day = rint(1, 28);
     const cat = rand(cats);
     let rev;
-    if (cat === 'Installation') rev = rint(800000, 4500000);
-    else if (cat === 'O&M Contract') rev = rint(45000, 280000);
-    else if (cat === 'Permit/เอกสาร') rev = rint(30000, 150000);
-    else if (cat === 'Emergency Service') rev = rint(15000, 90000);
+    if (cat === 'งานติดตั้ง') rev = rint(800000, 4500000);
+    else if (cat === 'งานบ้าน') rev = rint(120000, 700000);
+    else if (cat === 'O&M') rev = rint(45000, 280000);
+    else if (cat === 'Permit') rev = rint(30000, 150000);
     else rev = rint(25000, 350000);
     const cost = Math.floor(rev * (0.55 + Math.random() * 0.23));
     const cust = rand(customers);
@@ -4391,7 +4393,7 @@ function generateSampleData() {
       revenue: rev,
       cost,
       profit: rev - cost,
-      kW: cat === 'Installation' ? rint(50, 800) : rint(20, 250),
+      kW: cat === 'งานติดตั้ง' ? rint(50, 800) : rint(20, 250),
       province: siteProvince[site] || 'กรุงเทพฯ',
       responsible: rand(teams),
       paymentStatus,
@@ -4816,8 +4818,24 @@ function fmtMoney(n) { return Math.round(n || 0).toLocaleString(); }
  * outputs (no re-parsing, no new data model) and reuses existing compute
  * helpers + drill-downs. kW (Revenue_Actual, averaged) and kWp (nameplate)
  * are never conflated here; this view deals in revenue/% and counts. */
-function execIsSolar(r) { return r.category === 'Installation' || r.service === 'EPC Solar' || r.service === 'Monitoring'; }
-function execIsOM(r) { return r.service === 'Service' || r.category === 'O&M Contract'; }
+/* Goal 6.1 — SINGLE SOURCE OF TRUTH for business-unit revenue buckets.
+ * Grounded in the real template's Revenue Category values (Master_Data list
+ * "หมวดหมู่รายได้"): Solar & SME = งานติดตั้ง + งานบ้าน · O&M = O&M · Permit =
+ * Permit. Category is single-valued and clean; service is often multi-valued
+ * ("Cleaning, Inspection"), so the bucket is category-driven per the data
+ * owner's decision — and Monitoring (category O&M) therefore counts as O&M,
+ * not Solar. These predicates/selectors are used by EVERY tab and the
+ * Executive view so a metric is never redefined in two places.
+ * (Legacy English demo categories kept as aliases so old files still render.) */
+const SOLAR_CATEGORIES = ['งานติดตั้ง', 'งานบ้าน', 'Installation'];
+const OM_CATEGORIES = ['O&M', 'O&M Contract'];
+function isSolarRow(r) { return r && SOLAR_CATEGORIES.indexOf(r.category) >= 0; }
+function isOMRow(r) { return r && OM_CATEGORIES.indexOf(r.category) >= 0; }
+function getSolarRows(rows) { return (rows || []).filter(isSolarRow); }
+function getOMRows(rows) { return (rows || []).filter(isOMRow); }
+// Back-compat aliases (same single definition) for existing call sites.
+function execIsSolar(r) { return isSolarRow(r); }
+function execIsOM(r) { return isOMRow(r); }
 function execTerminated(s) { return /terminat|ยกเลิก|สิ้นสุด|หมดสัญญา|expired/i.test(String(s || '')); }
 
 /** BU revenue over a rolling window (day / week / month). Independent of the
@@ -5109,7 +5127,7 @@ function renderHome() {
   document.getElementById('qsRiskVal').textContent = fmtMoney(revAtRisk);
   document.getElementById('qsRiskMeta').textContent = `Loss ฿${fmtCurrency(rl.totalLoss)} + Overdue ฿${fmtCurrency(overdueAmt)}`;
 
-  const solarRows = rows.filter(r => r.category === 'Installation' || r.service === 'EPC Solar');
+  const solarRows = getSolarRows(rows);
   const solarRev = solarRows.reduce((s,r) => s + r.revenue, 0);
   const solarKW = solarRows.reduce((s,r) => s + (r.kW||0), 0);
   document.getElementById('dv2SolarRev').textContent = fmtMoney(solarRev);
@@ -5121,7 +5139,7 @@ function renderHome() {
   document.getElementById('dv2ClRev').textContent = fmtMoney(clRev);
   document.getElementById('dv2ClStatus').textContent = `${monthCl.length} งาน · เสร็จ ${clDone}/${monthCl.length}`;
 
-  const omRows = rows.filter(r => r.service === 'Service' || r.category === 'O&M Contract');
+  const omRows = getOMRows(rows);
   const omRev = omRows.reduce((s,r) => s + r.revenue, 0);
   const critOpen = rl.alarms.filter(a => a.level === 'Critical' && a.status === 'เปิดอยู่').length;
   document.getElementById('dv2OMRev').textContent = fmtMoney(omRev);
@@ -5509,9 +5527,9 @@ function renderSolar() {
   const tab = document.getElementById('tab-solar');
   if (!tab || !tab.classList.contains('active')) return;
 
-  // Filter solar-related categories (Installation + everything with Solar revenue)
-  const isSolarCat = (r) => r.category === 'Installation' || r.service === 'EPC Solar' || r.service === 'Monitoring';
-  const rows = applyFilters(DATA.revenue_actual).filter(isSolarCat);
+  // Goal 6.1 — solar rows via the shared, category-driven selector (งานติดตั้ง +
+  // งานบ้าน). Same definition the Home + Executive views use.
+  const rows = getSolarRows(applyFilters(DATA.revenue_actual));
   const totalRev = rows.reduce((s,r) => s + r.revenue, 0);
   const totalKW = rows.reduce((s,r) => s + (r.kW||0), 0);
   const count = rows.length;
@@ -5753,8 +5771,9 @@ function renderOM() {
   const tab = document.getElementById('tab-om');
   if (!tab || !tab.classList.contains('active')) return;
 
-  // Service revenue (current month, category not Installation)
-  const svc = applyFilters(DATA.revenue_actual).filter(r => r.service === 'Service' || r.category === 'O&M Contract');
+  // Goal 6.1 — O&M revenue via the shared, category-driven selector (category
+  // = O&M, which includes Monitoring). Same definition every other view uses.
+  const svc = getOMRows(applyFilters(DATA.revenue_actual));
   const svcTotal = svc.reduce((s,r) => s + r.revenue, 0);
   document.getElementById('omSvcVal').textContent = fmtFull(svcTotal);
   document.getElementById('omSvcSub').textContent = `${svc.length} Service Jobs`;
