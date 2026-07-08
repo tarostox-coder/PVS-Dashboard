@@ -5501,18 +5501,33 @@ function openRollupDrill(dsKey, ci, pi) {
  * valid-date rows only) → fallback to deriving monthly actuals from
  * DATA.revenue_actual. Always safe: never throws, shows empty-state if no data. */
 function getMonthlyData() {
-  // Live monthly revenue-vs-target trend, derived from Revenue_Actual and
-  // responding to the customer/grade filter (dateField=null → NOT the single-
-  // month filter, so the trend keeps every month). Sorted ascending so the
-  // latest month sits at the right; the panel's range control shows the most
-  // recent N. Target = the real ฿10M/month goal.
+  // HYBRID:
+  //  • Actuals — computed LIVE from Revenue_Actual (dedup'd, responds to the
+  //    customer/grade filter; dateField=null keeps every month so the trend
+  //    stays intact). Always current, unlike the Monthly_Summary sheet whose
+  //    SUMIFS results are only the values Excel last cached — and which double-
+  //    count duplicate rows.
+  //  • Targets — read PER-MONTH from the Monthly_Summary sheet (the one thing
+  //    not derivable from transactions). Falls back to the flat ฿10M config
+  //    target for any month the sheet doesn't specify.
   const map = {};
   applyFilters(DATA.revenue_actual, null, 'customer').forEach(r => {
     const m = String(r.billingDate || '').slice(0, 7);
     if (/^\d{4}-\d{2}$/.test(m)) map[m] = (map[m] || 0) + (r.revenue || 0);
   });
-  const rows = Object.keys(map).sort().map(m => ({ month: m, actual: map[m], target: CONFIG.TARGET_MONTHLY }));
-  return { source: 'derived', rows };
+  const tgtBy = {};
+  if (window.MONTHLY && Array.isArray(window.MONTHLY.rows)) {
+    window.MONTHLY.rows.forEach(r => {
+      const m = String(r._month || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(m) && r._target > 0) tgtBy[m] = r._target;
+    });
+  }
+  const usedSheetTarget = Object.keys(tgtBy).length > 0;
+  const rows = Object.keys(map).sort().map(m => ({
+    month: m, actual: map[m],
+    target: (tgtBy[m] != null ? tgtBy[m] : CONFIG.TARGET_MONTHLY),
+  }));
+  return { source: usedSheetTarget ? 'hybrid' : 'derived', rows };
 }
 
 function renderMonthlySummaryPanel() {
@@ -5525,7 +5540,9 @@ function renderMonthlySummaryPanel() {
   const rows = (md.rows || []).filter(r => /^\d{4}-\d{2}$/.test(r.month));
 
   if (sub) sub.textContent = rows.length
-    ? (md.source === 'sheet' ? `จาก Sheet Monthly_Summary · ${rows.length} เดือน` : `คำนวณจาก Revenue Actual · ${rows.length} เดือน`)
+    ? (md.source === 'hybrid'
+        ? `รายได้จริงคำนวณสด · เป้าจาก Monthly_Summary · ${rows.length} เดือน`
+        : `รายได้จริงคำนวณสดจาก Revenue Actual · เป้า ฿${fmtCurrency(CONFIG.TARGET_MONTHLY)} · ${rows.length} เดือน`)
     : 'ยังไม่มีข้อมูลรายเดือน';
 
   if (!rows.length) {
@@ -6684,10 +6701,27 @@ function extractMonthlyFromReport(report) {
   const cols = ds.columns;
   const find = pred => cols.find(pred);
   const monthCol = find(c => c.type === 'date') || find(c => /เดือน|month/i.test(c.label));
-  const targetCol = find(c => /เป้า|target/i.test(c.label));
+  let targetCol = find(c => /เป้า|target/i.test(c.label));
   const actualCol = find(c => /รายได้จริง|actual/i.test(c.label))
                  || find(c => /รายได้|revenue/i.test(c.label) && c !== targetCol)
                  || find(c => (c.type === 'number' || c.type === 'percent') && c !== targetCol);
+  // Robust fallback when the header row wasn't detected (labels leak the sheet
+  // title): the monthly TARGET is a near-constant per-month goal, so pick the
+  // numeric column with the most uniform non-zero values (lowest coefficient of
+  // variation) — that's the target, not the (wildly varying) actual/profit.
+  if (!targetCol) {
+    let best = null, bestCV = Infinity;
+    for (const c of cols) {
+      if (c === actualCol || c === monthCol || c.type !== 'number') continue;
+      const vals = ds.rows.map(r => +r[c.key] || 0).filter(v => v > 0);
+      if (vals.length < 3) continue;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vals.length);
+      const cv = mean ? sd / mean : Infinity;
+      if (cv < bestCV) { bestCV = cv; best = c; }
+    }
+    if (best && bestCV < 0.15) targetCol = best;   // very uniform → the target column
+  }
 
   const out = [];
   for (const r of ds.rows) {
