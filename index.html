@@ -3391,6 +3391,22 @@ input[type="file"] { display: none; }
 .dq-result-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .dq-result-sub { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
 .dq-expand-btn { background: none; border: none; color: var(--cyan); cursor: pointer; font-family: inherit; font-size: 11.5px; padding: 2px 6px; }
+/* Exception Queue (Goal 5 DoD) */
+.dq-exc-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 10px 2px 12px; }
+.dq-exc-spacer { flex: 1; }
+.dq-exc-pill { font-family: inherit; font-size: 12px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  background: var(--card-elev); color: var(--text-dim); border: 1px solid var(--border); }
+.dq-exc-pill:hover { border-color: var(--cyan); }
+.dq-exc-pill.on { background: var(--cyan); color: #fff; border-color: var(--cyan); }
+.dq-exc-pill-n { font-weight: 700; opacity: 0.85; margin-left: 3px; }
+.dq-exc-sel { font-family: inherit; font-size: 12px; padding: 5px 9px; border-radius: 8px;
+  background: var(--card-elev); color: var(--text); border: 1px solid var(--border); }
+.dq-exc-acts { white-space: nowrap; }
+.dq-exc-btn { font-family: inherit; font-size: 11px; padding: 3px 9px; margin: 0 2px; border-radius: 6px; cursor: pointer;
+  background: var(--card-elev); color: var(--text-dim); border: 1px solid var(--border); }
+.dq-exc-btn:hover { border-color: var(--cyan); color: var(--text); }
+.dq-exc-btn.ok:hover { border-color: var(--success); color: var(--success); }
+.dq-exc-btn.mute:hover { border-color: var(--text-muted); color: var(--text-muted); }
 .dq-detail-row td { background: color-mix(in srgb, var(--card-elev) 70%, transparent) !important; }
 .dq-changes { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .dq-changes th, .dq-changes td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--grid-line); }
@@ -4173,6 +4189,7 @@ input[type="file"] { display: none; }
     <div class="tab-section-title" style="border-left:3px solid var(--bu-summary); padding-left:10px;">Data Quality &amp; Audit Center · ศูนย์ตรวจสอบคุณภาพข้อมูล</div>
     <div id="dqSearchHost"></div>
     <div id="dqHealthHost"></div>
+    <div id="dqExceptionHost"></div>
     <div id="dqConfidenceHost"></div>
     <div id="dqReconcileHost"></div>
     <div id="dqDuplicateHost"></div>
@@ -7684,6 +7701,7 @@ document.addEventListener('DOMContentLoaded', init);
     events: [],        // audit log (persisted)
     snapshot: null,    // previous-import snapshot (persisted)
     filters: { from: '', to: '', user: 'all', sheet: 'all', customer: 'all', project: 'all', province: 'all', action: 'all', status: 'all' },
+    excFilter: { status: 'open', source: 'all', severity: 'all' },   // Exception Queue view (Goal 5 DoD)
     searchIndex: null, // lazy — rebuilt after data changes
     expanded: {},      // audit event id -> bool
     lastReport: null,
@@ -9152,12 +9170,189 @@ document.addEventListener('DOMContentLoaded', init);
         </tr></thead><tbody>${itemRows}</tbody></table></div>${capped}` : ''}
       </div>`;
   }
+  /* ========================================================================
+   * Goal 5 DoD — UNIFIED EXCEPTION QUEUE
+   *   Merges every data-quality exception the pipeline can raise into ONE
+   *   list of {id, type, severity, sheet, row, field, detail, status}:
+   *     • validation rules (runRules): missing / duplicate / invalid /
+   *       date-order / negative / dropdown (5.2) / expired / cross-field (5.4)
+   *     • entity-resolution flags (5.1): possible-dup / incomplete / new-customer
+   *     • literal duplicate rows (5.3)
+   *   Per-item status is persisted in localStorage, keyed by stable content so
+   *   it survives re-import, letting a person work through the list one by one.
+   * ======================================================================*/
+  const EXC_STATUS_LABEL = { open: 'ยังไม่จัดการ', ack: 'รับทราบ', resolved: 'แก้แล้ว', ignored: 'ข้าม/ไม่เกี่ยว' };
+  const EXC_STORE_KEY = 'dq_exception_status_v1';
+  let _excStatus = null;
+  function excStore() {
+    if (_excStatus) return _excStatus;
+    try { _excStatus = JSON.parse(localStorage.getItem(EXC_STORE_KEY) || '{}') || {}; } catch (e) { _excStatus = {}; }
+    return _excStatus;
+  }
+  function excGet(id) { const s = excStore()[id]; return s ? s.status : 'open'; }
+  function excSet(id, status) {
+    const s = excStore();
+    if (status === 'open') delete s[id]; else s[id] = { status, ts: Date.now() };
+    try { localStorage.setItem(EXC_STORE_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+  function excId(parts) {
+    const ei = EI(); const basis = parts.join('|');
+    return ei && ei.fnv1a ? ('x' + ei.fnv1a(basis).toString(36)) : ('x' + basis.replace(/[^a-z0-9]/gi, '').slice(0, 40));
+  }
+  function collectExceptions() {
+    const out = [];
+    // (1) validation-rule issues — already {rule,label,severity,sheet,field,detail,tIdx,rowIdx,recordId,value}
+    for (const it of (STATE.issues || [])) {
+      const idKey = it.recordId || ('#' + it.tIdx + ':' + it.rowIdx);
+      out.push({
+        id: excId(['rule', it.rule, it.sheet, idKey, it.field]),
+        type: it.rule, typeLabel: it.label, source: 'rule', severity: it.severity,
+        sheet: it.sheet, tIdx: it.tIdx, rowIdx: it.rowIdx, recordId: it.recordId,
+        field: it.field, value: it.value, detail: it.detail,
+      });
+    }
+    const rep = STATE.lastReport || {};
+    const rec = rep.reconcile;
+    if (rec) {
+      (rec.possibleDuplicates || []).forEach(p => out.push({
+        id: excId(['recon-possible', p.raw, p.candidate]),
+        type: 'recon-possible', typeLabel: 'อาจซ้ำ/พิมพ์ผิดชื่อลูกค้า', source: 'entity', severity: 'warning',
+        sheet: (p.sheets || []).join(', '), field: 'customer', value: p.raw, rowIdx: -1,
+        detail: `"${p.raw}" ใกล้เคียง "${p.candidate}" (${(p.score * 100).toFixed(0)}%) · ${p.count} แถว — ยืนยันว่าเป็นคนเดียวกันหรือไม่`,
+      }));
+      (rec.incomplete || []).forEach(u => out.push({
+        id: excId(['recon-incomplete', u.raw]),
+        type: 'recon-incomplete', typeLabel: 'ชื่อลูกค้าไม่สมบูรณ์', source: 'entity', severity: 'critical',
+        sheet: (u.sheets || []).join(', '), field: 'customer', value: u.raw, rowIdx: -1,
+        detail: `"${u.raw}" เหลือแค่คำนำหน้า (${u.count} แถว) — ต้องกลับไปกรอกชื่อจริง`,
+      }));
+      const newCust = (u, kind) => out.push({
+        id: excId(['recon-new', u.label || u.raw]),
+        type: 'recon-newcustomer', typeLabel: 'ลูกค้าใหม่ (ยังไม่มีใน Customer_Master)', source: 'entity', severity: 'info',
+        sheet: (u.sheets || []).join(', '), field: 'customer', value: u.label || u.raw, rowIdx: -1,
+        detail: kind === 'cluster'
+          ? `กลุ่มชื่อคล้ายกัน ${u.memberCount} รูปแบบ · ${u.rowCount} แถว — ควรเพิ่มใน Customer_Master`
+          : `"${u.raw}" (${u.count} แถว) — ยังไม่มีใน Customer_Master`,
+      });
+      (rec.unresolvedClusters || []).forEach(c => newCust(c, 'cluster'));
+      (rec.unresolvedSingletons || []).forEach(u => newCust(u, 'single'));
+    }
+    const dup = rep.duplicates;
+    if (dup) {
+      (dup.items || []).forEach(it => out.push({
+        id: excId(['dup', it.dataset, (it.values || []).join('~')]),
+        type: 'duplicate-row', typeLabel: 'แถวซ้ำ (ไม่นับในยอดรวม)', source: 'duplicate', severity: 'warning',
+        sheet: it.dataset, field: (it.fields || []).join('+'), value: (it.values || []).join(' · '), rowIdx: -1,
+        detail: `พบซ้ำ ${it.occurrences} ครั้ง (คีย์: ${(it.values || []).join(' · ')}) — เก็บแถวแรก ที่เหลือไม่ถูกนับยอด`,
+      }));
+    }
+    out.forEach(e => { e.status = excGet(e.id); });
+    return out;
+  }
+  function renderExceptionQueue() {
+    const h = host('dqExceptionHost'); if (!h) return;
+    const all = collectExceptions();
+    if (!all.length) { h.innerHTML = ''; return; }
+    const f = STATE.excFilter;
+    const openAll = all.filter(e => e.status === 'open');
+    const sevN = s => openAll.filter(e => e.severity === s).length;
+    const statusCount = st => all.filter(e => e.status === st).length;
+
+    const shownAll = all.filter(e =>
+      (f.status === 'all' || e.status === f.status) &&
+      (f.source === 'all' || e.source === f.source) &&
+      (f.severity === 'all' || e.severity === f.severity));
+    const cap = CFG.MAX_RENDER_ISSUES || 300;
+    const shown = shownAll.slice(0, cap);
+
+    const sevRank = { critical: 0, warning: 1, info: 2 };
+    shown.sort((a, b) => (sevRank[a.severity] - sevRank[b.severity]) || a.source.localeCompare(b.source));
+
+    const statusPill = (key, label) => {
+      const n = key === 'all' ? all.length : statusCount(key);
+      const on = f.status === key;
+      return `<button class="dq-exc-pill${on ? ' on' : ''}" data-exc-fstatus="${key}">${label} <span class="dq-exc-pill-n">${fmtInt(n)}</span></button>`;
+    };
+    const srcOpts = ['all', 'rule', 'entity', 'duplicate'].map(s =>
+      `<option value="${s}"${f.source === s ? ' selected' : ''}>${s === 'all' ? 'ทุกแหล่ง' : s === 'rule' ? 'กฎธุรกิจ' : s === 'entity' ? 'ชื่อลูกค้า (5.1)' : 'แถวซ้ำ (5.3)'}</option>`).join('');
+    const sevOpts = ['all', 'critical', 'warning', 'info'].map(s =>
+      `<option value="${s}"${f.severity === s ? ' selected' : ''}>${s === 'all' ? 'ทุกระดับ' : s}</option>`).join('');
+
+    const rows = shown.map((e, i) => {
+      const actionable = e.rowIdx != null && e.rowIdx >= 0 && e.tIdx != null;
+      const acts = e.status === 'open'
+        ? `<button class="dq-exc-btn" data-exc-set="ack" data-exc-i="${i}">รับทราบ</button>
+           <button class="dq-exc-btn ok" data-exc-set="resolved" data-exc-i="${i}">แก้แล้ว</button>
+           <button class="dq-exc-btn mute" data-exc-set="ignored" data-exc-i="${i}">ข้าม</button>`
+        : `<span class="badge ${e.status === 'resolved' ? 'badge-partial' : e.status === 'ignored' ? 'badge-partial' : 'badge-pending'}">${EXC_STATUS_LABEL[e.status]}</span>
+           <button class="dq-exc-btn" data-exc-set="open" data-exc-i="${i}">คืนค่า</button>`;
+      return `<tr${actionable ? ` data-exc-drill="${i}" style="cursor:pointer;"` : ''}>
+        <td>${sevBadge(e.severity)}</td>
+        <td>${esc(e.typeLabel)}</td>
+        <td>${esc(e.sheet) || '—'}</td>
+        <td>${esc(e.field) || '—'}</td>
+        <td>${esc(e.detail)}</td>
+        <td class="dq-exc-acts">${acts}</td>
+      </tr>`;
+    }).join('');
+
+    const note = shownAll.length > shown.length
+      ? `<div style="padding:8px 12px;color:var(--text-muted);font-size:11.5px">แสดง ${fmtInt(shown.length)} จาก ${fmtInt(shownAll.length)} รายการ — ใช้ตัวกรองเพื่อลดขอบเขต</div>` : '';
+
+    h.innerHTML = `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div>
+          <div class="card-title">Exception Queue · คิวรายการที่ต้องจัดการ</div>
+          <div class="card-subtitle">รวมทุก exception จากกฎธุรกิจ · การจับคู่ชื่อลูกค้า (5.1) · แถวซ้ำ (5.3) — ไล่จัดการทีละรายการ สถานะถูกจำไว้</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--text-dim)">
+          ยังไม่จัดการ <strong style="color:var(--critical)">${fmtInt(openAll.length)}</strong><br>
+          <span style="font-size:11px">🔴 ${fmtInt(sevN('critical'))} · 🟡 ${fmtInt(sevN('warning'))} · 🔵 ${fmtInt(sevN('info'))}</span>
+        </div></div>
+
+        <div class="dq-exc-bar">
+          ${statusPill('open', 'ยังไม่จัดการ')}${statusPill('ack', 'รับทราบ')}${statusPill('resolved', 'แก้แล้ว')}${statusPill('ignored', 'ข้าม')}${statusPill('all', 'ทั้งหมด')}
+          <span class="dq-exc-spacer"></span>
+          <select class="dq-exc-sel" data-exc-fsource>${srcOpts}</select>
+          <select class="dq-exc-sel" data-exc-fseverity>${sevOpts}</select>
+        </div>
+
+        ${shownAll.length ? `<div class="table-wrap" style="max-height:460px;"><table class="data-table"><thead><tr>
+          <th>ระดับ</th><th>ประเภท</th><th>Sheet</th><th>Field</th><th>รายละเอียด</th><th>จัดการ</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>${note}`
+        : '<div class="empty-state">ไม่มีรายการในสถานะ/ตัวกรองที่เลือก ✓</div>'}
+      </div>`;
+
+    h.onclick = (e2) => {
+      const setBtn = e2.target.closest('[data-exc-set]');
+      if (setBtn) {
+        e2.stopPropagation();
+        const it = shown[+setBtn.dataset.excI]; if (!it) return;
+        excSet(it.id, setBtn.dataset.excSet);
+        renderExceptionQueue();
+        try { renderHealth(); } catch (e) {}
+        return;
+      }
+      const pill = e2.target.closest('[data-exc-fstatus]');
+      if (pill) { STATE.excFilter.status = pill.dataset.excFstatus; renderExceptionQueue(); return; }
+      const dr = e2.target.closest('[data-exc-drill]');
+      if (dr) { const it = shown[+dr.dataset.excDrill]; if (it && it.rowIdx >= 0) drillRecord(it.tIdx, it.rowIdx); }
+    };
+    h.onchange = (e2) => {
+      const src = e2.target.closest('[data-exc-fsource]');
+      if (src) { STATE.excFilter.source = src.value; renderExceptionQueue(); return; }
+      const sev = e2.target.closest('[data-exc-fseverity]');
+      if (sev) { STATE.excFilter.severity = sev.value; renderExceptionQueue(); }
+    };
+  }
+
   function render() {
     const pane = document.getElementById('tab-dq');
     if (!pane || !pane.classList.contains('active')) return;
     try { ensureComputed(); } catch (e) { console.warn('DQ compute failed:', e); }
     try { ensureSearchCard(); } catch (e) {}
     try { renderHealth(); } catch (e) {}
+    try { renderExceptionQueue(); } catch (e) {}
     try { renderConfidence(); } catch (e) {}
     try { renderReconcile(); } catch (e) {}
     try { renderDuplicates(); } catch (e) {}
