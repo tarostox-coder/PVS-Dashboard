@@ -1504,9 +1504,9 @@
   --text: #1C2C3B;          /* dark navy ink — high contrast on light cards */
   --text-dim: #47566A;
   --text-muted: #6C7C8E;
-  --cyan: #1F9E8F;
-  --cyan-bright: #17B3A0;
-  --cyan-glow: rgba(31, 158, 143, 0.12);
+  --cyan: #07A3B2;
+  --cyan-bright: #12BFA0;
+  --cyan-glow: rgba(7, 163, 178, 0.12);
   --solar: #F5A623;
   --critical: #EF5B5B;
   --warning: #F5A623;
@@ -1538,71 +1538,73 @@
   background: rgba(235, 243, 251, 0.72);
   border-bottom: 1px solid var(--border);
 }
-/* ---- SolarPulse: solar-photo canvas + floating glass app panel (Option B) ---- */
+/* ---- POWER VAULT — teal->green brand canvas (#07A3B2 -> #D9ECC7) + floating glass ---- */
 .solar-bg { display: none; }
 [data-theme="light"] .solar-bg { display: block; position: fixed; inset: 0; z-index: -2; pointer-events: none; }
 [data-theme="light"] .solar-bg svg { width: 100%; height: 100%; display: block; }
-[data-theme="light"] body { background: #17605E; }   /* teal fallback under the SVG */
+[data-theme="light"] body { background: #0E9AA0; }
 
-/* Floating app shell: sidebar + main are rounded glass sheets over the scene */
+/* Sidebar = teal->green gradient menu (Jualin style, brand green) */
 [data-theme="light"] .sidebar {
-  inset: 14px auto 14px 14px;
-  border-radius: 26px;
-  border: 1px solid rgba(255,255,255,0.65);
-  background: rgba(255, 255, 255, 0.90);
-  box-shadow: 0 24px 60px rgba(8, 36, 74, 0.28);
+  inset: 14px auto 14px 14px; border-radius: 26px;
+  border: 1px solid rgba(255,255,255,0.20);
+  background: linear-gradient(172deg, #07A3B2 0%, #14AC93 52%, #45BE7E 100%);
+  box-shadow: 0 24px 60px rgba(6, 60, 66, 0.34);
 }
+[data-theme="light"] .sidebar .brand-name { color: #fff; }
+[data-theme="light"] .sidebar .brand-sub { color: rgba(255,255,255,0.72); }
+[data-theme="light"] .tab-btn { color: rgba(255,255,255,0.88); border-radius: 12px; margin: 2px 10px; font-weight: 600; }
+[data-theme="light"] .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.15); }
+[data-theme="light"] .tab-btn.active {
+  color: #0B6E63; background: #ffffff; box-shadow: 0 8px 18px rgba(6,60,66,0.22);
+  border-bottom-color: transparent; font-weight: 700;
+}
+[data-theme="light"] .tab-btn-num { background: rgba(255,255,255,0.22); color: rgba(255,255,255,0.92); }
+[data-theme="light"] .tab-btn.active .tab-btn-num { background: rgba(11,110,99,0.12); color: #0B6E63; }
+[data-theme="light"] .sidebar-collapse { color: rgba(255,255,255,0.9); }
+[data-theme="light"] .sidebar-section-label { color: rgba(255,255,255,0.62); }
+
 [data-theme="light"] .app-main {
   margin: 14px 14px 14px calc(var(--sidebar-w) + 24px);
-  background: rgba(247, 251, 250, 0.86);
-  backdrop-filter: blur(26px) saturate(1.3);
-  -webkit-backdrop-filter: blur(26px) saturate(1.35);
-  border: 1px solid rgba(255,255,255,0.65);
-  border-radius: 26px;
-  overflow: clip;
-  box-shadow: 0 24px 60px rgba(8, 36, 74, 0.28);
-  min-height: calc(100vh - 28px);
+  background: rgba(248, 252, 251, 0.90);
+  backdrop-filter: blur(24px) saturate(1.3); -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,0.6); border-radius: 26px; overflow: clip;
+  box-shadow: 0 24px 60px rgba(6, 60, 66, 0.30); min-height: calc(100vh - 28px);
 }
-[data-theme="light"] .topbar { border-radius: 26px 26px 0 0; }
+[data-theme="light"] .topbar { border-radius: 26px 26px 0 0; background: rgba(247,252,251,0.6); backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); }
 
-/* iOS/macOS frosted glass cards (slightly more opaque for readability on glass) */
+/* Frosted glass content cards + click affordance everywhere */
 [data-theme="light"] .card,
 [data-theme="light"] .kpi-mini,
-[data-theme="light"] .qstat,
 [data-theme="light"] .dept-card,
 [data-theme="light"] .home-status-strip,
 [data-theme="light"] .analytics-card {
-  background: rgba(255, 255, 255, 0.90);
-  backdrop-filter: blur(20px) saturate(1.25);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, 0.75);
-  border-radius: 22px;
-  box-shadow: 0 8px 26px rgba(18, 48, 88, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.93);
+  backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.82); border-radius: 22px;
+  box-shadow: 0 8px 24px rgba(10, 70, 74, 0.10), inset 0 1px 0 rgba(255,255,255,0.6);
 }
-[data-theme="light"] .topbar { backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); background: rgba(244,250,255,0.55); }
+[data-theme="light"] .card.clickable, [data-theme="light"] .card[onclick],
+[data-theme="light"] .kpi-mini, [data-theme="light"] .dept-card, [data-theme="light"] .qstat,
+[data-theme="light"] .card.clickable *, [data-theme="light"] .card[onclick] * { cursor: pointer; }
+[data-theme="light"] .card, [data-theme="light"] .kpi-mini, [data-theme="light"] .dept-card { transition: transform .16s ease, box-shadow .2s ease; }
+[data-theme="light"] .card.clickable:hover, [data-theme="light"] .card[onclick]:hover,
+[data-theme="light"] .kpi-mini:hover, [data-theme="light"] .dept-card:hover {
+  transform: translateY(-3px); box-shadow: 0 18px 44px rgba(10,70,74,0.18);
+}
 
-/* Bigger, bolder KPI type + sparkline slot (SolarPulse stat-card anatomy) */
+/* KPI STAT TILES — vivid gradient cards (Jualin style) + white bold number + white sparkline */
 .qstat { position: relative; }
-[data-theme="light"] .qstat .qstat-value { font-size: 33px; font-weight: 800; letter-spacing: -0.02em; }
-[data-theme="light"] .qstat .qstat-label { font-size: 14px; font-weight: 700; }
-[data-theme="light"] .qstat .qstat-meta { font-size: 12px; }
-.qstat-spark { position: absolute; right: 14px; bottom: 12px; width: 86px; height: 30px; opacity: .95; pointer-events: none; }
-
-/* Convert the vibrant gradient KPI tiles → SolarPulse white-glass tiles:
-   soft card, small colour-tinted icon, dark number. */
-[data-theme="light"] .qstat.cyan,
-[data-theme="light"] .qstat.success,
-[data-theme="light"] .qstat.warning,
-[data-theme="light"] .qstat.critical { background: rgba(255, 255, 255, 0.66); border-left: none; }
-[data-theme="light"] .qstat::after { display: none; }
-[data-theme="light"] .qstat .qstat-label { color: var(--text-dim); }
-[data-theme="light"] .qstat .qstat-value { color: var(--text); }
-[data-theme="light"] .qstat .qstat-meta { color: var(--text-muted); }
-[data-theme="light"] .qstat .qstat-icon { box-shadow: none; width: 42px; height: 42px; }
-[data-theme="light"] .qstat.cyan .qstat-icon     { background: rgba(76,141,245,0.16) !important; color: var(--info) !important; }
-[data-theme="light"] .qstat.success .qstat-icon  { background: rgba(52,168,83,0.16) !important; color: var(--success) !important; }
-[data-theme="light"] .qstat.warning .qstat-icon  { background: rgba(245,166,35,0.18) !important; color: var(--solar) !important; }
-[data-theme="light"] .qstat.critical .qstat-icon { background: rgba(239,91,91,0.16) !important; color: var(--critical) !important; }
+[data-theme="light"] .qstat { border-radius: 22px; box-shadow: 0 12px 30px rgba(10,70,74,0.18); border: none; }
+[data-theme="light"] .qstat.cyan     { background: linear-gradient(140deg, #16BFCB 0%, #0787A8 100%); }
+[data-theme="light"] .qstat.success  { background: linear-gradient(140deg, #37C58D 0%, #12946A 100%); }
+[data-theme="light"] .qstat.warning  { background: linear-gradient(140deg, #F7B44D 0%, #EF893B 100%); }
+[data-theme="light"] .qstat.critical { background: linear-gradient(140deg, #FC7F8F 0%, #E85C6A 100%); }
+[data-theme="light"] .qstat .qstat-label { color: rgba(255,255,255,0.94); font-size: 14px; font-weight: 700; }
+[data-theme="light"] .qstat .qstat-value { color: #fff; font-size: 37px; font-weight: 800; letter-spacing: -0.02em; }
+[data-theme="light"] .qstat .qstat-meta { color: rgba(255,255,255,0.86); font-size: 12px; }
+[data-theme="light"] .qstat .qstat-icon { background: rgba(255,255,255,0.26) !important; color: #fff !important; box-shadow: none; width: 44px; height: 44px; }
+.qstat-spark { position: absolute; right: 14px; bottom: 12px; width: 94px; height: 32px; opacity: .95; pointer-events: none; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -3644,8 +3646,8 @@ input[type="file"] { display: none; }
 <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
  <defs>
   <linearGradient id="sbSky" x1="0" y1="0" x2="0" y2="1">
-   <stop offset="0" stop-color="#0E3A4E"/><stop offset=".30" stop-color="#155E63"/>
-   <stop offset=".55" stop-color="#218C6C"/><stop offset=".78" stop-color="#37A86C"/><stop offset="1" stop-color="#4FBE74"/>
+   <stop offset="0" stop-color="#07A3B2"/><stop offset=".34" stop-color="#22B49E"/>
+   <stop offset=".62" stop-color="#5FC79A"/><stop offset="1" stop-color="#D9ECC7"/>
   </linearGradient>
   <linearGradient id="sbCity" x1="0" y1="0" x2="0" y2="1">
    <stop offset="0" stop-color="#1D7E86"/><stop offset="1" stop-color="#12545F"/></linearGradient>
@@ -3655,7 +3657,7 @@ input[type="file"] { display: none; }
    <stop offset="0" stop-color="#EAFBF3"/><stop offset=".3" stop-color="#CDEFE0" stop-opacity=".85"/><stop offset="1" stop-color="#CDEFE0" stop-opacity="0"/></radialGradient>
  </defs>
  <rect width="1440" height="900" fill="url(#sbSky)"/>
- <circle cx="1160" cy="150" r="220" fill="url(#sbMoon)"/><circle cx="1160" cy="150" r="52" fill="#F2FCF6"/>
+ <circle cx="1180" cy="140" r="230" fill="url(#sbMoon)"/><circle cx="1180" cy="140" r="56" fill="#FBFFF4"/>
  <g fill="#EAF9F1"><circle cx="180" cy="90" r="2.4"/><circle cx="300" cy="150" r="1.8"/><circle cx="440" cy="80" r="2.2"/><circle cx="560" cy="170" r="1.6"/><circle cx="700" cy="110" r="2.3"/><circle cx="850" cy="70" r="1.9"/><circle cx="980" cy="160" r="2"/><circle cx="250" cy="220" r="1.7"/><circle cx="620" cy="240" r="1.6"/><circle cx="90" cy="180" r="2"/></g>
  <!-- distant hills -->
  <path d="M0 560 Q360 470 720 545 T1440 520 V900 H0 Z" fill="#1C7E6E" opacity=".5"/>
@@ -5127,16 +5129,16 @@ function renderExec() {
   };
   const tiles = [
     { cls: 'cyan', label: 'Revenue MTD', value: '฿' + fmtMoney(totalRev), meta: `${g.pct.toFixed(0)}% ของเป้า ฿${fmtCurrency(g.target)}`,
-      spark: _spark(_series.rev, getCSSVar('--info') || '#4C8DF5'),
+      spark: _spark(_series.rev, 'rgba(255,255,255,0.95)'),
       svg: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', drill: () => cardClick('cardGauge') },
     { cls: 'success', label: 'Collection Rate', value: collRate.toFixed(1) + '%', meta: `เก็บแล้ว ฿${fmtCurrency(collected)}`,
-      spark: _spark(_series.coll, getCSSVar('--success') || '#34A853'),
+      spark: _spark(_series.coll, 'rgba(255,255,255,0.95)'),
       svg: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>', drill: () => cardClick('cardCashflow') },
     { cls: 'warning', label: 'SLA / Uptime', value: slaAvg != null ? slaAvg.toFixed(1) + '%' : 'ไม่มีข้อมูล', meta: `${activeC} สัญญา Active`,
-      spark: _spark(_series.alarm, getCSSVar('--solar') || '#F5A623'),
+      spark: _spark(_series.alarm, 'rgba(255,255,255,0.95)'),
       svg: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', drill: () => switchTab('om') },
     { cls: 'critical', label: 'Revenue at Risk', value: '฿' + fmtMoney(revAtRisk), meta: `Loss + Overdue`,
-      spark: _spark(_series.over, getCSSVar('--critical') || '#EF5B5B'),
+      spark: _spark(_series.over, 'rgba(255,255,255,0.95)'),
       svg: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', drill: () => cardClick('cardRevLoss') },
   ];
   document.getElementById('execHero').innerHTML = '<div class="quick-stats" style="margin-top:14px;">' + tiles.map((t, i) => `
