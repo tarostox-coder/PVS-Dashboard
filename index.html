@@ -1491,78 +1491,55 @@
 }
 
 [data-theme="light"] {
-  /* Reference "Project Management Dashboard" — deep teal→green canvas, white
-     floating cards, orange/teal/navy chart palette, bold money numbers. */
-  --bg: #0C3B39;
-  --bg-grad: linear-gradient(135deg, #0A302E 0%, #114C43 46%, #1C6E4B 100%);
+  /* Reference "SolarPulse" — light, airy, frosted-glass solar dashboard.
+     Soft blue-white canvas, white cards, DARK readable ink, solar accents
+     (blue · teal · amber · green). */
+  --bg: #E7F0F9;
+  --bg-grad: linear-gradient(160deg, #EBF3FB 0%, #E3EDF6 48%, #E8F1EC 100%);
   --card: #FFFFFF;
-  --card-elev: #EEF4F3;
-  --card-hover: #F6FBFA;
-  --border: rgba(18, 46, 46, 0.10);
-  --border-bright: rgba(23, 163, 152, 0.40);
-  --text: #17262F;
-  --text-dim: #55656F;
-  --text-muted: #8593A0;
-  /* light ink for text that sits directly on the dark canvas (not in a card) */
-  --ink-on-bg: #EAF5F1;
-  --ink-on-bg-dim: rgba(233, 245, 241, 0.72);
-  --sidebar-bg: rgba(8, 40, 38, 0.62);
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --cyan: #12A093;
-  --cyan-bright: #16B9A8;
-  --cyan-glow: rgba(23, 163, 152, 0.12);
+  --card-elev: #F3F8FC;
+  --card-hover: #F9FBFE;
+  --border: rgba(28, 58, 92, 0.10);
+  --border-bright: rgba(76, 141, 245, 0.32);
+  --text: #1C2C3B;          /* dark navy ink — high contrast on light cards */
+  --text-dim: #566577;
+  --text-muted: #8FA0B1;
+  --cyan: #1F9E8F;
+  --cyan-bright: #17B3A0;
+  --cyan-glow: rgba(31, 158, 143, 0.12);
   --solar: #F5A623;
-  --critical: #E8615B;
+  --critical: #EF5B5B;
   --warning: #F5A623;
-  --success: #38B27A;
-  --info: #5B8DB8;
-  --purple: #6B7CE6;
-  --grid-line: rgba(18, 46, 46, 0.07);
-  /* categorical chart palette (reference: orange · teal · navy · steel) */
-  --bu-solar: #5B8DB8;
-  --bu-cleaning: #38B27A;
+  --success: #34A853;
+  --info: #4C8DF5;
+  --purple: #8B7FD6;
+  --grid-line: rgba(28, 58, 92, 0.06);
+  /* solar categorical palette: blue · teal · amber · green */
+  --bu-solar: #4C8DF5;
+  --bu-cleaning: #2FB08A;
   --bu-om: #F5A623;
-  --bu-permit: #6B7CE6;
-  --card-shadow: 0 8px 22px rgba(4, 24, 22, 0.16);
+  --bu-permit: #8B7FD6;
+  --card-shadow: 0 1px 2px rgba(20, 44, 74, 0.05), 0 12px 28px rgba(20, 44, 74, 0.07);
   --card-radius: 18px;
 }
-/* --- Reference theme: text sitting on the dark canvas turns light --- */
+/* SolarPulse light theme — soft frosted sidebar + left-accent active pill */
 [data-theme="light"] .sidebar {
-  background: var(--sidebar-bg);
-  backdrop-filter: blur(14px);
-  border-right: 1px solid var(--sidebar-border);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px);
+  border-right: 1px solid var(--border);
 }
-[data-theme="light"] .sidebar .brand-name { color: #FFFFFF; }
-[data-theme="light"] .sidebar .brand-sub { color: var(--ink-on-bg-dim); }
-[data-theme="light"] .sidebar-section-label,
-[data-theme="light"] .sidebar .menu-label { color: rgba(233,245,241,0.5); }
-[data-theme="light"] .tab-btn { color: var(--ink-on-bg-dim); border-radius: 10px; }
-[data-theme="light"] .tab-btn:hover { color: #FFFFFF; background: rgba(255,255,255,0.06); }
+[data-theme="light"] .tab-btn { border-radius: 10px; margin: 1px 8px; padding-left: 14px; }
+[data-theme="light"] .tab-btn:hover { background: rgba(76, 141, 245, 0.07); }
 [data-theme="light"] .tab-btn.active {
-  color: #FFFFFF; background: rgba(23,163,152,0.28);
-  border-bottom-color: transparent; box-shadow: inset 0 0 0 1px rgba(45,211,192,0.35);
+  color: var(--cyan); background: var(--cyan-glow);
+  border-bottom-color: transparent; box-shadow: inset 3px 0 0 var(--cyan);
 }
-[data-theme="light"] .tab-btn-num { background: rgba(255,255,255,0.10); color: var(--ink-on-bg-dim); }
-[data-theme="light"] .sidebar-collapse { color: var(--ink-on-bg-dim); }
-[data-theme="light"] .page-title { color: #FFFFFF; }
-[data-theme="light"] .page-subtitle { color: var(--ink-on-bg-dim); }
-[data-theme="light"] .tab-section-title { color: #FFFFFF; }
-[data-theme="light"] .section-bar .section-title { color: #FFFFFF; }
-[data-theme="light"] .section-bar .section-sub { color: var(--ink-on-bg-dim); }
-[data-theme="light"] .section-bar .section-num { background: rgba(255,255,255,0.12); color: #FFFFFF; }
 [data-theme="light"] .topbar {
-  background: color-mix(in srgb, #0A302E 70%, transparent);
-  border-bottom: 1px solid var(--sidebar-border);
+  background: rgba(235, 243, 251, 0.72);
+  border-bottom: 1px solid var(--border);
 }
-[data-theme="light"] .topbar-search input { color: var(--text); }
-[data-theme="light"] .month-indicator { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.16); }
-[data-theme="light"] .month-indicator .month-indicator-value { color: #FFFFFF; }
-[data-theme="light"] .month-indicator svg { color: var(--cyan-bright); }
-[data-theme="light"] .home-status-strip { background: rgba(255,255,255,0.07); border-color: var(--sidebar-border); }
-[data-theme="light"] .home-status-strip .hss-label { color: var(--ink-on-bg-dim); }
-[data-theme="light"] .hss-sep { background: rgba(255,255,255,0.14); }
-[data-theme="light"] .tip-bar, [data-theme="light"] .tip-strip {
-  background: rgba(255,255,255,0.07); border-color: var(--sidebar-border); color: var(--ink-on-bg-dim);
+[data-theme="light"] .card, [data-theme="light"] .kpi-mini {
+  border-color: rgba(28, 58, 92, 0.08);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
