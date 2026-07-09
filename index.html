@@ -1538,28 +1538,55 @@
   background: rgba(235, 243, 251, 0.72);
   border-bottom: 1px solid var(--border);
 }
-/* ---- SolarPulse: ambient solar background + frosted-glass cards ---- */
+/* ---- SolarPulse: solar-photo canvas + floating glass app panel (Option B) ---- */
 .solar-bg { display: none; }
-[data-theme="light"] .solar-bg { display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+[data-theme="light"] .solar-bg { display: block; position: fixed; inset: 0; z-index: -2; pointer-events: none; }
 [data-theme="light"] .solar-bg svg { width: 100%; height: 100%; display: block; }
-[data-theme="light"] body { background: #DCE9F3; }   /* fallback under the SVG */
+[data-theme="light"] body { background: #4E90CF; }   /* fallback under the SVG */
 
-/* iOS/macOS-style frosted glass on every surface */
+/* Floating app shell: sidebar + main are rounded glass sheets over the scene */
+[data-theme="light"] .sidebar {
+  inset: 14px auto 14px 14px;
+  border-radius: 26px;
+  border: 1px solid rgba(255,255,255,0.65);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 24px 60px rgba(8, 36, 74, 0.28);
+}
+[data-theme="light"] .app-main {
+  margin: 14px 14px 14px calc(var(--sidebar-w) + 24px);
+  background: rgba(244, 250, 255, 0.60);
+  backdrop-filter: blur(26px) saturate(1.35);
+  -webkit-backdrop-filter: blur(26px) saturate(1.35);
+  border: 1px solid rgba(255,255,255,0.65);
+  border-radius: 26px;
+  overflow: clip;
+  box-shadow: 0 24px 60px rgba(8, 36, 74, 0.28);
+  min-height: calc(100vh - 28px);
+}
+[data-theme="light"] .topbar { border-radius: 26px 26px 0 0; }
+
+/* iOS/macOS frosted glass cards (slightly more opaque for readability on glass) */
 [data-theme="light"] .card,
 [data-theme="light"] .kpi-mini,
 [data-theme="light"] .qstat,
 [data-theme="light"] .dept-card,
 [data-theme="light"] .home-status-strip,
 [data-theme="light"] .analytics-card {
-  background: rgba(255, 255, 255, 0.66);
-  backdrop-filter: blur(22px) saturate(1.25);
-  -webkit-backdrop-filter: blur(22px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 22px;
-  box-shadow: 0 10px 34px rgba(18, 48, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow: 0 8px 26px rgba(18, 48, 88, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
-[data-theme="light"] .sidebar { border-right: 1px solid rgba(255,255,255,0.5); }
-[data-theme="light"] .topbar { backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); }
+[data-theme="light"] .topbar { backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); background: rgba(244,250,255,0.55); }
+
+/* Bigger, bolder KPI type + sparkline slot (SolarPulse stat-card anatomy) */
+.qstat { position: relative; }
+[data-theme="light"] .qstat .qstat-value { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+[data-theme="light"] .qstat .qstat-label { font-size: 13px; font-weight: 600; }
+[data-theme="light"] .qstat .qstat-meta { font-size: 12px; }
+.qstat-spark { position: absolute; right: 14px; bottom: 12px; width: 86px; height: 30px; opacity: .95; pointer-events: none; }
 
 /* Convert the vibrant gradient KPI tiles → SolarPulse white-glass tiles:
    soft card, small colour-tinted icon, dark number. */
@@ -3617,29 +3644,33 @@ input[type="file"] { display: none; }
 <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
  <defs>
   <linearGradient id="sbSky" x1="0" y1="0" x2="0" y2="1">
-   <stop offset="0" stop-color="#5E9FD4"/><stop offset=".42" stop-color="#9EC6E6"/>
-   <stop offset=".72" stop-color="#C7E1DE"/><stop offset="1" stop-color="#D6EAD1"/>
+   <stop offset="0" stop-color="#2E6FBD"/><stop offset=".38" stop-color="#5FA0DC"/>
+   <stop offset=".62" stop-color="#A8CFEA"/><stop offset=".78" stop-color="#DCEDF2"/>
   </linearGradient>
   <linearGradient id="sbP" x1="0" y1="0" x2="0" y2="1">
-   <stop offset="0" stop-color="#1f579a"/><stop offset="1" stop-color="#0c2b57"/>
+   <stop offset="0" stop-color="#2C6BB5"/><stop offset=".5" stop-color="#173E7E"/><stop offset="1" stop-color="#0D2450"/>
   </linearGradient>
   <radialGradient id="sbSun" cx=".5" cy=".5" r=".5">
-   <stop offset="0" stop-color="#FFF7D6" stop-opacity=".95"/><stop offset="1" stop-color="#FFF7D6" stop-opacity="0"/>
+   <stop offset="0" stop-color="#FFFBE8"/><stop offset=".25" stop-color="#FFF3C4" stop-opacity=".9"/><stop offset="1" stop-color="#FFF3C4" stop-opacity="0"/>
   </radialGradient>
-  <pattern id="sbCells" width="32" height="21" patternUnits="userSpaceOnUse">
-   <rect width="32" height="21" fill="url(#sbP)"/>
-   <rect x="1" y="1" width="30" height="19" fill="none" stroke="#4886c4" stroke-width="1.1"/>
+  <pattern id="sbCells" width="34" height="22" patternUnits="userSpaceOnUse">
+   <rect width="34" height="22" fill="url(#sbP)"/>
+   <rect x="1.2" y="1.2" width="31.6" height="19.6" fill="none" stroke="#7FB6EE" stroke-width="1.3" opacity=".85"/>
+   <path d="M2 4 L30 2" stroke="#BFE0FF" stroke-width="1" opacity=".35"/>
   </pattern>
  </defs>
- <rect width="1440" height="900" fill="url(#sbSky)"/>
- <circle cx="1200" cy="120" r="210" fill="url(#sbSun)"/>
- <ellipse cx="320" cy="120" rx="140" ry="26" fill="#fff" opacity=".30"/>
- <ellipse cx="560" cy="78" rx="96" ry="18" fill="#fff" opacity=".22"/>
- <ellipse cx="980" cy="150" rx="110" ry="20" fill="#fff" opacity=".18"/>
- <g transform="translate(120,470) rotate(-4)"><rect x="0" y="0" width="1320" height="150" fill="url(#sbCells)" stroke="#0c2b57" stroke-width="4" rx="6"/></g>
- <g transform="translate(60,652) rotate(-3)"><rect x="0" y="0" width="1440" height="176" fill="url(#sbCells)" stroke="#0c2b57" stroke-width="4" rx="6"/></g>
- <rect x="0" y="856" width="1440" height="46" fill="#7FB56A" opacity=".5"/>
+ <rect width="1440" height="760" fill="url(#sbSky)"/>
+ <circle cx="1150" cy="130" r="260" fill="url(#sbSun)"/>
+ <circle cx="1150" cy="130" r="58" fill="#FFF9DF"/>
+ <g fill="#fff"><ellipse cx="300" cy="120" rx="150" ry="30" opacity=".85"/><ellipse cx="390" cy="102" rx="90" ry="24" opacity=".8"/>
+ <ellipse cx="640" cy="70" rx="110" ry="22" opacity=".65"/><ellipse cx="930" cy="180" rx="130" ry="24" opacity=".55"/>
+ <ellipse cx="120" cy="230" rx="100" ry="18" opacity=".45"/></g>
+ <rect x="0" y="600" width="1440" height="300" fill="#79B061"/>
+ <rect x="0" y="600" width="1440" height="40" fill="#8FC474"/>
+ <g transform="translate(-40,432) rotate(-5)"><rect width="1560" height="170" fill="url(#sbCells)" stroke="#0D2450" stroke-width="5" rx="4"/><rect y="166" width="1560" height="10" fill="#5A6B7E"/></g>
+ <g transform="translate(-60,640) rotate(-4)"><rect width="1620" height="215" fill="url(#sbCells)" stroke="#0D2450" stroke-width="5" rx="4"/><rect y="211" width="1620" height="12" fill="#4E5E70"/></g>
 </svg>
+</div>
 </div>
 <div class="deco-ring"></div>
 <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -5057,14 +5088,54 @@ function renderExec() {
   }
 
   /* ---- 4 full-color hero tiles (reuse .quick-stats / .qstat styling) ---- */
+  // SolarPulse sparklines — REAL per-month series from Revenue_Actual / Alarm
+  // (last 6 dated months): revenue, collection %, overdue ฿, alarm count.
+  const _ms = {};
+  (DATA.revenue_actual || []).forEach(r => {
+    if (r.isDuplicate) return;
+    const m = String(r.billingDate || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(m)) return;
+    (_ms[m] || (_ms[m] = { rev: 0, paid: 0, over: 0 }));
+    _ms[m].rev += r.revenue || 0;
+    if (r.paymentStatus === 'Paid') _ms[m].paid += r.revenue || 0;
+    if (/overdue/i.test(r.paymentStatus || '')) _ms[m].over += r.revenue || 0;
+  });
+  const _alm = {};
+  (DATA.alarm_status || []).forEach(a => {
+    const m = String(a.time || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(m)) _alm[m] = (_alm[m] || 0) + 1;
+  });
+  const _keys = Object.keys(_ms).sort().slice(-6);
+  const _series = {
+    rev:  _keys.map(k => _ms[k].rev),
+    coll: _keys.map(k => _ms[k].rev ? _ms[k].paid / _ms[k].rev * 100 : 0),
+    over: _keys.map(k => _ms[k].over),
+    alarm: Object.keys(_alm).sort().slice(-6).map(k => _alm[k]),
+  };
+  const _spark = (vals, color) => {
+    const v = (vals || []).filter(x => isFinite(x));
+    if (v.length < 2 || !v.some(x => x !== v[0])) return '';
+    const w = 86, h = 30, mx = Math.max(...v), mn = Math.min(...v);
+    const pts = v.map((x, i) => [i * (w / (v.length - 1)), h - 4 - ((x - mn) / ((mx - mn) || 1)) * (h - 9)]);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    return `<svg class="qstat-spark" viewBox="0 0 ${w} ${h}" fill="none">
+      <path d="${d} L${w},${h} L0,${h} Z" fill="${color}" opacity="0.13" stroke="none"/>
+      <path d="${d}" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="2.6" fill="${color}"/>
+    </svg>`;
+  };
   const tiles = [
     { cls: 'cyan', label: 'Revenue MTD', value: '฿' + fmtMoney(totalRev), meta: `${g.pct.toFixed(0)}% ของเป้า ฿${fmtCurrency(g.target)}`,
+      spark: _spark(_series.rev, getCSSVar('--info') || '#4C8DF5'),
       svg: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', drill: () => cardClick('cardGauge') },
     { cls: 'success', label: 'Collection Rate', value: collRate.toFixed(1) + '%', meta: `เก็บแล้ว ฿${fmtCurrency(collected)}`,
+      spark: _spark(_series.coll, getCSSVar('--success') || '#34A853'),
       svg: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>', drill: () => cardClick('cardCashflow') },
     { cls: 'warning', label: 'SLA / Uptime', value: slaAvg != null ? slaAvg.toFixed(1) + '%' : 'ไม่มีข้อมูล', meta: `${activeC} สัญญา Active`,
+      spark: _spark(_series.alarm, getCSSVar('--solar') || '#F5A623'),
       svg: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', drill: () => switchTab('om') },
     { cls: 'critical', label: 'Revenue at Risk', value: '฿' + fmtMoney(revAtRisk), meta: `Loss + Overdue`,
+      spark: _spark(_series.over, getCSSVar('--critical') || '#EF5B5B'),
       svg: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', drill: () => cardClick('cardRevLoss') },
   ];
   document.getElementById('execHero').innerHTML = '<div class="quick-stats" style="margin-top:14px;">' + tiles.map((t, i) => `
@@ -5073,6 +5144,7 @@ function renderExec() {
       <div class="qstat-label">${t.label}</div></div>
       <div class="qstat-value">${t.value}</div>
       <div class="qstat-meta">${t.meta}</div>
+      ${t.spark || ''}
     </div>`).join('') + '</div>';
   document.getElementById('execHero').onclick = (e) => { const el = e.target.closest('[data-exec-tile]'); if (el) tiles[+el.dataset.execTile].drill(); };
 
