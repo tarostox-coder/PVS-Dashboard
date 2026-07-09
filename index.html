@@ -1538,9 +1538,44 @@
   background: rgba(235, 243, 251, 0.72);
   border-bottom: 1px solid var(--border);
 }
-[data-theme="light"] .card, [data-theme="light"] .kpi-mini {
-  border-color: rgba(28, 58, 92, 0.08);
+/* ---- SolarPulse: ambient solar background + frosted-glass cards ---- */
+.solar-bg { display: none; }
+[data-theme="light"] .solar-bg { display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+[data-theme="light"] .solar-bg svg { width: 100%; height: 100%; display: block; }
+[data-theme="light"] body { background: #DCE9F3; }   /* fallback under the SVG */
+
+/* iOS/macOS-style frosted glass on every surface */
+[data-theme="light"] .card,
+[data-theme="light"] .kpi-mini,
+[data-theme="light"] .qstat,
+[data-theme="light"] .dept-card,
+[data-theme="light"] .home-status-strip,
+[data-theme="light"] .analytics-card {
+  background: rgba(255, 255, 255, 0.66);
+  backdrop-filter: blur(22px) saturate(1.25);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 22px;
+  box-shadow: 0 10px 34px rgba(18, 48, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
+[data-theme="light"] .sidebar { border-right: 1px solid rgba(255,255,255,0.5); }
+[data-theme="light"] .topbar { backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); }
+
+/* Convert the vibrant gradient KPI tiles → SolarPulse white-glass tiles:
+   soft card, small colour-tinted icon, dark number. */
+[data-theme="light"] .qstat.cyan,
+[data-theme="light"] .qstat.success,
+[data-theme="light"] .qstat.warning,
+[data-theme="light"] .qstat.critical { background: rgba(255, 255, 255, 0.66); border-left: none; }
+[data-theme="light"] .qstat::after { display: none; }
+[data-theme="light"] .qstat .qstat-label { color: var(--text-dim); }
+[data-theme="light"] .qstat .qstat-value { color: var(--text); }
+[data-theme="light"] .qstat .qstat-meta { color: var(--text-muted); }
+[data-theme="light"] .qstat .qstat-icon { box-shadow: none; width: 42px; height: 42px; }
+[data-theme="light"] .qstat.cyan .qstat-icon     { background: rgba(76,141,245,0.16) !important; color: var(--info) !important; }
+[data-theme="light"] .qstat.success .qstat-icon  { background: rgba(52,168,83,0.16) !important; color: var(--success) !important; }
+[data-theme="light"] .qstat.warning .qstat-icon  { background: rgba(245,166,35,0.18) !important; color: var(--solar) !important; }
+[data-theme="light"] .qstat.critical .qstat-icon { background: rgba(239,91,91,0.16) !important; color: var(--critical) !important; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -3577,6 +3612,35 @@ input[type="file"] { display: none; }
 </head>
 <body>
 
+<!-- SolarPulse ambient background — sky + solar-panel field (light theme only) -->
+<div class="solar-bg" aria-hidden="true">
+<svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <linearGradient id="sbSky" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#5E9FD4"/><stop offset=".42" stop-color="#9EC6E6"/>
+   <stop offset=".72" stop-color="#C7E1DE"/><stop offset="1" stop-color="#D6EAD1"/>
+  </linearGradient>
+  <linearGradient id="sbP" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#1f579a"/><stop offset="1" stop-color="#0c2b57"/>
+  </linearGradient>
+  <radialGradient id="sbSun" cx=".5" cy=".5" r=".5">
+   <stop offset="0" stop-color="#FFF7D6" stop-opacity=".95"/><stop offset="1" stop-color="#FFF7D6" stop-opacity="0"/>
+  </radialGradient>
+  <pattern id="sbCells" width="32" height="21" patternUnits="userSpaceOnUse">
+   <rect width="32" height="21" fill="url(#sbP)"/>
+   <rect x="1" y="1" width="30" height="19" fill="none" stroke="#4886c4" stroke-width="1.1"/>
+  </pattern>
+ </defs>
+ <rect width="1440" height="900" fill="url(#sbSky)"/>
+ <circle cx="1200" cy="120" r="210" fill="url(#sbSun)"/>
+ <ellipse cx="320" cy="120" rx="140" ry="26" fill="#fff" opacity=".30"/>
+ <ellipse cx="560" cy="78" rx="96" ry="18" fill="#fff" opacity=".22"/>
+ <ellipse cx="980" cy="150" rx="110" ry="20" fill="#fff" opacity=".18"/>
+ <g transform="translate(120,470) rotate(-4)"><rect x="0" y="0" width="1320" height="150" fill="url(#sbCells)" stroke="#0c2b57" stroke-width="4" rx="6"/></g>
+ <g transform="translate(60,652) rotate(-3)"><rect x="0" y="0" width="1440" height="176" fill="url(#sbCells)" stroke="#0c2b57" stroke-width="4" rx="6"/></g>
+ <rect x="0" y="856" width="1440" height="46" fill="#7FB56A" opacity=".5"/>
+</svg>
+</div>
 <div class="deco-ring"></div>
 <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
