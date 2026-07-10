@@ -1553,16 +1553,19 @@
 }
 [data-theme="light"] .sidebar .brand-name { color: #fff; }
 [data-theme="light"] .sidebar .brand-sub { color: rgba(255,255,255,0.72); }
-[data-theme="light"] .tab-btn { color: rgba(255,255,255,0.88); border-radius: 12px; margin: 2px 10px; font-weight: 600; }
-[data-theme="light"] .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.15); }
+[data-theme="light"] .tab-btn { color: #FFFFFF; border-radius: 14px; margin: 3px 0 3px 12px; font-size: 15.5px; font-weight: 650; padding: 13px 16px; letter-spacing: 0.01em; }
+[data-theme="light"] .tab-btn svg { width: 21px; height: 21px; opacity: 0.96; }
+[data-theme="light"] .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.18); }
 [data-theme="light"] .tab-btn.active {
-  color: #0B6E63; background: #ffffff; box-shadow: 0 8px 18px rgba(6,60,66,0.22);
-  border-bottom-color: transparent; font-weight: 700;
+  color: #0A7C6E; background: #ffffff; margin-right: 0; border-radius: 18px 0 0 18px;
+  box-shadow: -2px 12px 26px rgba(6,60,66,0.20); border-bottom-color: transparent;
+  font-weight: 800; font-size: 16px; padding-right: 20px;
 }
+[data-theme="light"] .tab-btn.active svg { opacity: 1; }
 [data-theme="light"] .tab-btn-num { background: rgba(255,255,255,0.22); color: rgba(255,255,255,0.92); }
 [data-theme="light"] .tab-btn.active .tab-btn-num { background: rgba(11,110,99,0.12); color: #0B6E63; }
 [data-theme="light"] .sidebar-collapse { color: rgba(255,255,255,0.9); }
-[data-theme="light"] .sidebar-section-label { color: rgba(255,255,255,0.62); }
+[data-theme="light"] .sidebar-section-label { color: rgba(255,255,255,0.78); font-weight: 700; letter-spacing: 0.10em; font-size: 11.5px; }
 
 [data-theme="light"] .app-main {
   margin: 14px 14px 14px calc(var(--sidebar-w) + 24px);
@@ -1639,8 +1642,8 @@ html, body {
 .brand { display: flex; align-items: center; gap: 12px; }
 
 .logo-box {
-  height: 52px;
-  border-radius: 11px;
+  height: 64px;
+  border-radius: 14px;
   background: #FFFFFF;
   display: flex;
   align-items: center;
@@ -2860,7 +2863,7 @@ input[type="file"] { display: none; }
 .sidebar::-webkit-scrollbar { width: 5px; }
 .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-.sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 16px 14px 12px; }
+.sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 18px 14px 14px; }
 .sidebar-brand .logo-box { height: 36px; flex-shrink: 0; }
 .sidebar-brand > div:last-child { min-width: 0; }   /* allow text ellipsis */
 /* Reset the topbar brand-name gradient (white text would vanish on a light sidebar)
@@ -7432,6 +7435,32 @@ function init() {
   // twice would duplicate every handler and stack timers. Idempotent by flag.
   if (window.__dashboardInitDone) return;
   window.__dashboardInitDone = true;
+
+  // "คลิกดูได้ทุกจุด" — every chart is clickable by default. Charts with their
+  // own onClick keep it; the rest open a drill listing the chart's data.
+  if (window.Chart) {
+    Chart.defaults.onHover = (e) => { if (e && e.native && e.native.target) e.native.target.style.cursor = 'pointer'; };
+    Chart.defaults.onClick = function (evt, els, chart) {
+      try {
+        const labels = (chart.data && chart.data.labels) || [];
+        const rows = [];
+        (chart.data.datasets || []).forEach(ds => {
+          (ds.data || []).forEach((v, i) => {
+            const val = (v && typeof v === 'object') ? (v.y != null ? v.y : v.x) : v;
+            rows.push({ s: ds.label || 'ค่า', cat: labels[i] != null ? String(labels[i]) : ('#' + (i + 1)), val });
+          });
+        });
+        if (!rows.length) return;
+        const card = chart.canvas && chart.canvas.closest('.card, .analytics-card');
+        const title = (card && card.querySelector('.card-title') && card.querySelector('.card-title').textContent.trim()) || 'ข้อมูลกราฟ';
+        openDrill(title, 'รายละเอียดข้อมูลในกราฟ (คลิกจากแดชบอร์ด)', rows, [
+          { key: 's', label: 'ชุดข้อมูล' },
+          { key: 'cat', label: 'หมวด' },
+          { key: 'val', label: 'ค่า', right: true, fmt: v => (typeof v === 'number' ? fmtCurrency(v) : (v == null ? '\u2014' : String(v))) },
+        ]);
+      } catch (e) { /* non-fatal */ }
+    };
+  }
 
   // V11: restore saved theme (default light — matches the reference design).
   try { applyTheme(localStorage.getItem('dashboard_theme') || 'light'); } catch (e) {}
