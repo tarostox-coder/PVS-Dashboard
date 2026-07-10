@@ -1551,9 +1551,9 @@
   background: linear-gradient(172deg, #07A3B2 0%, #14AC93 52%, #45BE7E 100%);
   box-shadow: 0 24px 60px rgba(6, 60, 66, 0.34);
 }
-[data-theme="light"] .sidebar .brand-name { color: #fff; }
+[data-theme="light"] .sidebar .brand-name { color: #fff; font-size: 14px; font-weight: 700; white-space: normal; text-align: left; }
 [data-theme="light"] .sidebar .brand-sub { color: rgba(255,255,255,0.72); }
-[data-theme="light"] .tab-btn { color: #FFFFFF; border-radius: 14px; margin: 3px 0 3px 12px; font-size: 15.5px; font-weight: 650; padding: 13px 16px; letter-spacing: 0.01em; }
+[data-theme="light"] .tab-btn { color: #FFFFFF; border-radius: 14px; margin: 3px 0 3px 12px; font-size: 16px; font-weight: 700; padding: 13px 16px; letter-spacing: 0.01em; text-shadow: 0 1px 2px rgba(0,45,42,0.22); }
 [data-theme="light"] .tab-btn svg { width: 21px; height: 21px; opacity: 0.96; }
 [data-theme="light"] .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.18); }
 [data-theme="light"] .tab-btn.active {
@@ -1562,9 +1562,11 @@
   font-weight: 800; font-size: 16px; padding-right: 20px;
 }
 [data-theme="light"] .tab-btn.active svg { opacity: 1; }
+[data-theme="light"] .tab-btn.active { text-shadow: none; color: #0A6A5E; }
 [data-theme="light"] .tab-btn-num { background: rgba(255,255,255,0.22); color: rgba(255,255,255,0.92); }
 [data-theme="light"] .tab-btn.active .tab-btn-num { background: rgba(11,110,99,0.12); color: #0B6E63; }
 [data-theme="light"] .sidebar-collapse { color: rgba(255,255,255,0.9); }
+[data-theme="light"] .sidebar .brand-sub { color: rgba(255,255,255,0.80); font-weight: 600; }
 [data-theme="light"] .sidebar-section-label { color: rgba(255,255,255,0.78); font-weight: 700; letter-spacing: 0.10em; font-size: 11.5px; }
 
 [data-theme="light"] .app-main {
@@ -1642,7 +1644,8 @@ html, body {
 .brand { display: flex; align-items: center; gap: 12px; }
 
 .logo-box {
-  height: 64px;
+  width: 100%;
+  height: 58px;
   border-radius: 14px;
   background: #FFFFFF;
   display: flex;
@@ -2863,7 +2866,7 @@ input[type="file"] { display: none; }
 .sidebar::-webkit-scrollbar { width: 5px; }
 .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-.sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 18px 14px 14px; }
+.sidebar-brand { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 16px 14px 12px; }
 .sidebar-brand .logo-box { height: 36px; flex-shrink: 0; }
 .sidebar-brand > div:last-child { min-width: 0; }   /* allow text ellipsis */
 /* Reset the topbar brand-name gradient (white text would vanish on a light sidebar)
@@ -3712,8 +3715,8 @@ input[type="file"] { display: none; }
       </svg>
     </div>
     <div title="Powervault Service Dashboard · #MegaEnergyEmpire · Power Service Business Operating Platform">
-      <div class="brand-name">Powervault Service Dashboard</div>
-      <div class="brand-sub">#MegaEnergyEmpire · Power Service Business Operating Platform</div>
+      <div class="brand-name">Service Dashboard</div>
+      <div class="brand-sub">#MegaEnergyEmpire</div>
     </div>
   </div>
   <div class="sidebar-section-label">Menu</div>
@@ -7461,6 +7464,28 @@ function init() {
       } catch (e) { /* non-fatal */ }
     };
   }
+
+  // "คลิกดูได้ทุกจุด ไม่มีเงื่อนไข" — delegated fallback: any card / stat tile /
+  // text box that has no specific drill still opens one with its own content.
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('button, a, select, input, textarea, canvas, [data-exec-tile], .tab-btn, .ms-range-select, .exec-toggle')) return;
+    const card = e.target.closest('.kpi-mini, .qstat, .dept-card, .card, .analytics-card');
+    if (!card || card.closest('#drillModal')) return;
+    const t = (s) => { const el = card.querySelector(s); return el ? el.textContent.trim().replace(/\s+/g, ' ') : ''; };
+    const label = t('.kpi-mini-label') || t('.qstat-label') || t('.card-title') || t('.dept-name') || 'รายละเอียด';
+    const value = t('.kpi-mini-value') || t('.qstat-value') || t('.dept-num') || '';
+    const meta  = t('.kpi-mini-trend') || t('.qstat-meta') || t('.card-subtitle') || t('.dept-status') || '';
+    if (!value && !meta) return;
+    setTimeout(() => {
+      const dm = document.getElementById('drillModal');
+      if (dm && dm.classList.contains('active')) return;   // a specific drill already opened — don't double
+      try {
+        openDrill(label, meta || 'รายละเอียดจากแดชบอร์ด', [{ a: label, b: value, c: meta }], [
+          { key: 'a', label: 'รายการ' }, { key: 'b', label: 'ค่า', right: true }, { key: 'c', label: 'รายละเอียด' },
+        ]);
+      } catch (_) {}
+    }, 50);
+  }, false);
 
   // V11: restore saved theme (default light — matches the reference design).
   try { applyTheme(localStorage.getItem('dashboard_theme') || 'light'); } catch (e) {}
