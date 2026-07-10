@@ -1557,15 +1557,21 @@
 [data-theme="light"] .tab-btn svg { width: 21px; height: 21px; opacity: 0.96; }
 [data-theme="light"] .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.18); }
 [data-theme="light"] .tab-btn.active {
-  color: #0A7C6E; background: #ffffff; margin-right: 0; border-radius: 18px 0 0 18px;
-  box-shadow: -2px 12px 26px rgba(6,60,66,0.20); border-bottom-color: transparent;
+  color: #0A6A5E; background: #ffffff; margin-right: 0; border-radius: 18px 0 0 18px;
+  box-shadow: -3px 14px 30px rgba(6,60,66,0.28); border-bottom-color: transparent;
   font-weight: 800; font-size: 16px; padding-right: 20px;
+  position: relative; overflow: hidden;
 }
+[data-theme="light"] .tab-btn.active::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 5px;
+  border-radius: 0 4px 4px 0; background: linear-gradient(180deg, #9EE04B, #38C08A);
+}
+[data-theme="light"] .tab-btn.active svg { color: #0AA07E; }
 [data-theme="light"] .tab-btn.active svg { opacity: 1; }
 [data-theme="light"] .tab-btn.active { text-shadow: none; color: #0A6A5E; }
 [data-theme="light"] .tab-btn-num { background: rgba(255,255,255,0.22); color: rgba(255,255,255,0.92); }
 [data-theme="light"] .tab-btn.active .tab-btn-num { background: rgba(11,110,99,0.12); color: #0B6E63; }
-[data-theme="light"] .sidebar-collapse { color: rgba(255,255,255,0.9); }
+[data-theme="light"] .sidebar-collapse { color: #fff; background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.35); }
 [data-theme="light"] .sidebar .brand-sub { color: rgba(255,255,255,0.80); font-weight: 600; }
 [data-theme="light"] .sidebar-section-label { color: rgba(255,255,255,0.78); font-weight: 700; letter-spacing: 0.10em; font-size: 11.5px; }
 
@@ -1645,8 +1651,8 @@ html, body {
 
 .logo-box {
   width: 100%;
-  height: 58px;
-  border-radius: 14px;
+  height: auto;
+  border-radius: 16px;
   background: #FFFFFF;
   display: flex;
   align-items: center;
@@ -2866,7 +2872,7 @@ input[type="file"] { display: none; }
 .sidebar::-webkit-scrollbar { width: 5px; }
 .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-.sidebar-brand { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 16px 14px 12px; }
+.sidebar-brand { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 42px 14px 12px; }
 .sidebar-brand .logo-box { height: 36px; flex-shrink: 0; }
 .sidebar-brand > div:last-child { min-width: 0; }   /* allow text ellipsis */
 /* Reset the topbar brand-name gradient (white text would vanish on a light sidebar)
@@ -2939,7 +2945,7 @@ input[type="file"] { display: none; }
 
 /* Desktop collapse button (top-right of the sidebar) */
 .sidebar-collapse {
-  position: absolute; top: 14px; right: 10px; z-index: 2;
+  position: absolute; top: 12px; right: 12px; z-index: 5;
   width: 26px; height: 26px; padding: 0; border-radius: 7px;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--border); background: var(--card-elev);
@@ -3698,7 +3704,7 @@ input[type="file"] { display: none; }
   </button>
   <div class="sidebar-brand">
     <div class="logo-box" title="Powervault — อาณาจักรพลังงาน เพื่อ เมกะโปรเจค">
-      <svg viewBox="0 0 300 82" xmlns="http://www.w3.org/2000/svg" style="height:100%; width:auto;">
+      <svg viewBox="0 0 300 82" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto; display:block;">
         <!-- POWER VAULT SERVICE — faceted green/teal blade mark -->
         <g transform="translate(4,9)">
           <polygon points="0,64 26,0 40,0 14,64" fill="#2E9E8C"/>
@@ -6385,6 +6391,36 @@ function openPermitDrill(idx) {
 }
 
 /* ============== DRILL-DOWN MODAL ============== */
+function openTabRecordsDrill(title) {
+  // Real source rows for the active tab — traceable to the uploaded/synced sheet.
+  const pane = document.querySelector('.tab-pane.active');
+  const tab = pane ? pane.id.replace('tab-', '') : 'exec';
+  const money = v => '฿' + fmtCurrency(v || 0);
+  let rows, cols, src;
+  if (tab === 'solar') {
+    rows = getSolarRows(applyFilters(DATA.revenue_actual));
+    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
+    src = 'Revenue_Actual (หมวด งานติดตั้ง / งานบ้าน)';
+  } else if (tab === 'om') {
+    rows = getOMRows(applyFilters(DATA.revenue_actual));
+    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
+    src = 'Revenue_Actual (หมวด O&M)';
+  } else if (tab === 'cleaning') {
+    rows = applyFilters(DATA.cleaning, 'planDate', 'customer');
+    cols = [{ key: 'planDate', label: 'วันที่นัด' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'team', label: 'ทีม' }];
+    src = 'Cleaning_MasterPlan';
+  } else if (tab === 'permit') {
+    rows = applyFilters(DATA.permit_jobs, null, 'customer');
+    cols = [{ key: 'docType', label: 'ประเภทเอกสาร' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'startDate', label: 'วันเริ่ม' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
+    src = 'Permit_Jobs';
+  } else {
+    rows = applyFilters(DATA.revenue_actual);
+    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
+    src = 'Revenue_Actual';
+  }
+  openDrill(title, `ข้อมูลจริงจาก Sheet ${src} · ${rows.length} รายการ (ตาม filter ปัจจุบัน)`, rows, cols);
+}
+
 function openDrill(title, sub, rows, columns, summary) {
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalSub').textContent = sub;
@@ -7465,25 +7501,21 @@ function init() {
     };
   }
 
-  // "คลิกดูได้ทุกจุด ไม่มีเงื่อนไข" — delegated fallback: any card / stat tile /
-  // text box that has no specific drill still opens one with its own content.
+  // "คลิกดูได้ทุกจุด" — delegated fallback: a card/tile without its own drill
+  // still opens one, but with the REAL source records of the active tab
+  // (Revenue_Actual / Cleaning / Permit …) — never the card's own number echoed
+  // back. Source rows only; nothing fabricated.
   document.addEventListener('click', (e) => {
     if (e.target.closest('button, a, select, input, textarea, canvas, [data-exec-tile], .tab-btn, .ms-range-select, .exec-toggle')) return;
     const card = e.target.closest('.kpi-mini, .qstat, .dept-card, .card, .analytics-card');
     if (!card || card.closest('#drillModal')) return;
     const t = (s) => { const el = card.querySelector(s); return el ? el.textContent.trim().replace(/\s+/g, ' ') : ''; };
     const label = t('.kpi-mini-label') || t('.qstat-label') || t('.card-title') || t('.dept-name') || 'รายละเอียด';
-    const value = t('.kpi-mini-value') || t('.qstat-value') || t('.dept-num') || '';
-    const meta  = t('.kpi-mini-trend') || t('.qstat-meta') || t('.card-subtitle') || t('.dept-status') || '';
-    if (!value && !meta) return;
+    if (!label) return;
     setTimeout(() => {
       const dm = document.getElementById('drillModal');
-      if (dm && dm.classList.contains('active')) return;   // a specific drill already opened — don't double
-      try {
-        openDrill(label, meta || 'รายละเอียดจากแดชบอร์ด', [{ a: label, b: value, c: meta }], [
-          { key: 'a', label: 'รายการ' }, { key: 'b', label: 'ค่า', right: true }, { key: 'c', label: 'รายละเอียด' },
-        ]);
-      } catch (_) {}
+      if (dm && dm.classList.contains('active')) return;   // a specific drill already opened
+      try { openTabRecordsDrill(label); } catch (_) {}
     }, 50);
   }, false);
 
