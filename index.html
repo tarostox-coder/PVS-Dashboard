@@ -6391,34 +6391,51 @@ function openPermitDrill(idx) {
 }
 
 /* ============== DRILL-DOWN MODAL ============== */
+/* Uniform Standard (Audit 1.0) — ONE drill registry + ONE resolver, consumed by
+ * EVERY clickable widget via data-drill="<key>". Every row set comes from
+ * applyFilters() on the real uploaded/synced sheet — nothing fabricated. */
+const _drillMoney = v => '฿' + fmtCurrency(v || 0);
+const DRILL_COLS = {
+  revenue:  [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: _drillMoney }],
+  solarKW:  [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'kW', label: 'kW', right: true, fmt: v => (v || 0).toFixed(2) }, { key: 'revenue', label: 'รายได้', right: true, fmt: _drillMoney }],
+  plan:     [{ key: 'planDate', label: 'วันที่นัด' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'team', label: 'ทีม' }],
+  permit:   [{ key: 'docType', label: 'ประเภทเอกสาร' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'startDate', label: 'วันเริ่ม' }, { key: 'dueDate', label: 'กำหนดเสร็จ' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'revenue', label: 'เงินจม', right: true, fmt: _drillMoney }],
+  alarm:    [{ key: 'time', label: 'เวลา' }, { key: 'site', label: 'Site' }, { key: 'type', label: 'ประเภท' }, { key: 'level', label: 'ระดับ', badge: true }, { key: 'kW', label: 'kW', right: true }, { key: 'downtimeHrs', label: 'Downtime (hr)', right: true, fmt: v => (v || 0).toFixed(1) }, { key: 'revenueLoss', label: 'Loss (฿)', right: true, fmt: v => fmtFull(v || 0) }, { key: 'status', label: 'สถานะ' }],
+  forecast: [{ key: 'forecastMonth', label: 'เดือน' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'probability', label: 'โอกาส %', right: true }, { key: 'revenue', label: 'มูลค่า', right: true, fmt: _drillMoney }],
+};
+const _allAlarms = () => { try { return computeRevenueLoss().alarms || []; } catch (e) { return DATA.alarm_status || []; } };
+const DRILL_SOURCES = {
+  'revenue.all':    { title: 'รายได้ทั้งหมด',            sheet: 'Revenue_Actual',                     rows: () => applyFilters(DATA.revenue_actual),                                              cols: DRILL_COLS.revenue },
+  'solar.revenue':  { title: 'รายได้ Solar',            sheet: 'Revenue_Actual (งานติดตั้ง/งานบ้าน)', rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.revenue },
+  'solar.kw':       { title: 'kW ที่ติดตั้ง · Solar',    sheet: 'Revenue_Actual (Solar)',             rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.solarKW },
+  'solar.forecast': { title: 'Sales Forecast · Solar',  sheet: 'Revenue_Forecast',                   rows: () => (DATA.revenue_forecast || []).filter(f => f.ptype && /solar|rooftop|epc/i.test(f.ptype)), cols: DRILL_COLS.forecast },
+  'cleaning.month': { title: 'งาน Cleaning เดือนนี้',    sheet: 'Cleaning_MasterPlan',                rows: () => applyFilters(DATA.cleaning, 'planDate', 'customer'),                            cols: DRILL_COLS.plan },
+  'cleaning.delay': { title: 'งาน Cleaning ล่าช้า/เลื่อน', sheet: 'Cleaning_MasterPlan',              rows: () => applyFilters(DATA.cleaning, 'planDate', 'customer').filter(c => jobState(c, toLocalISO(today)) === 'late'), cols: DRILL_COLS.plan },
+  'cleaning.byCustomer': { title: a => 'Cleaning · ' + a, sheet: 'Cleaning_MasterPlan',              rows: a => applyFilters(DATA.cleaning, 'planDate', 'customer').filter(c => c.customer === a), cols: DRILL_COLS.plan },
+  'om.service':     { title: 'รายได้ Service (O&M)',    sheet: 'Revenue_Actual (O&M)',               rows: () => getOMRows(applyFilters(DATA.revenue_actual)),                                   cols: DRILL_COLS.revenue },
+  'om.inspection':  { title: 'Inspection (PM)',         sheet: 'Inspection_MasterPlan',              rows: () => applyFilters(DATA.inspection, 'planDate', 'customer'),                          cols: DRILL_COLS.plan },
+  'inspection.byCustomer': { title: a => 'Inspection · ' + a, sheet: 'Inspection_MasterPlan',        rows: a => applyFilters(DATA.inspection, 'planDate', 'customer').filter(c => c.customer === a), cols: DRILL_COLS.plan },
+  'om.loss':        { title: 'Revenue Loss · Alarm',    sheet: 'Alarm_Status (คำนวณ Loss)',          rows: () => _allAlarms().filter(a => (a.revenueLoss || 0) > 0),                             cols: DRILL_COLS.alarm },
+  'om.critical':    { title: 'Critical Alarms',         sheet: 'Alarm_Status',                       rows: () => _allAlarms().filter(a => a.level === 'Critical'),                               cols: DRILL_COLS.alarm },
+  'alarms.all':     { title: 'Alarm ทั้งหมด',           sheet: 'Alarm_Status',                       rows: () => _allAlarms(),                                                                   cols: DRILL_COLS.alarm },
+  'permit.stuck':   { title: 'Permit ดีเลย์ (เงินจม)',   sheet: 'Permit_Jobs',                        rows: () => applyFilters(DATA.permit_jobs, null, 'customer').filter(p => p.dueOffset < 0),  cols: DRILL_COLS.permit },
+  'permit.all':     { title: 'Permit ทั้งหมด',          sheet: 'Permit_Jobs',                        rows: () => applyFilters(DATA.permit_jobs, null, 'customer'),                               cols: DRILL_COLS.permit },
+};
+function drillByKey(key, arg, titleOverride) {
+  const d = DRILL_SOURCES[key];
+  if (!d) return false;
+  let rows = [];
+  try { rows = d.rows(arg) || []; } catch (e) { rows = []; }
+  const title = titleOverride || (typeof d.title === 'function' ? d.title(arg) : d.title);
+  openDrill(title, `ข้อมูลจริงจาก Sheet ${d.sheet} · ${rows.length} รายการ (ตาม filter ปัจจุบัน)`, rows, d.cols);
+  return true;
+}
+/* Last-resort fallback (tab level) — resolves through the same registry. */
 function openTabRecordsDrill(title) {
-  // Real source rows for the active tab — traceable to the uploaded/synced sheet.
   const pane = document.querySelector('.tab-pane.active');
   const tab = pane ? pane.id.replace('tab-', '') : 'exec';
-  const money = v => '฿' + fmtCurrency(v || 0);
-  let rows, cols, src;
-  if (tab === 'solar') {
-    rows = getSolarRows(applyFilters(DATA.revenue_actual));
-    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Revenue_Actual (หมวด งานติดตั้ง / งานบ้าน)';
-  } else if (tab === 'om') {
-    rows = getOMRows(applyFilters(DATA.revenue_actual));
-    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Revenue_Actual (หมวด O&M)';
-  } else if (tab === 'cleaning') {
-    rows = applyFilters(DATA.cleaning, 'planDate', 'customer');
-    cols = [{ key: 'planDate', label: 'วันที่นัด' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'team', label: 'ทีม' }];
-    src = 'Cleaning_MasterPlan';
-  } else if (tab === 'permit') {
-    rows = applyFilters(DATA.permit_jobs, null, 'customer');
-    cols = [{ key: 'docType', label: 'ประเภทเอกสาร' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'startDate', label: 'วันเริ่ม' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Permit_Jobs';
-  } else {
-    rows = applyFilters(DATA.revenue_actual);
-    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Revenue_Actual';
-  }
-  openDrill(title, `ข้อมูลจริงจาก Sheet ${src} · ${rows.length} รายการ (ตาม filter ปัจจุบัน)`, rows, cols);
+  const key = ({ solar: 'solar.revenue', om: 'om.service', cleaning: 'cleaning.month', permit: 'permit.all' })[tab] || 'revenue.all';
+  drillByKey(key, null, title);
 }
 
 function openDrill(title, sub, rows, columns, summary) {
@@ -7500,6 +7517,14 @@ function init() {
       } catch (e) { /* non-fatal */ }
     };
   }
+
+  // Uniform Standard (Audit 1.0) — ONE central handler resolves every widget's
+  // drill from its data-drill="<key>" (+ optional data-drill-arg / -title).
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-drill]');
+    if (!el || el.closest('#drillModal')) return;
+    drillByKey(el.getAttribute('data-drill'), el.getAttribute('data-drill-arg') || null, el.getAttribute('data-drill-title') || null);
+  }, false);
 
   // "คลิกดูได้ทุกจุด" — delegated fallback: a card/tile without its own drill
   // still opens one, but with the REAL source records of the active tab
