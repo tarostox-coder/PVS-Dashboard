@@ -268,7 +268,9 @@
         paymentStatus: { type: 'text',     syn: S(['สถานะการชำระเงิน', 'payment status', 'สถานะชำระ', 'การชำระเงิน', 'invoice status']) },
         receivedDate:  { type: 'date',     syn: S(['วันที่รับเงิน', 'received date', 'payment date', 'วันรับเงิน', 'paid date']) },
         daysOverdue:   { type: 'number',   syn: S(['จำนวนวันค้างชำระ', 'days overdue', 'overdue days', 'วันค้างชำระ', 'aging']) },
-        kW:            { type: 'number',   syn: S(['kw', 'kwp', 'กำลังการผลิต', 'capacity', 'kw เฉลี่ย']) },
+        // Audit 1.1 — kW = nameplate (sum-able) ONLY. An "average kW" column maps to kWAvg (never summed).
+        kW:            { type: 'number',   syn: S(['kw', 'kwp', 'กำลังการผลิต', 'capacity', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:         { type: 'number',   syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
         province:      { type: 'text',     syn: S(['จังหวัด', 'province']) },
         site:          { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'หน้างาน']) },
       },
@@ -321,7 +323,9 @@
         inverterId:   { type: 'text',     syn: S(['inverter id', 'inverter', 'อินเวอร์เตอร์', 'device id']) },
         status:       { type: 'text',     syn: S(['สถานะ', 'status']) },
         responsible:  { type: 'text',     syn: S(['ผู้รับผิดชอบ', 'responsible', 'owner', 'engineer', 'ทีม']) },
-        kW:           { type: 'number',   syn: S(['kw', 'kwp', 'capacity', 'กำลังการผลิต']) },
+        // Audit 1.1 — kW = nameplate/capacity (per-row physics). Average column → kWAvg (never summed).
+        kW:           { type: 'number',   syn: S(['kw', 'kwp', 'capacity', 'กำลังการผลิต', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:        { type: 'number',   syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
         downtimeHrs:  { type: 'number',   syn: S(['downtime', 'downtime ชม', 'downtime hrs', 'ชั่วโมง downtime', 'เวลาหยุด']) },
       },
     },
@@ -351,7 +355,9 @@
         actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
         status:     { type: 'text', syn: S(['สถานะ', 'status']) },
         team:       { type: 'text', syn: S(['ทีมงาน', 'team', 'crew', 'ทีม']) },
-        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity']) },
+        // Audit 1.1 — kW = nameplate (sum-able). Average column → kWAvg (never summed).
+        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:      { type: 'number', syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
       },
     },
     {
@@ -366,7 +372,9 @@
         actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
         status:     { type: 'text', syn: S(['สถานะ', 'status']) },
         team:       { type: 'text', syn: S(['ทีมงาน', 'team', 'engineer', 'ทีม']) },
-        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity']) },
+        // Audit 1.1 — kW = nameplate (sum-able). Average column → kWAvg (never summed).
+        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:      { type: 'number', syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
       },
     },
     {
@@ -832,7 +840,7 @@
           profit: r.profit != null ? r.profit : (revenue - cost),
           jobStatus: T.text(r.jobStatus), responsible: T.text(r.responsible),
           paymentStatus: T.text(r.paymentStatus) || 'Pending',
-          kW: r.kW || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated
+          kW: r.kW || 0, kWAvg: r.kWAvg || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated · Audit 1.1: kWAvg kept separate, never summed
         };
       }).filter(r => r.customer && (r.billingDate || r.revenue));
     },
@@ -879,7 +887,7 @@
           time: ctx.toLocalDateTime(r.time) || T.text(r.time), timestamp: ts, hourOfDay: startHour,
           customer: T.text(r.customer) || firstToken(r.site), site: T.text(r.site),
           level, type: T.text(r.type), inverterId: T.text(r.inverterId), status: T.text(r.status),
-          kW: kW == null ? 0 : kW, kwMissing, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
+          kW: kW == null ? 0 : kW, kWAvg: r.kWAvg || 0, kwMissing, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
           downtimeHrs: dt, revenueLoss: kwMissing ? 0 : ctx.computeTimeSpecificLoss(kW, startHour, dt),
           responsible: T.text(r.responsible),
         };
@@ -900,7 +908,7 @@
       return rows.map(r => ({
         customer: T.text(r.customer), site: T.text(r.site),
         planDate: ctx.toLocalISO(r.planDate) || '', actualDate: ctx.toLocalISO(r.actualDate) || '',
-        status: T.text(r.status), team: T.text(r.team), kW: r.kW || 0,
+        status: T.text(r.status), team: T.text(r.team), kW: r.kW || 0, kWAvg: r.kWAvg || 0,   // Audit 1.1: kWAvg kept separate, never summed
       })).filter(r => r.customer || r.site);
     },
     inspection(rows, ctx) { return DERIVE.cleaning(rows, ctx); },
@@ -2345,6 +2353,8 @@ input[type="file"] { display: none; }
 .jp-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; padding-right: 4px; }
 .jp-row { display: grid; grid-template-columns: 1fr auto 84px auto; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); }
 .jp-row:last-child { border-bottom: 0; }
+.jp-row[data-drill] { cursor: pointer; }
+.jp-row[data-drill]:hover { background: var(--card-elev); }
 .jp-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .jp-row-num { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .jp-row-bar { width: 84px; height: 8px; border-radius: 4px; background: var(--card-elev); overflow: hidden; }
@@ -3934,7 +3944,7 @@ input[type="file"] { display: none; }
         <div class="card analytics-card" id="cardMonthlySummary">
           <div class="card-header ms-header">
             <div>
-              <div class="card-title">
+              <div class="card-title" data-drill="revenue.all" data-drill-title="Monthly Summary · รายได้จริงทั้งหมด" style="cursor:pointer" title="ดูรายได้จริงทั้งหมด">
                 <span class="analytics-tag">Analytics</span>
                 Monthly Summary · รายได้ vs เป้า
               </div>
@@ -4072,19 +4082,19 @@ input[type="file"] { display: none; }
     <div class="tab-section-title" style="border-left:3px solid var(--bu-solar); padding-left:10px;">Home Solar &amp; SME · ภาพรวมยอดขายและการติดตั้ง</div>
 
     <div class="kpi-mini-grid">
-      <div class="kpi-mini clickable" id="kpiSolarRev" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiSolarRev" data-drill="solar.revenue" style="cursor:pointer;">
         <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
         <div class="kpi-mini-label">Revenue (Solar เดือนนี้)</div>
         <div class="kpi-mini-value" style="color:var(--bu-solar);">฿<span id="solarRevVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="solarRevSub">— โครงการ</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiSolarKW" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiSolarKW" data-drill="solar.kw" style="cursor:pointer;">
         <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
         <div class="kpi-mini-label">kW ที่ติดตั้ง</div>
         <div class="kpi-mini-value text-solar"><span id="solarKWVal">0</span> kW</div>
         <div class="kpi-mini-trend neutral" id="solarKWAvg">เฉลี่ย 0 kW/หลัง</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiSolarForecast" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiSolarForecast" data-drill="solar.forecast" style="cursor:pointer;">
         <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
         <div class="kpi-mini-label">Sales Forecast</div>
         <div class="kpi-mini-value text-solar">฿<span id="solarFcVal">0</span></div>
@@ -4142,13 +4152,13 @@ input[type="file"] { display: none; }
     <div class="tab-section-title" style="border-left:3px solid var(--bu-cleaning); padding-left:10px;">Cleaning · แผนงานทำความสะอาดแผงโซลาร์</div>
 
     <div class="kpi-mini-grid">
-      <div class="kpi-mini clickable" id="kpiClRev" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiClRev" data-drill="cleaning.month" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
         <div class="kpi-mini-label">อัตราเสร็จสิ้น (เดือนนี้)</div>
         <div class="kpi-mini-value" style="color:var(--bu-cleaning);"><span id="clDoneRateVal">0</span><span style="font-size:0.55em; font-weight:600;">%</span></div>
         <div class="kpi-mini-trend neutral" id="clRevSub">เสร็จ 0/0</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiClJobs" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiClJobs" data-drill="cleaning.month" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg></div>
         <div class="kpi-mini-label">งานเดือนนี้</div>
         <div class="kpi-mini-value text-cyan" id="clMonthVal">0</div>
@@ -4160,7 +4170,7 @@ input[type="file"] { display: none; }
         <div class="kpi-mini-value text-solar"><span id="clKWVal">0</span> kW</div>
         <div class="kpi-mini-trend neutral" id="clKWSub">รวมทั้งหมด</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiClDelay" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiClDelay" data-drill="cleaning.delay" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
         <div class="kpi-mini-label">ดีเลย์</div>
         <div class="kpi-mini-value text-critical" id="clDelayVal">0</div>
@@ -4214,25 +4224,25 @@ input[type="file"] { display: none; }
 
     <!-- Overview: the four O&M concerns at a glance (each from a different sheet) -->
     <div class="kpi-mini-grid">
-      <div class="kpi-mini clickable" id="kpiOmSvc" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiOmSvc" data-drill="om.service" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
         <div class="kpi-mini-label">Service Revenue (เดือนนี้)</div>
         <div class="kpi-mini-value" style="color:var(--bu-om);">฿<span id="omSvcVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="omSvcSub">— Service jobs</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiOmIns" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiOmIns" data-drill="om.inspection" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 14l2 2 4-4"/></svg></div>
         <div class="kpi-mini-label">Inspection Progress</div>
         <div class="kpi-mini-value text-success"><span id="omInsVal">0</span>%</div>
         <div class="kpi-mini-trend up" id="omInsSub">PM Completion</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiOmLoss" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiOmLoss" data-drill="om.loss" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
         <div class="kpi-mini-label">Revenue Loss (Time-Specific)</div>
         <div class="kpi-mini-value text-critical">฿<span id="omLossVal">0</span></div>
         <div class="kpi-mini-trend down" id="omLossSub">— hrs downtime</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiOmCrit" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiOmCrit" data-drill="om.critical" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
         <div class="kpi-mini-label">Critical Alarms</div>
         <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
@@ -4262,7 +4272,7 @@ input[type="file"] { display: none; }
     <div class="card clickable" id="cardAlarms">
       <div class="card-header">
         <div>
-          <div class="card-title">Alarm Distribution by Severity</div>
+          <div class="card-title" data-drill="alarms.all" style="cursor:pointer" title="ดู Alarm ทั้งหมด (คลิกแท่งกราฟเพื่อกรองตามระดับ)">Alarm Distribution by Severity</div>
           <div class="card-subtitle">Critical · Major · Minor · Warning</div>
         </div>
         <span class="click-hint">CLICK ▸</span>
@@ -4329,7 +4339,7 @@ input[type="file"] { display: none; }
         <div class="kpi-mini-value" style="color:var(--bu-permit);" id="pTotal">0</div>
         <div class="kpi-mini-trend neutral">รายการ Permit</div>
       </div>
-      <div class="kpi-mini clickable" id="kpiPStuck" style="cursor:pointer;">
+      <div class="kpi-mini clickable" id="kpiPStuck" data-drill="permit.stuck" style="cursor:pointer;">
         <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <div class="kpi-mini-label">เงินจม (Delayed Revenue)</div>
         <div class="kpi-mini-value text-critical">฿<span id="pStuckVal">0</span></div>
@@ -5242,7 +5252,8 @@ function renderExec() {
       data: { labels: gEntries.map(e => e[0]), datasets: [{ data: gEntries.map(e => e[1]), backgroundColor: donutColors, borderWidth: 0, cutout: '62%' }] },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { position: 'right', labels: { boxWidth: 12, color: getCSSVar('--text-dim'), font: { size: 11 } } },
-                   tooltip: { callbacks: { label: c => `${c.label}: ฿${fmtFull(c.parsed)}` } } } }
+                   tooltip: { callbacks: { label: c => `${c.label}: ฿${fmtFull(c.parsed)}` } } },
+        onClick: (evt, els) => { if (els.length) drillByKey('revenue.group', gEntries[els[0].index][0]); } }
     }));
   } else if (donutEl && donutEl.parentElement) {
     donutEl.parentElement.innerHTML = '<div class="empty-state">ไม่มีข้อมูลกลุ่มลูกค้า</div>';
@@ -5272,7 +5283,8 @@ function renderExec() {
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, color: getCSSVar('--text-dim') } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ฿${fmtFull(c.parsed.y)}` } } },
       scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
-                y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } } } }
+                y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } } },
+      onClick: (evt, els) => { if (els.length) { const e = els[0]; drillByKey(e.datasetIndex === 1 ? 'forecast.month' : 'revenue.month', months[e.index]); } } }
   }));
 
   renderExecAttention();
@@ -5462,7 +5474,8 @@ function renderHome() {
       scales: {
         x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
         y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } }
-      }
+      },
+      onClick: (evt, els) => { if (els.length) { const e = els[0]; const k = e.datasetIndex === 1 ? 'forecast.month' : e.datasetIndex === 2 ? 'collected.month' : 'revenue.month'; drillByKey(k, months[e.index]); } }
     }
   }));
 
@@ -5774,7 +5787,8 @@ function renderMonthlySummaryPanel() {
       scales: {
         x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim'), maxRotation: 0, autoSkip: true } },
         y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true }
-      }
+      },
+      onClick: (evt, els) => { if (els.length && last[els[0].index]) drillByKey('revenue.month', last[els[0].index].month); }
     }
   }));
 
@@ -5926,7 +5940,8 @@ function renderSolar() {
       scales: {
         x: { grid: { display: false } },
         y: { grid: { color: getCSSVar('--grid-line') }, beginAtZero: true }
-      }
+      },
+      onClick: (evt, els) => { if (els.length) drillByKey('solar.month', months[els[0].index]); }
     }
   }));
 
@@ -5990,6 +6005,8 @@ function jobState(c, todayISO) {
 function renderJobProgress(hostId, rows, colorVar, unit) {
   const host = document.getElementById(hostId); if (!host) return;
   unit = unit || 'งาน';
+  // Audit 1.0 · 1c — each customer row drills to that customer's real jobs.
+  const drillKey = (hostId === 'inspectionList') ? 'inspection.byCustomer' : 'cleaning.byCustomer';
   const todayISO = toLocalISO(today);
   const tot = rows.length;
   if (!tot) { host.innerHTML = '<div class="empty-state">ไม่มีงานในช่วง/ลูกค้าที่เลือก</div>'; return; }
@@ -6014,7 +6031,7 @@ function renderJobProgress(hostId, rows, colorVar, unit) {
   const rowsHtml = incomplete.slice(0, 40).map(([cust, d]) => {
     const dp = Math.round(d.done / d.total * 100);
     const tag = d.late ? `<span class="jp-tag late">⚠ ล่าช้า ${d.late}</span>` : '<span></span>';
-    return `<div class="jp-row">
+    return `<div class="jp-row" data-drill="${drillKey}" data-drill-arg="${escHtml(cust)}" title="ดูงานจริงของ ${escHtml(cust)}">
       <span class="jp-row-name" title="${escHtml(cust)}">${escHtml(cust)}</span>
       <span class="jp-row-num">เสร็จ ${d.done}/${d.total} ${escHtml(unit)}</span>
       <span class="jp-row-bar"><span class="jp-row-fill" style="width:${dp}%;background:${colorVar}"></span></span>
@@ -6112,7 +6129,8 @@ function renderCleaning() {
       scales: {
         x: { grid: { color: getCSSVar('--grid-line') }, ticks: { precision: 0, color: getCSSVar('--text-dim') } },
         y: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } }
-      }
+      },
+      onClick: (evt, els) => { if (els.length) drillByKey('cleaning.byTeam', teamLabels[els[0].index]); }
     }
   }));
 }
@@ -6391,34 +6409,59 @@ function openPermitDrill(idx) {
 }
 
 /* ============== DRILL-DOWN MODAL ============== */
+/* Uniform Standard (Audit 1.0) — ONE drill registry + ONE resolver, consumed by
+ * EVERY clickable widget via data-drill="<key>". Every row set comes from
+ * applyFilters() on the real uploaded/synced sheet — nothing fabricated. */
+const _drillMoney = v => '฿' + fmtCurrency(v || 0);
+const DRILL_COLS = {
+  revenue:  [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: _drillMoney }],
+  solarKW:  [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'kW', label: 'kW', right: true, fmt: v => (v || 0).toFixed(2) }, { key: 'revenue', label: 'รายได้', right: true, fmt: _drillMoney }],
+  plan:     [{ key: 'planDate', label: 'วันที่นัด' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'team', label: 'ทีม' }],
+  permit:   [{ key: 'docType', label: 'ประเภทเอกสาร' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'startDate', label: 'วันเริ่ม' }, { key: 'dueDate', label: 'กำหนดเสร็จ' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'revenue', label: 'เงินจม', right: true, fmt: _drillMoney }],
+  alarm:    [{ key: 'time', label: 'เวลา' }, { key: 'site', label: 'Site' }, { key: 'type', label: 'ประเภท' }, { key: 'level', label: 'ระดับ', badge: true }, { key: 'kW', label: 'kW', right: true }, { key: 'downtimeHrs', label: 'Downtime (hr)', right: true, fmt: v => (v || 0).toFixed(1) }, { key: 'revenueLoss', label: 'Loss (฿)', right: true, fmt: v => fmtFull(v || 0) }, { key: 'status', label: 'สถานะ' }],
+  forecast: [{ key: 'forecastMonth', label: 'เดือน' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'probability', label: 'โอกาส %', right: true }, { key: 'revenue', label: 'มูลค่า', right: true, fmt: _drillMoney }],
+};
+const _allAlarms = () => { try { return computeRevenueLoss().alarms || []; } catch (e) { return DATA.alarm_status || []; } };
+const _grpOf = (name) => { const m = (DATA.customer_master || []).find(x => x.name === name); return (m && m.group) || 'อื่นๆ'; };
+const DRILL_SOURCES = {
+  'revenue.all':    { title: 'รายได้ทั้งหมด',            sheet: 'Revenue_Actual',                     rows: () => applyFilters(DATA.revenue_actual),                                              cols: DRILL_COLS.revenue },
+  'solar.revenue':  { title: 'รายได้ Solar',            sheet: 'Revenue_Actual (งานติดตั้ง/งานบ้าน)', rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.revenue },
+  'solar.kw':       { title: 'kW ที่ติดตั้ง · Solar',    sheet: 'Revenue_Actual (Solar)',             rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.solarKW },
+  'solar.forecast': { title: 'Sales Forecast · Solar',  sheet: 'Revenue_Forecast',                   rows: () => (DATA.revenue_forecast || []).filter(f => f.ptype && /solar|rooftop|epc/i.test(f.ptype)), cols: DRILL_COLS.forecast },
+  'cleaning.month': { title: 'งาน Cleaning เดือนนี้',    sheet: 'Cleaning_MasterPlan',                rows: () => applyFilters(DATA.cleaning, 'planDate', 'customer'),                            cols: DRILL_COLS.plan },
+  'cleaning.delay': { title: 'งาน Cleaning ล่าช้า/เลื่อน', sheet: 'Cleaning_MasterPlan',              rows: () => applyFilters(DATA.cleaning, 'planDate', 'customer').filter(c => jobState(c, toLocalISO(today)) === 'late'), cols: DRILL_COLS.plan },
+  'cleaning.byCustomer': { title: a => 'Cleaning · ' + a, sheet: 'Cleaning_MasterPlan',              rows: a => applyFilters(DATA.cleaning, 'planDate', 'customer').filter(c => (c.customer || 'ไม่ระบุลูกค้า') === a), cols: DRILL_COLS.plan },
+  'om.service':     { title: 'รายได้ Service (O&M)',    sheet: 'Revenue_Actual (O&M)',               rows: () => getOMRows(applyFilters(DATA.revenue_actual)),                                   cols: DRILL_COLS.revenue },
+  'om.inspection':  { title: 'Inspection (PM)',         sheet: 'Inspection_MasterPlan',              rows: () => applyFilters(DATA.inspection, 'planDate', 'customer'),                          cols: DRILL_COLS.plan },
+  'inspection.byCustomer': { title: a => 'Inspection · ' + a, sheet: 'Inspection_MasterPlan',        rows: a => applyFilters(DATA.inspection, 'planDate', 'customer').filter(c => (c.customer || 'ไม่ระบุลูกค้า') === a), cols: DRILL_COLS.plan },
+  'om.loss':        { title: 'Revenue Loss · Alarm',    sheet: 'Alarm_Status (คำนวณ Loss)',          rows: () => _allAlarms().filter(a => (a.revenueLoss || 0) > 0),                             cols: DRILL_COLS.alarm },
+  'om.critical':    { title: 'Critical Alarms',         sheet: 'Alarm_Status',                       rows: () => _allAlarms().filter(a => a.level === 'Critical'),                               cols: DRILL_COLS.alarm },
+  'alarms.all':     { title: 'Alarm ทั้งหมด',           sheet: 'Alarm_Status',                       rows: () => _allAlarms(),                                                                   cols: DRILL_COLS.alarm },
+  // Chart drills (Audit 1.0 · 1e) — per-month / per-group / per-team real records, matching each chart's own aggregation.
+  'revenue.month':  { title: a => 'รายได้จริง · ' + a,  sheet: 'Revenue_Actual',                     rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a)), cols: DRILL_COLS.revenue },
+  'collected.month':{ title: a => 'เก็บเงินแล้ว · ' + a, sheet: 'Revenue_Actual (Paid)',              rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a) && r.paymentStatus === 'Paid'), cols: DRILL_COLS.revenue },
+  'forecast.month': { title: a => 'Forecast · ' + a,    sheet: 'Revenue_Forecast',                   rows: a => (DATA.revenue_forecast || []).filter(f => f.forecastMonth === a),                cols: DRILL_COLS.forecast },
+  'revenue.group':  { title: a => 'รายได้ · ' + a,      sheet: 'Revenue_Actual',                     rows: a => applyFilters(DATA.revenue_actual).filter(r => r.customer === a || _grpOf(r.customer) === a), cols: DRILL_COLS.revenue },
+  'solar.month':    { title: a => 'โครงการ Solar · ' + a, sheet: 'Revenue_Actual (Solar)',           rows: a => getSolarRows(applyFilters(DATA.revenue_actual)).filter(r => r.billingDate && String(r.billingDate).startsWith(a)), cols: DRILL_COLS.solarKW },
+  'cleaning.byTeam':{ title: a => 'Cleaning · ทีม ' + a, sheet: 'Cleaning_MasterPlan',               rows: a => applyFilters(DATA.cleaning, 'planDate', 'customer').filter(c => (c.team || 'ไม่ระบุทีม') === a), cols: DRILL_COLS.plan },
+  'permit.stuck':   { title: 'Permit ดีเลย์ (เงินจม)',   sheet: 'Permit_Jobs',                        rows: () => applyFilters(DATA.permit_jobs, null, 'customer').filter(p => p.dueOffset < 0),  cols: DRILL_COLS.permit },
+  'permit.all':     { title: 'Permit ทั้งหมด',          sheet: 'Permit_Jobs',                        rows: () => applyFilters(DATA.permit_jobs, null, 'customer'),                               cols: DRILL_COLS.permit },
+};
+function drillByKey(key, arg, titleOverride) {
+  const d = DRILL_SOURCES[key];
+  if (!d) return false;
+  let rows = [];
+  try { rows = d.rows(arg) || []; } catch (e) { rows = []; }
+  const title = titleOverride || (typeof d.title === 'function' ? d.title(arg) : d.title);
+  openDrill(title, `ข้อมูลจริงจาก Sheet ${d.sheet} · ${rows.length} รายการ (ตาม filter ปัจจุบัน)`, rows, d.cols);
+  return true;
+}
+/* Last-resort fallback (tab level) — resolves through the same registry. */
 function openTabRecordsDrill(title) {
-  // Real source rows for the active tab — traceable to the uploaded/synced sheet.
   const pane = document.querySelector('.tab-pane.active');
   const tab = pane ? pane.id.replace('tab-', '') : 'exec';
-  const money = v => '฿' + fmtCurrency(v || 0);
-  let rows, cols, src;
-  if (tab === 'solar') {
-    rows = getSolarRows(applyFilters(DATA.revenue_actual));
-    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Revenue_Actual (หมวด งานติดตั้ง / งานบ้าน)';
-  } else if (tab === 'om') {
-    rows = getOMRows(applyFilters(DATA.revenue_actual));
-    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Revenue_Actual (หมวด O&M)';
-  } else if (tab === 'cleaning') {
-    rows = applyFilters(DATA.cleaning, 'planDate', 'customer');
-    cols = [{ key: 'planDate', label: 'วันที่นัด' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'team', label: 'ทีม' }];
-    src = 'Cleaning_MasterPlan';
-  } else if (tab === 'permit') {
-    rows = applyFilters(DATA.permit_jobs, null, 'customer');
-    cols = [{ key: 'docType', label: 'ประเภทเอกสาร' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'startDate', label: 'วันเริ่ม' }, { key: 'status', label: 'สถานะ', badge: true }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Permit_Jobs';
-  } else {
-    rows = applyFilters(DATA.revenue_actual);
-    cols = [{ key: 'billingDate', label: 'วันที่' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'category', label: 'หมวด' }, { key: 'revenue', label: 'รายได้', right: true, fmt: money }];
-    src = 'Revenue_Actual';
-  }
-  openDrill(title, `ข้อมูลจริงจาก Sheet ${src} · ${rows.length} รายการ (ตาม filter ปัจจุบัน)`, rows, cols);
+  const key = ({ solar: 'solar.revenue', om: 'om.service', cleaning: 'cleaning.month', permit: 'permit.all' })[tab] || 'revenue.all';
+  drillByKey(key, null, title);
 }
 
 function openDrill(title, sub, rows, columns, summary) {
@@ -6592,18 +6635,8 @@ function attachCardClicks() {
     );
   });
 
-  // Solar / Cleaning / OM / Permit KPI clicks - delegate to Home tab drill-downs
-  safe('kpiSolarRev', () => safeClick('kpiSumRevenue'));
-  safe('kpiSolarKW', () => safeClick('kpiSumProj'));
-  safe('kpiSolarForecast', () => safeClick('kpiSumForecast'));
-  safe('kpiClRev', () => safeClick('kpiSumRevenue'));
-  safe('kpiClJobs', () => safeClick('kpiSumProj'));
-  safe('kpiClDelay', () => safeClick('kpiSumDelayed'));
-  safe('kpiOmSvc', () => safeClick('kpiSumRevenue'));
-  safe('kpiOmIns', () => safeClick('kpiSumRevenue'));
-  safe('kpiOmLoss', () => safeClick('kpiSumRisk'));
-  safe('kpiOmCrit', () => safeClick('kpiSumRisk'));
-  safe('kpiPStuck', () => safeClick('kpiSumDelayed'));
+  // Audit 1.0 · 1b — the 11 KPI cards drill via data-drill="<key>" (DRILL_SOURCES);
+  // removed dead delegation to kpiSum* nodes that never existed in the DOM.
   // Home V2 click handlers
   safe('cardHeroRevenue', () => {
     const rows = applyFilters(DATA.revenue_actual);
@@ -7500,6 +7533,14 @@ function init() {
       } catch (e) { /* non-fatal */ }
     };
   }
+
+  // Uniform Standard (Audit 1.0) — ONE central handler resolves every widget's
+  // drill from its data-drill="<key>" (+ optional data-drill-arg / -title).
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-drill]');
+    if (!el || el.closest('#drillModal')) return;
+    drillByKey(el.getAttribute('data-drill'), el.getAttribute('data-drill-arg') || null, el.getAttribute('data-drill-title') || null);
+  }, false);
 
   // "คลิกดูได้ทุกจุด" — delegated fallback: a card/tile without its own drill
   // still opens one, but with the REAL source records of the active tab
