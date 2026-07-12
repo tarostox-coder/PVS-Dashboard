@@ -268,7 +268,9 @@
         paymentStatus: { type: 'text',     syn: S(['สถานะการชำระเงิน', 'payment status', 'สถานะชำระ', 'การชำระเงิน', 'invoice status']) },
         receivedDate:  { type: 'date',     syn: S(['วันที่รับเงิน', 'received date', 'payment date', 'วันรับเงิน', 'paid date']) },
         daysOverdue:   { type: 'number',   syn: S(['จำนวนวันค้างชำระ', 'days overdue', 'overdue days', 'วันค้างชำระ', 'aging']) },
-        kW:            { type: 'number',   syn: S(['kw', 'kwp', 'กำลังการผลิต', 'capacity', 'kw เฉลี่ย']) },
+        // Audit 1.1 — kW = nameplate (sum-able) ONLY. An "average kW" column maps to kWAvg (never summed).
+        kW:            { type: 'number',   syn: S(['kw', 'kwp', 'กำลังการผลิต', 'capacity', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:         { type: 'number',   syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
         province:      { type: 'text',     syn: S(['จังหวัด', 'province']) },
         site:          { type: 'text',     syn: S(['site', 'ไซต์', 'สถานที่', 'หน้างาน']) },
       },
@@ -321,7 +323,9 @@
         inverterId:   { type: 'text',     syn: S(['inverter id', 'inverter', 'อินเวอร์เตอร์', 'device id']) },
         status:       { type: 'text',     syn: S(['สถานะ', 'status']) },
         responsible:  { type: 'text',     syn: S(['ผู้รับผิดชอบ', 'responsible', 'owner', 'engineer', 'ทีม']) },
-        kW:           { type: 'number',   syn: S(['kw', 'kwp', 'capacity', 'กำลังการผลิต']) },
+        // Audit 1.1 — kW = nameplate/capacity (per-row physics). Average column → kWAvg (never summed).
+        kW:           { type: 'number',   syn: S(['kw', 'kwp', 'capacity', 'กำลังการผลิต', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:        { type: 'number',   syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
         downtimeHrs:  { type: 'number',   syn: S(['downtime', 'downtime ชม', 'downtime hrs', 'ชั่วโมง downtime', 'เวลาหยุด']) },
       },
     },
@@ -351,7 +355,9 @@
         actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
         status:     { type: 'text', syn: S(['สถานะ', 'status']) },
         team:       { type: 'text', syn: S(['ทีมงาน', 'team', 'crew', 'ทีม']) },
-        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity']) },
+        // Audit 1.1 — kW = nameplate (sum-able). Average column → kWAvg (never summed).
+        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:      { type: 'number', syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
       },
     },
     {
@@ -366,7 +372,9 @@
         actualDate: { type: 'date', syn: S(['วันที่ทำจริง', 'actual date', 'completed date', 'วันทำจริง']) },
         status:     { type: 'text', syn: S(['สถานะ', 'status']) },
         team:       { type: 'text', syn: S(['ทีมงาน', 'team', 'engineer', 'ทีม']) },
-        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity']) },
+        // Audit 1.1 — kW = nameplate (sum-able). Average column → kWAvg (never summed).
+        kW:         { type: 'number', syn: S(['kw', 'kwp', 'capacity', 'nameplate', 'ขนาดระบบ']) },
+        kWAvg:      { type: 'number', syn: S(['kw เฉลี่ย', 'average kw', 'kw average', 'kw avg', 'avg kw', 'ค่าเฉลี่ย kw']) },
       },
     },
     {
@@ -832,7 +840,7 @@
           profit: r.profit != null ? r.profit : (revenue - cost),
           jobStatus: T.text(r.jobStatus), responsible: T.text(r.responsible),
           paymentStatus: T.text(r.paymentStatus) || 'Pending',
-          kW: r.kW || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated
+          kW: r.kW || 0, kWAvg: r.kWAvg || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated · Audit 1.1: kWAvg kept separate, never summed
         };
       }).filter(r => r.customer && (r.billingDate || r.revenue));
     },
@@ -879,7 +887,7 @@
           time: ctx.toLocalDateTime(r.time) || T.text(r.time), timestamp: ts, hourOfDay: startHour,
           customer: T.text(r.customer) || firstToken(r.site), site: T.text(r.site),
           level, type: T.text(r.type), inverterId: T.text(r.inverterId), status: T.text(r.status),
-          kW: kW == null ? 0 : kW, kwMissing, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
+          kW: kW == null ? 0 : kW, kWAvg: r.kWAvg || 0, kwMissing, efficiency: +ctx.efficiencyAtHour(startHour).toFixed(3),
           downtimeHrs: dt, revenueLoss: kwMissing ? 0 : ctx.computeTimeSpecificLoss(kW, startHour, dt),
           responsible: T.text(r.responsible),
         };
@@ -900,7 +908,7 @@
       return rows.map(r => ({
         customer: T.text(r.customer), site: T.text(r.site),
         planDate: ctx.toLocalISO(r.planDate) || '', actualDate: ctx.toLocalISO(r.actualDate) || '',
-        status: T.text(r.status), team: T.text(r.team), kW: r.kW || 0,
+        status: T.text(r.status), team: T.text(r.team), kW: r.kW || 0, kWAvg: r.kWAvg || 0,   // Audit 1.1: kWAvg kept separate, never summed
       })).filter(r => r.customer || r.site);
     },
     inspection(rows, ctx) { return DERIVE.cleaning(rows, ctx); },
