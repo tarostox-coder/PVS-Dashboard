@@ -5244,7 +5244,8 @@ function renderExec() {
       data: { labels: gEntries.map(e => e[0]), datasets: [{ data: gEntries.map(e => e[1]), backgroundColor: donutColors, borderWidth: 0, cutout: '62%' }] },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { position: 'right', labels: { boxWidth: 12, color: getCSSVar('--text-dim'), font: { size: 11 } } },
-                   tooltip: { callbacks: { label: c => `${c.label}: ฿${fmtFull(c.parsed)}` } } } }
+                   tooltip: { callbacks: { label: c => `${c.label}: ฿${fmtFull(c.parsed)}` } } },
+        onClick: (evt, els) => { if (els.length) drillByKey('revenue.group', gEntries[els[0].index][0]); } }
     }));
   } else if (donutEl && donutEl.parentElement) {
     donutEl.parentElement.innerHTML = '<div class="empty-state">ไม่มีข้อมูลกลุ่มลูกค้า</div>';
@@ -5274,7 +5275,8 @@ function renderExec() {
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, color: getCSSVar('--text-dim') } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ฿${fmtFull(c.parsed.y)}` } } },
       scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
-                y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } } } }
+                y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } } },
+      onClick: (evt, els) => { if (els.length) { const e = els[0]; drillByKey(e.datasetIndex === 1 ? 'forecast.month' : 'revenue.month', months[e.index]); } } }
   }));
 
   renderExecAttention();
@@ -5464,7 +5466,8 @@ function renderHome() {
       scales: {
         x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
         y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } }
-      }
+      },
+      onClick: (evt, els) => { if (els.length) { const e = els[0]; const k = e.datasetIndex === 1 ? 'forecast.month' : e.datasetIndex === 2 ? 'collected.month' : 'revenue.month'; drillByKey(k, months[e.index]); } }
     }
   }));
 
@@ -5776,7 +5779,8 @@ function renderMonthlySummaryPanel() {
       scales: {
         x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim'), maxRotation: 0, autoSkip: true } },
         y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true }
-      }
+      },
+      onClick: (evt, els) => { if (els.length && last[els[0].index]) drillByKey('revenue.month', last[els[0].index].month); }
     }
   }));
 
@@ -5928,7 +5932,8 @@ function renderSolar() {
       scales: {
         x: { grid: { display: false } },
         y: { grid: { color: getCSSVar('--grid-line') }, beginAtZero: true }
-      }
+      },
+      onClick: (evt, els) => { if (els.length) drillByKey('solar.month', months[els[0].index]); }
     }
   }));
 
@@ -6116,7 +6121,8 @@ function renderCleaning() {
       scales: {
         x: { grid: { color: getCSSVar('--grid-line') }, ticks: { precision: 0, color: getCSSVar('--text-dim') } },
         y: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } }
-      }
+      },
+      onClick: (evt, els) => { if (els.length) drillByKey('cleaning.byTeam', teamLabels[els[0].index]); }
     }
   }));
 }
@@ -6408,6 +6414,7 @@ const DRILL_COLS = {
   forecast: [{ key: 'forecastMonth', label: 'เดือน' }, { key: 'customer', label: 'ลูกค้า' }, { key: 'project', label: 'โครงการ' }, { key: 'probability', label: 'โอกาส %', right: true }, { key: 'revenue', label: 'มูลค่า', right: true, fmt: _drillMoney }],
 };
 const _allAlarms = () => { try { return computeRevenueLoss().alarms || []; } catch (e) { return DATA.alarm_status || []; } };
+const _grpOf = (name) => { const m = (DATA.customer_master || []).find(x => x.name === name); return (m && m.group) || 'อื่นๆ'; };
 const DRILL_SOURCES = {
   'revenue.all':    { title: 'รายได้ทั้งหมด',            sheet: 'Revenue_Actual',                     rows: () => applyFilters(DATA.revenue_actual),                                              cols: DRILL_COLS.revenue },
   'solar.revenue':  { title: 'รายได้ Solar',            sheet: 'Revenue_Actual (งานติดตั้ง/งานบ้าน)', rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.revenue },
@@ -6422,6 +6429,13 @@ const DRILL_SOURCES = {
   'om.loss':        { title: 'Revenue Loss · Alarm',    sheet: 'Alarm_Status (คำนวณ Loss)',          rows: () => _allAlarms().filter(a => (a.revenueLoss || 0) > 0),                             cols: DRILL_COLS.alarm },
   'om.critical':    { title: 'Critical Alarms',         sheet: 'Alarm_Status',                       rows: () => _allAlarms().filter(a => a.level === 'Critical'),                               cols: DRILL_COLS.alarm },
   'alarms.all':     { title: 'Alarm ทั้งหมด',           sheet: 'Alarm_Status',                       rows: () => _allAlarms(),                                                                   cols: DRILL_COLS.alarm },
+  // Chart drills (Audit 1.0 · 1e) — per-month / per-group / per-team real records, matching each chart's own aggregation.
+  'revenue.month':  { title: a => 'รายได้จริง · ' + a,  sheet: 'Revenue_Actual',                     rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a)), cols: DRILL_COLS.revenue },
+  'collected.month':{ title: a => 'เก็บเงินแล้ว · ' + a, sheet: 'Revenue_Actual (Paid)',              rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a) && r.paymentStatus === 'Paid'), cols: DRILL_COLS.revenue },
+  'forecast.month': { title: a => 'Forecast · ' + a,    sheet: 'Revenue_Forecast',                   rows: a => (DATA.revenue_forecast || []).filter(f => f.forecastMonth === a),                cols: DRILL_COLS.forecast },
+  'revenue.group':  { title: a => 'รายได้ · ' + a,      sheet: 'Revenue_Actual',                     rows: a => applyFilters(DATA.revenue_actual).filter(r => r.customer === a || _grpOf(r.customer) === a), cols: DRILL_COLS.revenue },
+  'solar.month':    { title: a => 'โครงการ Solar · ' + a, sheet: 'Revenue_Actual (Solar)',           rows: a => getSolarRows(applyFilters(DATA.revenue_actual)).filter(r => r.billingDate && String(r.billingDate).startsWith(a)), cols: DRILL_COLS.solarKW },
+  'cleaning.byTeam':{ title: a => 'Cleaning · ทีม ' + a, sheet: 'Cleaning_MasterPlan',               rows: a => applyFilters(DATA.cleaning, 'planDate', 'customer').filter(c => (c.team || 'ไม่ระบุทีม') === a), cols: DRILL_COLS.plan },
   'permit.stuck':   { title: 'Permit ดีเลย์ (เงินจม)',   sheet: 'Permit_Jobs',                        rows: () => applyFilters(DATA.permit_jobs, null, 'customer').filter(p => p.dueOffset < 0),  cols: DRILL_COLS.permit },
   'permit.all':     { title: 'Permit ทั้งหมด',          sheet: 'Permit_Jobs',                        rows: () => applyFilters(DATA.permit_jobs, null, 'customer'),                               cols: DRILL_COLS.permit },
 };
