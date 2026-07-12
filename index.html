@@ -3659,6 +3659,78 @@ input[type="file"] { display: none; }
   font-size: 10px; font-weight: 800; color: #06281c;
 }
 
+/* ============================================================================
+ * RESPONSIVE LAYER — small/large phones, tablets, desktop, and TV / 4K.
+ * Appended last so it overrides earlier per-component rules at equal
+ * specificity. Additive only (no earlier rule edited). The fixed off-canvas
+ * sidebar (≤960px) and per-grid collapses above are kept; this fills the gaps
+ * at the small-phone and large-screen ends and hardens overflow behavior.
+ * ==========================================================================*/
+
+/* Guard: a wide table/chart/image must never break the page horizontally. */
+img, canvas, svg, video { max-width: 100%; }
+.chart-wrap, .chart-wrap-tall, .chart-wrap-short, .ms-chart-wrap { min-width: 0; }
+.modal-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ---------- Large desktop / TV / 4K: use the width; scale up for distance ---------- */
+@media (min-width: 1600px) {
+  .container { max-width: 1760px; }
+}
+@media (min-width: 2000px) {
+  :root { --sidebar-w: 300px; }
+  .container { max-width: 2040px; padding-left: 40px; padding-right: 40px; }
+  .sidebar .tab-btn { font-size: 15px; padding: 12px 18px; }
+  .sidebar-section-label { font-size: 11px; }
+}
+@media (min-width: 2560px) {           /* 1440p / 4K TVs — enlarge for across-the-room legibility */
+  .container { max-width: 2400px; }
+  .qstat .qstat-value, [data-theme="light"] .qstat .qstat-value { font-size: 46px; }
+  .page-title { font-size: 34px; }
+  .card-title { font-size: 17px; }
+  .data-table td, .data-table th { font-size: 15px; }
+  .chart-wrap { height: 320px; } .chart-wrap-tall { height: 400px; }
+}
+
+/* ---------- Tablets & small laptops ---------- */
+@media (max-width: 960px) {
+  .container { padding: 18px 16px 52px; }
+  #execCharts, #execBottom { grid-template-columns: 1fr; }
+  /* Off-canvas sidebar → the floating light-theme panel must reclaim the full
+   * width (its desktop left margin = sidebar-w + 24px would push content off-screen;
+   * higher specificity than the generic .app-main{margin-left:0} media rule). */
+  [data-theme="light"] .app-main { margin-left: 14px; }
+}
+
+/* ---------- Phones (large: ~430–600px) ---------- */
+@media (max-width: 600px) {
+  [data-theme="light"] .app-main { margin: 8px; border-radius: 18px; }
+  .container { padding: 14px 11px 46px; }
+  .topbar { padding: 9px 11px; gap: 8px; }
+  .topbar-search { order: 3; flex-basis: 100%; max-width: none; }
+  .sidebar { width: min(88vw, 300px); }
+  .card { padding: 16px; }
+  .section-bar { margin: 16px 0 10px; }
+  .quick-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  #execGauges { grid-template-columns: repeat(2, 1fr); }
+  #execCharts, #execBottom, .ceo-grid, .ceo-grid-bottom, .dept-grid-v2, .kpi-mini-grid, .hero-row { grid-template-columns: 1fr; }
+  .chart-wrap { height: 220px; } .chart-wrap-tall { height: 250px; } .chart-wrap-short { height: 180px; }
+  .exec-ring { width: 108px; height: 108px; }
+  .qstat { padding: 11px 12px; }
+  .qstat .qstat-value, [data-theme="light"] .qstat .qstat-value { font-size: 26px; }
+  /* Full-screen drill/detail modal on phones */
+  .modal-overlay { padding: 0; }
+  .modal { max-width: 100%; width: 100%; max-height: 100vh; height: 100dvh; border-radius: 0; }
+  .modal-header { padding: 14px 16px; }
+  .modal-body { padding: 12px 14px 20px; }
+}
+
+/* ---------- Phones (small: iPhone SE/mini & Android ~360–414px) ---------- */
+@media (max-width: 430px) {
+  .quick-stats, #execGauges, .aging-cards { grid-template-columns: repeat(2, 1fr); }
+  .page-title { font-size: 20px; }
+  .qstat .qstat-value, [data-theme="light"] .qstat .qstat-value { font-size: 23px; }
+  .card { padding: 13px; }
+}
 </style>
 </head>
 <body>
