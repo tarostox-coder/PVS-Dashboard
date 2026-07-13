@@ -4570,6 +4570,11 @@ const CONFIG = {
   PROBABILITY_THRESHOLD: 70,        // forecast >= 70% นับเข้า gauge
   GRADE_A_THRESHOLD: 500_000,
   GRADE_B_THRESHOLD: 150_000,
+  // ⚠️ UNVERIFIED ASSUMPTION (Audit 1.2): rate used to *estimate* cleaning revenue
+  // as kW × this, only because the Cleaning sheet has no revenue column. Its
+  // business source is unconfirmed — do NOT treat the derived figure as real
+  // sheet data (UI already labels it "ประมาณ/est."). Update here once confirmed.
+  CLEANING_RATE_PER_KW: 800,        // ฿/kW — ประมาณค่าทำความสะอาด (รอธุรกิจยืนยัน)
   // Time-Specific Efficiency tiers
   EFFICIENCY_PEAK: 0.85,            // 10:00-14:00 แดดจัด
   EFFICIENCY_SHOULDER: 0.35,        // 08:00-10:00 / 14:00-17:00
@@ -5167,7 +5172,7 @@ function execBURevenue(grain) {
   const ra = DATA.revenue_actual || [];
   const solar = ra.filter(r => execIsSolar(r) && inWin(r.billingDate)).reduce((s, r) => s + (r.revenue || 0), 0);
   const om = ra.filter(r => execIsOM(r) && inWin(r.billingDate)).reduce((s, r) => s + (r.revenue || 0), 0);
-  const cleaning = (DATA.cleaning || []).filter(c => inWin(c.planDate)).reduce((s, c) => s + (c.kW || 0) * 800, 0);
+  const cleaning = (DATA.cleaning || []).filter(c => inWin(c.planDate)).reduce((s, c) => s + (c.kW || 0) * CONFIG.CLEANING_RATE_PER_KW, 0);
   const permit = (DATA.permit_jobs || []).filter(p => inWin(p.startDate)).reduce((s, p) => s + (p.revenue || 0), 0);
   return { solar, cleaning, om, permit };
 }
@@ -6243,7 +6248,7 @@ function openCleaningRowDrill(idx) {
     ],
     [
       { label: 'ขนาดระบบ', value: (cl.kW||0).toFixed(2) + ' kW' },
-      { label: 'ค่าทำสะอาด (est.)', value: '฿' + fmtCurrency((cl.kW||0) * 800) },
+      { label: 'ค่าทำสะอาด (est.)', value: '฿' + fmtCurrency((cl.kW||0) * CONFIG.CLEANING_RATE_PER_KW) },
     ]
   );
 }
