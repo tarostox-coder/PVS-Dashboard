@@ -519,17 +519,38 @@
     }
     pairs.sort((a, b) => b.score - a.score);
     const map = {}, usedCol = new Set(), usedField = new Set(), matched = [];
+    const fieldWinner = {};                         // field -> winning header (for warning context)
     for (const p of pairs) {
       if (usedField.has(p.field) || usedCol.has(p.idx)) continue;
       map[p.field] = p.idx; usedField.add(p.field); usedCol.add(p.idx);
+      fieldWinner[p.field] = p.col.raw;
       matched.push({ field: p.field, header: p.col.raw, score: +p.score.toFixed(2) });
     }
-    return { map, matched };
+    // Audit 1.4 — DUPLICATE-column detection. When 2+ header columns strongly
+    // match the SAME field (e.g. two "รายได้" columns), only one can win; the
+    // loser is either dropped OR silently re-mapped to a weaker field (wrong
+    // data). Both are silent data-integrity issues. Record the losers so the
+    // caller can surface them via the existing report.warnings channel.
+    const idxToField = {};
+    for (const f in map) idxToField[map[f]] = f;
+    const byCol = {};                                // idx -> its matched {field,score} pairs
+    for (const p of pairs) { (byCol[p.idx] = byCol[p.idx] || []).push(p); }
+    const dropped = [];
+    for (const idx in byCol) {
+      const top = byCol[idx].sort((a, b) => b.score - a.score)[0];   // this column's best-wanted field
+      if (top.score < 0.85) continue;                // only STRONG (exact/near) matches count as a real duplicate
+      const gotField = idxToField[idx] || null;      // where this column actually ended up (if anywhere)
+      if (gotField === top.field) continue;          // column won its best field → fine
+      // Column did NOT get its top field (a duplicate column claimed it first);
+      // it was either dropped or silently re-mapped to a weaker field.
+      dropped.push({ header: top.col.raw, wantedField: top.field, takenBy: fieldWinner[top.field] || null, remappedTo: gotField });
+    }
+    return { map, matched, dropped };
   }
 
   /** Coverage score of a dataset against a sheet's header (0..1+). */
   function datasetScore(headerCols, dataset, sheetName) {
-    const { map, matched } = mapColumns(headerCols, dataset);
+    const { map, matched, dropped } = mapColumns(headerCols, dataset);
     const sig = dataset.signature || [];
     let sigHit = 0;
     for (const f of sig) if (map[f] !== undefined) sigHit++;
@@ -548,7 +569,7 @@
       nameHit = Math.max(nameHit, dice(sn, h));
     }
     const total = sigCov * 1.0 + strongCov * 0.35 + nameHit * 0.5;
-    return { total, sigCov, strongCov, nameHit, map, matched };
+    return { total, sigCov, strongCov, nameHit, map, matched, dropped };
   }
 
   /* ===========================================================================
@@ -577,8 +598,8 @@
       if (!key || assignedDs.has(key) || assignedSheet.has(sh.name)) continue;
       const ds = DATASETS.find(d => d.key === key);
       if (!ds) continue;
-      const { map, matched } = mapColumns(sh.header.cols, ds);
-      result.push({ sheet: sh.name, dsKey: key, dataset: ds, map, matched, total: 1, sigCov: 1, matchedVia: 'meta' });
+      const { map, matched, dropped } = mapColumns(sh.header.cols, ds);
+      result.push({ sheet: sh.name, dsKey: key, dataset: ds, map, matched, dropped, total: 1, sigCov: 1, matchedVia: 'meta' });
       assignedDs.add(key); assignedSheet.add(sh.name);
     }
 
@@ -1318,6 +1339,18 @@
         report.sheetsAssigned++;
         report.datasets[ds.key] = { sheet: a.sheet, rows: derived.length, matched: a.matched, score: +a.total.toFixed(2), matchedVia: a.matchedVia || 'heuristic' };
         report.assignments.push({ sheet: a.sheet, dataset: ds.key, rows: derived.length, score: +a.total.toFixed(2), matchedVia: a.matchedVia || 'heuristic' });
+        // Audit 1.4 — surface columns that matched a field but were dropped
+        // because a higher-scoring duplicate column already claimed that field.
+        // Reuses the existing report.warnings channel (Data Quality / Exception
+        // Queue) instead of inventing a new alert path (Uniform Standard).
+        if (Array.isArray(a.dropped) && a.dropped.length) {
+          for (const d of a.dropped) {
+            const where = d.remappedTo
+              ? `ถูกนำไปใส่ฟิลด์ "${d.remappedTo}" แทน (ข้อมูลอาจผิดช่อง)`
+              : 'ไม่ถูกนำเข้า (ข้อมูลหาย)';
+            report.warnings.push(`ชีต "${a.sheet}": คอลัมน์ "${d.header}" ซ้ำกับฟิลด์ "${d.wantedField}" — คอลัมน์ "${d.takenBy}" ถูกใช้ไปแล้ว จึง${where}`);
+          }
+        }
         // V10.1 (additive): keep a FULL-FIDELITY generic table of every
         // classified sheet (all columns incl. record ids / audit stamps that
         // the canonical derive step intentionally drops). Consumed by the
