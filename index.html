@@ -7130,6 +7130,15 @@ async function runUniversalImport(arrayBuffer) {
     setImportStage('mapping', 'กำลังจับคู่คอลัมน์อัตโนมัติ...', 66);
     await tick(90);
 
+    // ---- Data-integrity (Audit): the FIRST real import (excel/gsheets) must not
+    // leave demo rows in sheets the file doesn't contain — otherwise unfilled
+    // tabs would show fabricated demo numbers under a "real data" badge. Clear
+    // the demo dataset once, so those tabs show an honest empty state. Subsequent
+    // real→real imports keep merging additively (intentional partial-file support).
+    if (window.DATA_SOURCE && window.DATA_SOURCE.mode === 'demo') {
+      Object.keys(DATA).forEach(k => { if (Array.isArray(DATA[k])) DATA[k] = []; });
+    }
+
     // ---- Merge only datasets the engine actually found (partial-file friendly)
     const loaded = [];
     for (const a of assigned) {
