@@ -5473,8 +5473,8 @@ function renderExecAttention() {
   host.innerHTML = top.length ? top.map((it, i) => `
     <div class="exec-att-item" data-att="${i}">
       <div class="exec-att-ic" style="background:${it.color}">${it.icon}</div>
-      <div class="exec-att-body"><div class="exec-att-title">${it.title}</div><div class="exec-att-sub">${it.sub}</div></div>
-      <div class="exec-att-val">${it.val}</div>
+      <div class="exec-att-body"><div class="exec-att-title">${escHtml(it.title)}</div><div class="exec-att-sub">${escHtml(it.sub)}</div></div>
+      <div class="exec-att-val">${escHtml(it.val)}</div>
     </div>`).join('') : '<div class="empty-state">ไม่มีรายการที่ต้องดูแลด่วน ✓</div>';
   host.onclick = (e) => { const el = e.target.closest('[data-att]'); if (el && top[+el.dataset.att]) top[+el.dataset.att].onclick(); };
 }
@@ -5713,8 +5713,8 @@ function renderHome() {
         <div class="action-item" style="--action-color:${it.color};" onclick="${it.onclick}">
           <div class="action-icon">${it.icon}</div>
           <div class="action-info">
-            <div class="action-title">${it.title}</div>
-            <div class="action-sub">${it.sub}</div>
+            <div class="action-title">${escHtml(it.title)}</div>
+            <div class="action-sub">${escHtml(it.sub)}</div>
           </div>
           <div class="action-amount">฿${fmtCurrency(it.amount)}</div>
           <div class="action-arrow">›</div>
@@ -5735,8 +5735,11 @@ function renderHome() {
  * level 3 (individual billing periods) opens in the existing drill-down modal
  * (reused, not rebuilt). Different or blank projects never merge (engine 9.7);
  * kW is never summed (kW≠kWp). */
+// Audit 1.3 — the ONE canonical HTML escaper (global). Escapes the full set
+// & < > " ' so it is safe for both element text and quoted attributes. Every
+// other escaper (the module-scoped esc() helpers) delegates here.
 function escHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 window.__rollupCache = window.__rollupCache || {};
 function renderRollup(hostId, dsKey, sourceRows) {
@@ -6223,12 +6226,12 @@ function renderCleaning() {
   document.getElementById('clBody').innerHTML = monthCl.length
     ? monthCl.slice(0, 80).map((c, idx) => `
       <tr style="cursor:pointer;" onclick="openCleaningRowDrill(${DATA.cleaning.indexOf(c)})">
-        <td class="text-mono">${c.planDate}</td>
-        <td><strong>${c.customer}</strong></td>
-        <td>${c.site}</td>
+        <td class="text-mono">${escHtml(c.planDate)}</td>
+        <td><strong>${escHtml(c.customer)}</strong></td>
+        <td>${escHtml(c.site)}</td>
         <td class="text-right text-mono">${(c.kW||0).toFixed(2)}</td>
-        <td>${c.team}</td>
-        <td><span class="badge ${c.status === 'เสร็จสิ้น' ? 'badge-paid' : c.status === 'Delay' ? 'badge-overdue' : 'badge-pending'}">${c.status}</span></td>
+        <td>${escHtml(c.team)}</td>
+        <td><span class="badge ${c.status === 'เสร็จสิ้น' ? 'badge-paid' : c.status === 'Delay' ? 'badge-overdue' : 'badge-pending'}">${escHtml(c.status)}</span></td>
       </tr>`).join('')
     : '<tr><td colspan="6" class="empty-state">ไม่มีงาน Cleaning ในเดือนนี้</td></tr>';
 
@@ -6602,8 +6605,8 @@ function openDrill(title, sub, rows, columns, summary) {
   // Summary cells
   const sumEl = document.getElementById('modalSummary');
   sumEl.innerHTML = (summary || []).map(s => `
-    <div><div class="modal-stat-label">${s.label}</div>
-    <div class="modal-stat-value text-cyan">${s.value}</div></div>
+    <div><div class="modal-stat-label">${escHtml(s.label)}</div>
+    <div class="modal-stat-value text-cyan">${escHtml(s.value)}</div></div>
   `).join('');
   sumEl.style.display = summary && summary.length ? 'grid' : 'none';
 
@@ -6612,14 +6615,17 @@ function openDrill(title, sub, rows, columns, summary) {
   if (!rows || !rows.length) {
     body.innerHTML = '<div class="empty-state">ไม่มีข้อมูลในช่วงที่กรอง</div>';
   } else {
-    const head = columns.map(c => `<th class="${c.right ? 'text-right' : ''}">${c.label}</th>`).join('');
+    const head = columns.map(c => `<th class="${c.right ? 'text-right' : ''}">${escHtml(c.label)}</th>`).join('');
     const trs = rows.map(r => {
       const tds = columns.map(c => {
-        let val = r[c.key];
-        if (c.fmt) val = c.fmt(val);
-        else if (val == null) val = '';
+        // Audit 1.3 — every drill cell is REAL Excel text; escape it before it
+        // reaches innerHTML. fmt() outputs are plain text too, so escaping is safe.
+        let raw = r[c.key];
+        if (c.fmt) raw = c.fmt(raw);
+        else if (raw == null) raw = '';
+        let val = escHtml(raw);
         if (c.badge) {
-          const cls = String(val).toLowerCase();
+          const cls = String(raw).toLowerCase().replace(/[^a-z0-9_-]/gi, '');   // safe class token (strip anything else)
           val = `<span class="badge badge-${cls}">${val}</span>`;
         }
         const align = c.right ? 'text-right text-mono' : '';
@@ -6919,7 +6925,7 @@ function populateFilters() {
     const customers = [...custSet].sort();
     const prevCust = FILTERS.customer;
     custSel.innerHTML = '<option value="all">ลูกค้าทั้งหมด</option>' +
-      customers.map(c => `<option value="${c}">${c}</option>`).join('');
+      customers.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
     // Keep current selection if still valid, else reset to all
     if (prevCust !== 'all' && !customers.includes(prevCust)) FILTERS.customer = 'all';
     custSel.value = FILTERS.customer;
@@ -6961,7 +6967,7 @@ function populateFilters() {
     if (grades.length) {
       const prevGrade = FILTERS.grade;
       gradeSel.innerHTML = '<option value="all">ทุก Grade</option>' +
-        grades.map(g => `<option value="${g}">Grade ${g}</option>`).join('');
+        grades.map(g => `<option value="${escHtml(g)}">Grade ${escHtml(g)}</option>`).join('');
       if (prevGrade !== 'all' && !grades.includes(prevGrade)) FILTERS.grade = 'all';
       gradeSel.value = FILTERS.grade;
     } else {
@@ -7915,7 +7921,7 @@ document.addEventListener('DOMContentLoaded', init);
 
   /* ---------- small self-contained helpers (mirror app conventions) ------- */
   function cssVar(n) { try { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); } catch (e) { return ''; } }
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function esc(s) { return escHtml(s); }   // Audit 1.3 — delegate to the one global escaper (was a partial dup: missing ')
   function fmtNum(n) {
     if (n == null || (typeof n === 'number' && !isFinite(n))) return '0';
     const num = typeof n === 'number' ? n : parseFloat(n);
@@ -8312,7 +8318,7 @@ document.addEventListener('DOMContentLoaded', init);
   };
 
   /* ---------- small self-contained helpers (mirror app conventions) ------ */
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function esc(s) { return escHtml(s); }   // Audit 1.3 — delegate to the one global escaper (identical behavior, single source)
   function cssVar(n) { try { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); } catch (e) { return ''; } }
   function fmtInt(n) { return Math.round(n || 0).toLocaleString('th-TH'); }
   function toISO(d) {
