@@ -2083,6 +2083,24 @@ input[type="file"] { display: none; }
  * Additive: only cards that contain a .kpi-ic get the icon + text inset, so DQ
  * and dynamic KPI cards are unaffected. Tint colors come from BU CSS vars. */
 .kpi-mini { position: relative; }
+/* ที่มาของตัวเลข — small info affordance on any KPI that has a provenance entry */
+.prov-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: 6px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer;
+  border: 1px solid var(--border-bright); color: var(--text-dim);
+  background: var(--card-elev); vertical-align: middle; user-select: none;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.prov-badge:hover { color: var(--cyan-bright); border-color: var(--cyan); background: var(--cyan-glow); }
+.prov-row { display: flex; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.prov-row:last-child { border-bottom: 0; }
+.prov-k { flex: 0 0 116px; color: var(--text-muted); font-weight: 600; }
+.prov-v { flex: 1; min-width: 0; color: var(--text); }
+.prov-v .text-mono { font-size: 12.5px; }
+.prov-kind { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.prov-kind.real { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.prov-kind.est  { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
 .kpi-mini .kpi-ic {
   position: absolute; top: 13px; right: 13px;
   width: 40px; height: 40px; border-radius: 12px;
@@ -4444,6 +4462,12 @@ img, canvas, video { max-width: 100%; }
     <div class="tab-section-title" style="border-left:3px solid var(--bu-permit); padding-left:10px;">Permit · Revenue Delay Management Dashboard</div>
 
     <div class="kpi-mini-grid">
+      <div class="kpi-mini clickable" id="kpiPPipeline" data-drill="permit.all" style="cursor:pointer;">
+        <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+        <div class="kpi-mini-label">มูลค่ารวม Pipeline</div>
+        <div class="kpi-mini-value" style="color:var(--bu-permit);">฿<span id="pPipelineVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="pPipelineSub">— ใบ · มูลค่ารวมทั้งหมด</div>
+      </div>
       <div class="kpi-mini">
         <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
         <div class="kpi-mini-label">เอกสารทั้งหมด</div>
@@ -4534,6 +4558,22 @@ img, canvas, video { max-width: 100%; }
     </div>
     <div class="modal-summary" id="modalSummary"></div>
     <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ที่มาของตัวเลข (Number Provenance) — explains where every KPI value comes from -->
+<div class="modal-overlay" id="provModal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="provTitle">ที่มาของตัวเลข</div>
+        <div class="modal-sub" id="provSub">อ้างอิงจากไฟล์จริง</div>
+      </div>
+      <button class="modal-close" id="provClose" aria-label="ปิด">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="provBody"></div>
   </div>
 </div>
 
@@ -5067,6 +5107,7 @@ function renderActiveTab() {
   else if (window.DynamicTabs && typeof window.DynamicTabs.render === 'function') {
     window.DynamicTabs.render(tab);
   }
+  try { wireProv(); } catch (e) {}   // attach "ⓘ ที่มา" affordances to any registered KPI on the rendered tab
 }
 
 /* ============== CHART DEFAULTS ============== */
@@ -6438,15 +6479,19 @@ function renderPermit() {
 
   const permits = applyFilters(DATA.permit_jobs, null, 'customer');   // Goal 6.8 — pipeline view: filter by customer/grade, NOT month (permits span months; dueDate blank)
   const delayed = permits.filter(p => p.dueOffset < 0);
-  const stuckMoney = delayed.reduce((s,p) => s + p.revenue, 0);
-  const released = permits.filter(p => p.status === 'อนุมัติแล้ว').reduce((s,p) => s + p.revenue, 0);
+  const pipelineMoney = permits.reduce((s,p) => s + (p.revenue || 0), 0);   // total ฿ tied up in the permit pipeline
+  const stuckMoney = delayed.reduce((s,p) => s + (p.revenue || 0), 0);
+  const released = permits.filter(p => p.status === 'อนุมัติแล้ว').reduce((s,p) => s + (p.revenue || 0), 0);
   const avgDelay = delayed.length ? delayed.reduce((s,p) => s + Math.abs(p.dueOffset), 0) / delayed.length : 0;
 
+  document.getElementById('pPipelineVal').textContent = fmtFull(pipelineMoney);
+  document.getElementById('pPipelineSub').textContent = `${permits.length} ใบ · เงินจม ${pipelineMoney ? Math.round(stuckMoney / pipelineMoney * 100) : 0}%`;
   document.getElementById('pTotal').textContent = permits.length;
   document.getElementById('pStuckVal').textContent = fmtFull(stuckMoney);
   document.getElementById('pStuckSub').textContent = `${delayed.length} เอกสารดีเลย์`;
   document.getElementById('pAvgDelay').textContent = avgDelay.toFixed(0);
   document.getElementById('pReleaseVal').textContent = fmtFull(released);
+  wireProv();   // attach "ⓘ ที่มา" affordances after values are set
 
   // Heatmap
   const heat = document.getElementById('permitHeatmap');
@@ -6665,6 +6710,87 @@ function openCustomerDrill(customer) {
 
 function closeDrill() {
   document.getElementById('drillModal').classList.remove('active');
+}
+
+/* ============== ที่มาของตัวเลข · NUMBER PROVENANCE ==============
+ * Every registered KPI value can explain itself: which real sheet it comes
+ * from, the exact formula, whether it's a raw figure or a disclosed estimate,
+ * and a shortcut to drill into the underlying records. One central registry +
+ * one resolver, consumed by a small "ⓘ" affordance rendered on each card. */
+const PROV = {
+  // key = KPI value element id → { label, sheet, formula, kind:'real'|'est', drill? }
+  // --- Home / Summary ---
+  heroRevVal:   { label: 'Revenue', sheet: 'Revenue_Actual', formula: 'Σ revenue ทุกแถว (ตัดแถวซ้ำ isDuplicate) ตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'revenue.all' },
+  qsCollectedVal:{ label: 'เก็บเงินแล้ว', sheet: 'Revenue_Actual', formula: 'Σ revenue เฉพาะแถว paymentStatus = Paid', kind: 'real', drill: 'revenue.all' },
+  qsRiskVal:    { label: 'Revenue at Risk', sheet: 'Alarm_Status + Revenue_Actual', formula: 'ยอดค้างชำระ (paymentStatus/daysOverdue) + Revenue Loss (ประมาณจาก alarm)', kind: 'est', drill: 'alarms.all' },
+  dv2SolarRev:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows)', kind: 'real', drill: 'solar.revenue' },
+  dv2OMRev:     { label: 'รายได้ O&M', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด O&M/Service (getOMRows)', kind: 'real', drill: 'om.service' },
+  dv2ClRev:     { label: 'Cleaning % เสร็จ', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ งานทั้งหมด ×100 (ชีตไม่มีคอลัมน์รายได้)', kind: 'real', drill: 'cleaning.month' },
+  dv2PermitStuck:{ label: 'Permit เงินจม', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
+  // --- O&M ---
+  omSvcVal:     { label: 'รายได้ Service', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถว O&M/Service (getOMRows)', kind: 'real', drill: 'om.service' },
+  omLossVal:    { label: 'Revenue Loss', sheet: 'Alarm_Status', formula: 'Σ (kW × Efficiency ตามชั่วโมง × ชม.ที่เสีย × ฿4.50/kWh) — ชม.ที่เสียที่ว่างใช้ค่าประมาณตามระดับ', kind: 'est', drill: 'om.loss' },
+  omInsVal:     { label: 'Inspection % (PM)', sheet: 'Inspection_MasterPlan', formula: 'นับ PM เสร็จ ÷ ทั้งหมด ×100', kind: 'real', drill: 'om.inspection' },
+  omCritVal:    { label: 'Critical Alarms', sheet: 'Alarm_Status', formula: 'นับแถว level = Critical', kind: 'real', drill: 'om.critical' },
+  // --- Cleaning ---
+  clDoneRateVal:{ label: 'อัตราเสร็จ Cleaning', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ ทั้งหมด ×100', kind: 'real', drill: 'cleaning.month' },
+  clMonthVal:   { label: 'งาน Cleaning เดือนนี้', sheet: 'Cleaning_MasterPlan', formula: 'นับงานตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'cleaning.month' },
+  clKWVal:      { label: 'kW รวม (Cleaning)', sheet: 'Cleaning_MasterPlan', formula: 'Σ kW (nameplate) ของงานทั้งหมด', kind: 'real', drill: 'cleaning.month' },
+  clDelayVal:   { label: 'งานล่าช้า', sheet: 'Cleaning_MasterPlan', formula: 'นับงานที่สถานะ = ล่าช้า/เลื่อน (jobState = late)', kind: 'real', drill: 'cleaning.delay' },
+  // --- Home Solar ---
+  solarRevVal:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows) ตาม filter ปัจจุบัน', kind: 'real', drill: 'solar.revenue' },
+  solarKWVal:   { label: 'kW ที่ติดตั้ง', sheet: 'Revenue_Actual', formula: 'Σ kW (nameplate) ของแถว Solar — kW เฉลี่ยถูกแยกเป็น kWAvg ไม่นำมารวม', kind: 'real', drill: 'solar.kw' },
+  solarFcVal:   { label: 'Sales Forecast', sheet: 'Revenue_Forecast', formula: 'Σ revenue ของ forecast ประเภท Solar/Rooftop/EPC', kind: 'real', drill: 'solar.forecast' },
+  solarAchVal:  { label: 'มูลค่าเฉลี่ย/โครงการ', sheet: 'Revenue_Actual', formula: 'Σ revenue Solar ÷ จำนวนโครงการ Solar', kind: 'real', drill: 'solar.revenue' },
+  // --- Permit (money-focused) ---
+  pPipelineVal: { label: 'มูลค่ารวม Pipeline', sheet: 'Permit_Jobs', formula: 'Σ revenue ของ Permit ทุกใบ (ตาม filter ลูกค้า/grade)', kind: 'real', drill: 'permit.all' },
+  pStuckVal:    { label: 'เงินจม (Delayed)', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueDate < วันนี้ → dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
+  pReleaseVal:  { label: 'Expected Release', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบสถานะ "อนุมัติแล้ว"', kind: 'real', drill: 'permit.all' },
+  pAvgDelay:    { label: 'วันดีเลย์เฉลี่ย', sheet: 'Permit_Jobs', formula: 'เฉลี่ย |dueOffset| ของใบที่เลยกำหนด (วัน)', kind: 'real', drill: 'permit.stuck' },
+  pTotal:       { label: 'เอกสารทั้งหมด', sheet: 'Permit_Jobs', formula: 'นับจำนวนใบ Permit (ตาม filter)', kind: 'real', drill: 'permit.all' },
+};
+function openProv(id) {
+  const pv = PROV[id]; if (!pv) return;
+  const el = document.getElementById(id);
+  const val = el ? el.textContent.trim() : '—';
+  document.getElementById('provTitle').textContent = 'ที่มาของตัวเลข · ' + pv.label;
+  document.getElementById('provSub').textContent = 'อ้างอิงข้อมูลจริง — ไม่มีการดัดแปลง';
+  const kindBadge = pv.kind === 'est'
+    ? '<span class="prov-kind est">ประมาณการ (disclosed)</span>'
+    : '<span class="prov-kind real">ข้อมูลจริงจากชีต</span>';
+  const drillBtn = pv.drill
+    ? `<button class="btn btn-primary" id="provDrillBtn" style="margin-top:14px;">📄 ดูข้อมูลดิบ (${escHtml(pv.label)})</button>`
+    : '';
+  document.getElementById('provBody').innerHTML =
+    `<div class="prov-row"><div class="prov-k">ค่าที่แสดง</div><div class="prov-v" style="font-weight:800;font-size:17px;">${escHtml(val)}</div></div>` +
+    `<div class="prov-row"><div class="prov-k">ชีตต้นทาง</div><div class="prov-v"><span class="text-mono">${escHtml(pv.sheet)}</span></div></div>` +
+    `<div class="prov-row"><div class="prov-k">สูตรคำนวณ</div><div class="prov-v">${escHtml(pv.formula)}</div></div>` +
+    `<div class="prov-row"><div class="prov-k">ประเภท</div><div class="prov-v">${kindBadge}</div></div>` +
+    drillBtn;
+  if (pv.drill) {
+    const btn = document.getElementById('provDrillBtn');
+    if (btn) btn.onclick = () => { closeProv(); drillByKey(pv.drill, null, null); };
+  }
+  document.getElementById('provModal').classList.add('active');
+}
+function closeProv() { document.getElementById('provModal').classList.remove('active'); }
+/* Inject an "ⓘ" affordance next to each registered KPI's label + a hover title.
+ * Idempotent: safe to call after every render. */
+function wireProv() {
+  for (const id in PROV) {
+    const el = document.getElementById(id); if (!el) continue;
+    const card = el.closest('.kpi-mini, .qstat, .dept-card-v2, .card'); if (!card) continue;
+    const labelEl = card.querySelector('.kpi-mini-label, .qstat-label, .dept-name, .card-title'); if (!labelEl) continue;
+    const pv = PROV[id];
+    labelEl.setAttribute('title', 'ที่มา: ' + pv.sheet + ' · ' + pv.formula);
+    if (labelEl.querySelector('.prov-badge')) continue;   // already wired
+    const b = document.createElement('span');
+    b.className = 'prov-badge'; b.textContent = 'ⓘ';
+    b.setAttribute('title', 'ดูที่มาของตัวเลข');
+    b.setAttribute('data-prov', id);
+    b.onclick = (e) => { e.stopPropagation(); openProv(id); };
+    labelEl.appendChild(b);
+  }
 }
 
 /* ============== CARD CLICK HANDLERS ============== */
@@ -7749,7 +7875,12 @@ function init() {
   document.getElementById('drillModal').addEventListener('click', (e) => {
     if (e.target.id === 'drillModal') closeDrill();
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrill(); });
+  // Provenance modal — close via button / backdrop
+  const _provClose = document.getElementById('provClose');
+  if (_provClose) _provClose.addEventListener('click', closeProv);
+  const _provModal = document.getElementById('provModal');
+  if (_provModal) _provModal.addEventListener('click', (e) => { if (e.target.id === 'provModal') closeProv(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrill(); closeProv(); } });
 
   // File upload
   document.getElementById('fileInput').addEventListener('change', (e) => {
