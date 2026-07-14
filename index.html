@@ -4029,6 +4029,10 @@ img, canvas, video { max-width: 100%; }
       <div class="hss-item"><span class="hss-label">ทำเป้าเดือนนี้</span><span class="hss-val" id="hssTarget">—</span></div>
       <div class="hss-sep"></div>
       <div class="hss-item"><span class="hss-label">Permit เลยกำหนด</span><span class="hss-val" id="hssPermit">—</span></div>
+      <div class="hss-sep" id="hssProfitSep"></div>
+      <div class="hss-item" id="hssProfitItem"><span class="hss-label">กำไรขั้นต้น</span><span class="hss-val" id="hssProfit">—</span></div>
+      <div class="hss-sep" id="hssMarginSep"></div>
+      <div class="hss-item" id="hssMarginItem"><span class="hss-label">Margin</span><span class="hss-val" id="hssMargin">—</span></div>
     </div>
 
     <div class="section-bar">
@@ -5595,6 +5599,21 @@ function renderHome() {
   setStat('hssTarget', targetPct.toFixed(0) + '%', targetPct >= 80 ? 'good' : targetPct >= 50 ? 'warn' : 'bad');
   setStat('hssPermit', fmtInt(delayedPermits.length) + ' รายการ', delayedPermits.length === 0 ? 'good' : delayedPermits.length <= 5 ? 'warn' : 'bad');
 
+  // Gross Profit & Margin — real cost/profit columns. Goal 4.3: only show when
+  // the sheet actually carries cost data; otherwise profit would default to
+  // revenue (a fake 100% margin), so we hide the metric instead of fabricating.
+  const hasCost = rows.some(r => (r.cost || 0) > 0);
+  const grossProfit = rows.reduce((s, r) => s + (r.profit || 0), 0);
+  const marginPct = totalRev ? (grossProfit / totalRev * 100) : 0;
+  const showProfit = hasCost && totalRev > 0;
+  ['hssProfitSep', 'hssProfitItem', 'hssMarginSep', 'hssMarginItem'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = showProfit ? '' : 'none';
+  });
+  if (showProfit) {
+    setStat('hssProfit', '฿' + fmtMoney(grossProfit), grossProfit > 0 ? 'good' : 'bad');
+    setStat('hssMargin', marginPct.toFixed(1) + '%', marginPct >= 25 ? 'good' : marginPct >= 12 ? 'warn' : 'bad');
+  }
+
   const months = ['2026-01','2026-02','2026-03','2026-04','2026-05'];
   const labels = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.'];
   const actMonthly = months.map(m => DATA.revenue_actual.filter(r => r.billingDate?.startsWith(m)).reduce((s,r) => s + r.revenue, 0));
@@ -6727,6 +6746,8 @@ const PROV = {
   dv2OMRev:     { label: 'รายได้ O&M', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด O&M/Service (getOMRows)', kind: 'real', drill: 'om.service' },
   dv2ClRev:     { label: 'Cleaning % เสร็จ', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ งานทั้งหมด ×100 (ชีตไม่มีคอลัมน์รายได้)', kind: 'real', drill: 'cleaning.month' },
   dv2PermitStuck:{ label: 'Permit เงินจม', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
+  hssProfit:    { label: 'กำไรขั้นต้น', sheet: 'Revenue_Actual', formula: 'Σ profit (= revenue − cost) — แสดงเฉพาะเมื่อชีตมีข้อมูล cost จริง', kind: 'real', drill: 'revenue.all' },
+  hssMargin:    { label: 'Margin %', sheet: 'Revenue_Actual', formula: 'Σ profit ÷ Σ revenue ×100', kind: 'real', drill: 'revenue.all' },
   // --- O&M ---
   omSvcVal:     { label: 'รายได้ Service', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถว O&M/Service (getOMRows)', kind: 'real', drill: 'om.service' },
   omLossVal:    { label: 'Revenue Loss', sheet: 'Alarm_Status', formula: 'Σ (kW × Efficiency ตามชั่วโมง × ชม.ที่เสีย × ฿4.50/kWh) — ชม.ที่เสียที่ว่างใช้ค่าประมาณตามระดับ', kind: 'est', drill: 'om.loss' },
@@ -6779,8 +6800,8 @@ function closeProv() { document.getElementById('provModal').classList.remove('ac
 function wireProv() {
   for (const id in PROV) {
     const el = document.getElementById(id); if (!el) continue;
-    const card = el.closest('.kpi-mini, .qstat, .dept-card-v2, .card'); if (!card) continue;
-    const labelEl = card.querySelector('.kpi-mini-label, .qstat-label, .dept-name, .card-title'); if (!labelEl) continue;
+    const card = el.closest('.hss-item, .kpi-mini, .qstat, .dept-card-v2, .card'); if (!card) continue;
+    const labelEl = card.querySelector('.hss-label, .kpi-mini-label, .qstat-label, .dept-name, .card-title'); if (!labelEl) continue;
     const pv = PROV[id];
     labelEl.setAttribute('title', 'ที่มา: ' + pv.sheet + ' · ' + pv.formula);
     if (labelEl.querySelector('.prov-badge')) continue;   // already wired
