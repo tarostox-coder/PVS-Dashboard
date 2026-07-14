@@ -6719,8 +6719,24 @@ function closeDrill() {
  * one resolver, consumed by a small "ⓘ" affordance rendered on each card. */
 const PROV = {
   // key = KPI value element id → { label, sheet, formula, kind:'real'|'est', drill? }
-  // --- Executive ---
+  // --- Home / Summary ---
+  heroRevVal:   { label: 'Revenue', sheet: 'Revenue_Actual', formula: 'Σ revenue ทุกแถว (ตัดแถวซ้ำ isDuplicate) ตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'revenue.all' },
+  qsCollectedVal:{ label: 'เก็บเงินแล้ว', sheet: 'Revenue_Actual', formula: 'Σ revenue เฉพาะแถว paymentStatus = Paid', kind: 'real', drill: 'revenue.all' },
   qsRiskVal:    { label: 'Revenue at Risk', sheet: 'Alarm_Status + Revenue_Actual', formula: 'ยอดค้างชำระ (paymentStatus/daysOverdue) + Revenue Loss (ประมาณจาก alarm)', kind: 'est', drill: 'alarms.all' },
+  dv2SolarRev:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows)', kind: 'real', drill: 'solar.revenue' },
+  dv2OMRev:     { label: 'รายได้ O&M', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด O&M/Service (getOMRows)', kind: 'real', drill: 'om.service' },
+  dv2ClRev:     { label: 'Cleaning % เสร็จ', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ งานทั้งหมด ×100 (ชีตไม่มีคอลัมน์รายได้)', kind: 'real', drill: 'cleaning.month' },
+  dv2PermitStuck:{ label: 'Permit เงินจม', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
+  // --- O&M ---
+  omSvcVal:     { label: 'รายได้ Service', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถว O&M/Service (getOMRows)', kind: 'real', drill: 'om.service' },
+  omLossVal:    { label: 'Revenue Loss', sheet: 'Alarm_Status', formula: 'Σ (kW × Efficiency ตามชั่วโมง × ชม.ที่เสีย × ฿4.50/kWh) — ชม.ที่เสียที่ว่างใช้ค่าประมาณตามระดับ', kind: 'est', drill: 'om.loss' },
+  omInsVal:     { label: 'Inspection % (PM)', sheet: 'Inspection_MasterPlan', formula: 'นับ PM เสร็จ ÷ ทั้งหมด ×100', kind: 'real', drill: 'om.inspection' },
+  omCritVal:    { label: 'Critical Alarms', sheet: 'Alarm_Status', formula: 'นับแถว level = Critical', kind: 'real', drill: 'om.critical' },
+  // --- Cleaning ---
+  clDoneRateVal:{ label: 'อัตราเสร็จ Cleaning', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ ทั้งหมด ×100', kind: 'real', drill: 'cleaning.month' },
+  clMonthVal:   { label: 'งาน Cleaning เดือนนี้', sheet: 'Cleaning_MasterPlan', formula: 'นับงานตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'cleaning.month' },
+  clKWVal:      { label: 'kW รวม (Cleaning)', sheet: 'Cleaning_MasterPlan', formula: 'Σ kW (nameplate) ของงานทั้งหมด', kind: 'real', drill: 'cleaning.month' },
+  clDelayVal:   { label: 'งานล่าช้า', sheet: 'Cleaning_MasterPlan', formula: 'นับงานที่สถานะ = ล่าช้า/เลื่อน (jobState = late)', kind: 'real', drill: 'cleaning.delay' },
   // --- Home Solar ---
   solarRevVal:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows) ตาม filter ปัจจุบัน', kind: 'real', drill: 'solar.revenue' },
   solarKWVal:   { label: 'kW ที่ติดตั้ง', sheet: 'Revenue_Actual', formula: 'Σ kW (nameplate) ของแถว Solar — kW เฉลี่ยถูกแยกเป็น kWAvg ไม่นำมารวม', kind: 'real', drill: 'solar.kw' },
