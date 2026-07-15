@@ -2083,6 +2083,24 @@ input[type="file"] { display: none; }
  * Additive: only cards that contain a .kpi-ic get the icon + text inset, so DQ
  * and dynamic KPI cards are unaffected. Tint colors come from BU CSS vars. */
 .kpi-mini { position: relative; }
+/* Permit hero row — the two headline tiles (มูลค่ารวม + เอกสารทั้งหมด) are the biggest */
+.permit-hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 700px) { .permit-hero-grid { grid-template-columns: 1fr; } }
+.kpi-mini.permit-hero { padding: 22px 24px; border-width: 2px; box-shadow: var(--card-shadow, 0 8px 24px rgba(10,70,74,0.10)); }
+.kpi-mini.permit-hero .kpi-mini-label { font-size: 14px; }
+.kpi-mini.permit-hero .kpi-mini-value { font-size: 46px; line-height: 1.05; }
+.kpi-mini.permit-hero .kpi-ic { top: 20px; right: 20px; width: 52px; height: 52px; }
+.kpi-mini.permit-hero .kpi-ic svg { width: 26px; height: 26px; }
+@media (max-width: 600px) { .kpi-mini.permit-hero .kpi-mini-value { font-size: 34px; } }
+/* Per-tab search — filters the rows/cards visible on the current tab */
+.tab-search { position: relative; margin: 0 0 14px; max-width: 420px; }
+.tab-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted); pointer-events: none; }
+.tab-search input { width: 100%; padding: 9px 34px 9px 36px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-family: inherit; font-size: 13px; }
+.tab-search input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-glow); }
+.tab-search .tab-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 15px; line-height: 1; display: none; }
+.tab-search.has-q .tab-search-clear { display: inline-block; }
+.tab-search-count { position: absolute; right: 34px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--text-dim); pointer-events: none; }
+@media (max-width: 600px) { .tab-search { max-width: none; } }
 /* ที่มาของตัวเลข — small info affordance on any KPI that has a provenance entry */
 .prov-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -4239,6 +4257,12 @@ img, canvas, video { max-width: 100%; }
         <div class="kpi-mini-value text-success">฿<span id="solarAchVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="solarAchSub">— โครงการ</div>
       </div>
+      <div class="kpi-mini">
+        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M2 11h20"/><path d="M7 7V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3"/></svg></div>
+        <div class="kpi-mini-label">กำลังติดตั้งรวม (Fleet kWp)</div>
+        <div class="kpi-mini-value text-solar"><span id="solarKWpVal">0</span> kWp</div>
+        <div class="kpi-mini-trend neutral" id="solarKWpSub">— ไซต์ (nameplate)</div>
+      </div>
     </div>
 
     <div class="ceo-grid" style="margin-top:14px;">
@@ -4381,6 +4405,12 @@ img, canvas, video { max-width: 100%; }
         <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
         <div class="kpi-mini-trend down" id="omCritSub">เปิดอยู่</div>
       </div>
+      <div class="kpi-mini clickable" id="kpiOmRenewal" data-drill="om.renewal" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
+        <div class="kpi-mini-label">สัญญาใกล้หมด (90 วัน)</div>
+        <div class="kpi-mini-value text-warning">฿<span id="omRenewalVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="omRenewalSub">— สัญญา · ค่าบริการ/เดือน</div>
+      </div>
     </div>
 
     <!-- SECTION 1 — Inspection (PM), its own clearly labeled home -->
@@ -4465,19 +4495,23 @@ img, canvas, video { max-width: 100%; }
   <div class="tab-pane" id="tab-permit">
     <div class="tab-section-title" style="border-left:3px solid var(--bu-permit); padding-left:10px;">Permit · Revenue Delay Management Dashboard</div>
 
-    <div class="kpi-mini-grid">
-      <div class="kpi-mini clickable" id="kpiPPipeline" data-drill="permit.all" style="cursor:pointer;">
+    <!-- Hero row — มูลค่ารวม + เอกสารทั้งหมด เป็นตัวใหญ่สุด -->
+    <div class="permit-hero-grid">
+      <div class="kpi-mini permit-hero clickable" id="kpiPPipeline" data-drill="permit.all" style="cursor:pointer;">
         <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
         <div class="kpi-mini-label">มูลค่ารวม Pipeline</div>
         <div class="kpi-mini-value" style="color:var(--bu-permit);">฿<span id="pPipelineVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="pPipelineSub">— ใบ · มูลค่ารวมทั้งหมด</div>
       </div>
-      <div class="kpi-mini">
+      <div class="kpi-mini permit-hero clickable" id="kpiPTotalCard" data-drill="permit.all" style="cursor:pointer;">
         <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
         <div class="kpi-mini-label">เอกสารทั้งหมด</div>
         <div class="kpi-mini-value" style="color:var(--bu-permit);" id="pTotal">0</div>
         <div class="kpi-mini-trend neutral">รายการ Permit</div>
       </div>
+    </div>
+    <!-- Secondary row — เล็กลง -->
+    <div class="kpi-mini-grid" style="margin-top:14px;">
       <div class="kpi-mini clickable" id="kpiPStuck" data-drill="permit.stuck" style="cursor:pointer;">
         <div class="kpi-ic permit"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <div class="kpi-mini-label">เงินจม (Delayed Revenue)</div>
@@ -4556,6 +4590,10 @@ img, canvas, video { max-width: 100%; }
         <div class="modal-title" id="modalTitle">Drill-down</div>
         <div class="modal-sub" id="modalSub">รายละเอียดข้อมูลดิบ</div>
       </div>
+      <button class="btn" id="drillCsvBtn" title="ดาวน์โหลดเป็น CSV (เปิดใน Excel)" style="margin-left:auto;margin-right:8px;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>CSV</span>
+      </button>
       <button class="modal-close" id="modalClose" aria-label="ปิด">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -5112,6 +5150,7 @@ function renderActiveTab() {
     window.DynamicTabs.render(tab);
   }
   try { wireProv(); } catch (e) {}   // attach "ⓘ ที่มา" affordances to any registered KPI on the rendered tab
+  try { installTabSearch(); reapplyTabFilter(); } catch (e) {}   // per-tab search box + keep active query after re-render
 }
 
 /* ============== CHART DEFAULTS ============== */
@@ -6050,6 +6089,13 @@ function renderSolar() {
   document.getElementById('solarAchVal').textContent = fmtCurrency(avgDeal);
   document.getElementById('solarAchSub').textContent = `${fmtInt(rows.length)} โครงการ`;
 
+  // Fleet installed capacity — nameplate kWp per site from Customer_Master (a
+  // separate, sum-able figure vs the per-transaction kW on Revenue_Actual).
+  const kwpSites = (DATA.customer_master || []).filter(c => (c.kWp || 0) > 0);
+  const fleetKWp = kwpSites.reduce((s, c) => s + (c.kWp || 0), 0);
+  document.getElementById('solarKWpVal').textContent = fmtInt(Math.round(fleetKWp));
+  document.getElementById('solarKWpSub').textContent = fleetKWp > 0 ? `${kwpSites.length} ไซต์ (nameplate)` : 'ไม่มีคอลัมน์ kWp ในชีต';
+
   // Goal 6.4 — revenue by region via the complete province→region map (unknown
   // province → "ไม่ระบุภาค", never silently bucketed as ภาคกลาง).
   const regionTotals = {};
@@ -6369,6 +6415,12 @@ function renderOM() {
   document.getElementById('omCritVal').textContent = crit.length;
   document.getElementById('omCritSub').textContent = `${critOpen} ยังเปิดอยู่`;
 
+  // Contract renewal — O&M_Contracts ending within 90 days (fee = ค่าบริการ/เดือน at risk)
+  const renew = _omRenewals();
+  const renewFee = renew.reduce((s, c) => s + (c.fee || 0), 0);
+  document.getElementById('omRenewalVal').textContent = fmtFull(renewFee);
+  document.getElementById('omRenewalSub').textContent = `${renew.length} สัญญา · ค่าบริการ/เดือน`;
+
   // Alarm Distribution Chart
   const levels = ['Critical', 'Major', 'Minor', 'Warning'];
   const lcount = levels.map(l => rl.alarms.filter(a => a.level === l).length);
@@ -6606,6 +6658,12 @@ const DRILL_COLS = {
 };
 const _allAlarms = () => { try { return computeRevenueLoss().alarms || []; } catch (e) { return DATA.alarm_status || []; } };
 const _grpOf = (name) => { const m = (DATA.customer_master || []).find(x => x.name === name); return (m && m.group) || 'อื่นๆ'; };
+// O&M contracts ending within 90 days (and not terminated) — a real renewal pipeline.
+const _omRenewals = () => (DATA.om_contracts || []).filter(c => {
+  if (!c.endDate || (typeof execTerminated === 'function' && execTerminated(c.status))) return false;
+  const days = Math.floor((new Date(c.endDate) - today) / 86400000);
+  return days >= 0 && days <= 90;
+}).sort((a, b) => new Date(a.endDate) - new Date(b.endDate));
 const DRILL_SOURCES = {
   'revenue.all':    { title: 'รายได้ทั้งหมด',            sheet: 'Revenue_Actual',                     rows: () => applyFilters(DATA.revenue_actual),                                              cols: DRILL_COLS.revenue },
   'solar.revenue':  { title: 'รายได้ Solar',            sheet: 'Revenue_Actual (งานติดตั้ง/งานบ้าน)', rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.revenue },
@@ -6620,6 +6678,7 @@ const DRILL_SOURCES = {
   'om.loss':        { title: 'Revenue Loss · Alarm',    sheet: 'Alarm_Status (คำนวณ Loss)',          rows: () => _allAlarms().filter(a => (a.revenueLoss || 0) > 0),                             cols: DRILL_COLS.alarm },
   'om.critical':    { title: 'Critical Alarms',         sheet: 'Alarm_Status',                       rows: () => _allAlarms().filter(a => a.level === 'Critical'),                               cols: DRILL_COLS.alarm },
   'alarms.all':     { title: 'Alarm ทั้งหมด',           sheet: 'Alarm_Status',                       rows: () => _allAlarms(),                                                                   cols: DRILL_COLS.alarm },
+  'om.renewal':     { title: 'สัญญาใกล้หมด (90 วัน)',    sheet: 'O&M_Contracts',                      rows: () => _omRenewals(),                                                                  cols: [{ key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'endDate', label: 'วันหมดสัญญา' }, { key: 'status', label: 'สถานะ' }, { key: 'fee', label: 'ค่าบริการ/เดือน', right: true, fmt: _drillMoney }] },
   // Chart drills (Audit 1.0 · 1e) — per-month / per-group / per-team real records, matching each chart's own aggregation.
   'revenue.month':  { title: a => 'รายได้จริง · ' + a,  sheet: 'Revenue_Actual',                     rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a)), cols: DRILL_COLS.revenue },
   'collected.month':{ title: a => 'เก็บเงินแล้ว · ' + a, sheet: 'Revenue_Actual (Paid)',              rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a) && r.paymentStatus === 'Paid'), cols: DRILL_COLS.revenue },
@@ -6647,7 +6706,9 @@ function openTabRecordsDrill(title) {
   drillByKey(key, null, title);
 }
 
+let _currentDrill = null;   // remembered so the CSV button can export exactly what's shown
 function openDrill(title, sub, rows, columns, summary) {
+  _currentDrill = { title, rows: rows || [], columns: columns || [] };
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalSub').textContent = sub;
 
@@ -6731,6 +6792,36 @@ function closeDrill() {
   document.getElementById('drillModal').classList.remove('active');
 }
 
+/* ============== CSV EXPORT ==============
+ * Exports exactly the records shown in the current drill. Raw field values
+ * (not the display-formatted strings) so numbers stay numeric in Excel; a
+ * UTF-8 BOM is prepended so Thai text opens correctly in Excel. */
+function csvEscape(v) {
+  if (v == null) v = '';
+  else if (v instanceof Date) v = toLocalISO(v) || String(v);
+  else v = String(v);
+  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+function rowsToCSV(rows, columns) {
+  const head = columns.map(c => csvEscape(c.label)).join(',');
+  const lines = rows.map(r => columns.map(c => csvEscape(r[c.key])).join(','));
+  return [head].concat(lines).join('\r\n');
+}
+function downloadCSV(filename, csv) {
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });   // BOM → Excel reads Thai
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportDrillCSV() {
+  if (!_currentDrill || !_currentDrill.rows.length) { showToast('ไม่มีข้อมูลให้ export', 'error'); return; }
+  const safe = (_currentDrill.title || 'drill').replace(/[^\w฀-๿]+/g, '_').slice(0, 40);
+  const ts = new Date().toLocaleString('sv').slice(0, 10);
+  downloadCSV(`PVS_${safe}_${ts}.csv`, rowsToCSV(_currentDrill.rows, _currentDrill.columns));
+  showToast(`✓ Export CSV · ${_currentDrill.rows.length} แถว`, 'success');
+}
+
 /* ============== ที่มาของตัวเลข · NUMBER PROVENANCE ==============
  * Every registered KPI value can explain itself: which real sheet it comes
  * from, the exact formula, whether it's a raw figure or a disclosed estimate,
@@ -6753,6 +6844,7 @@ const PROV = {
   omLossVal:    { label: 'Revenue Loss', sheet: 'Alarm_Status', formula: 'Σ (kW × Efficiency ตามชั่วโมง × ชม.ที่เสีย × ฿4.50/kWh) — ชม.ที่เสียที่ว่างใช้ค่าประมาณตามระดับ', kind: 'est', drill: 'om.loss' },
   omInsVal:     { label: 'Inspection % (PM)', sheet: 'Inspection_MasterPlan', formula: 'นับ PM เสร็จ ÷ ทั้งหมด ×100', kind: 'real', drill: 'om.inspection' },
   omCritVal:    { label: 'Critical Alarms', sheet: 'Alarm_Status', formula: 'นับแถว level = Critical', kind: 'real', drill: 'om.critical' },
+  omRenewalVal: { label: 'สัญญาใกล้หมด (ค่าบริการ)', sheet: 'O&M_Contracts', formula: 'Σ fee ของสัญญาที่ endDate อยู่ใน 90 วันข้างหน้า (ยังไม่ยกเลิก)', kind: 'real', drill: 'om.renewal' },
   // --- Cleaning ---
   clDoneRateVal:{ label: 'อัตราเสร็จ Cleaning', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ ทั้งหมด ×100', kind: 'real', drill: 'cleaning.month' },
   clMonthVal:   { label: 'งาน Cleaning เดือนนี้', sheet: 'Cleaning_MasterPlan', formula: 'นับงานตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'cleaning.month' },
@@ -6763,6 +6855,7 @@ const PROV = {
   solarKWVal:   { label: 'kW ที่ติดตั้ง', sheet: 'Revenue_Actual', formula: 'Σ kW (nameplate) ของแถว Solar — kW เฉลี่ยถูกแยกเป็น kWAvg ไม่นำมารวม', kind: 'real', drill: 'solar.kw' },
   solarFcVal:   { label: 'Sales Forecast', sheet: 'Revenue_Forecast', formula: 'Σ revenue ของ forecast ประเภท Solar/Rooftop/EPC', kind: 'real', drill: 'solar.forecast' },
   solarAchVal:  { label: 'มูลค่าเฉลี่ย/โครงการ', sheet: 'Revenue_Actual', formula: 'Σ revenue Solar ÷ จำนวนโครงการ Solar', kind: 'real', drill: 'solar.revenue' },
+  solarKWpVal:  { label: 'Fleet kWp', sheet: 'Customer_Master', formula: 'Σ kWp (nameplate ต่อไซต์) — คนละค่ากับ kW ต่อ transaction บน Revenue_Actual', kind: 'real' },
   // --- Permit (money-focused) ---
   pPipelineVal: { label: 'มูลค่ารวม Pipeline', sheet: 'Permit_Jobs', formula: 'Σ revenue ของ Permit ทุกใบ (ตาม filter ลูกค้า/grade)', kind: 'real', drill: 'permit.all' },
   pStuckVal:    { label: 'เงินจม (Delayed)', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueDate < วันนี้ → dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
@@ -6812,6 +6905,58 @@ function wireProv() {
     b.onclick = (e) => { e.stopPropagation(); openProv(id); };
     labelEl.appendChild(b);
   }
+}
+
+/* ============== ค้นหาในแท็บ · PER-TAB SEARCH ==============
+ * A search box on each business tab that filters the ROWS/CARDS currently shown
+ * on that tab (tables, permit heatmap, progress lists, attention/leak items).
+ * Client-side, case-insensitive, over the real rendered records — nothing hidden
+ * from the data itself, just the view. */
+const _TAB_SEARCH_TABS = ['exec', 'home', 'solar', 'cleaning', 'om', 'permit'];
+const _TAB_SEARCH_SEL = 'tbody tr, .heat-cell, .jp-row, .exec-att-item, .action-item, .prov-row';
+function installTabSearch() {
+  _TAB_SEARCH_TABS.forEach((t) => {
+    const pane = document.getElementById('tab-' + t); if (!pane) return;
+    if (pane.querySelector(':scope > .tab-search')) return;   // once per pane
+    const box = document.createElement('div');
+    box.className = 'tab-search';
+    box.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+      '<input type="text" autocomplete="off" placeholder="ค้นหาในแท็บนี้ (ลูกค้า/โครงการ/สถานะ…)" aria-label="ค้นหาในแท็บนี้">' +
+      '<span class="tab-search-count"></span>' +
+      '<button class="tab-search-clear" title="ล้าง" aria-label="ล้าง">×</button>';
+    // place right after the tab-section-title if present, else at the top
+    const title = pane.querySelector(':scope > .tab-section-title');
+    if (title && title.nextSibling) pane.insertBefore(box, title.nextSibling);
+    else pane.insertBefore(box, pane.firstChild);
+    const input = box.querySelector('input');
+    input.addEventListener('input', () => { pane.dataset.q = input.value.trim().toLowerCase(); applyTabFilter(pane); });
+    box.querySelector('.tab-search-clear').addEventListener('click', () => { input.value = ''; pane.dataset.q = ''; applyTabFilter(pane); input.focus(); });
+  });
+}
+function applyTabFilter(pane) {
+  if (!pane) return;
+  const q = (pane.dataset.q || '').trim();
+  const box = pane.querySelector(':scope > .tab-search');
+  const items = pane.querySelectorAll(_TAB_SEARCH_SEL);
+  let shown = 0, total = 0;
+  items.forEach((el) => {
+    if (el.closest('.modal-overlay')) return;          // never touch modal content
+    total++;
+    const hit = !q || el.textContent.toLowerCase().indexOf(q) >= 0;
+    el.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  if (box) {
+    box.classList.toggle('has-q', !!q);
+    const c = box.querySelector('.tab-search-count');
+    if (c) c.textContent = q ? `${shown}/${total}` : '';
+  }
+}
+/* Re-apply the active tab's stored query after a re-render (rows are rebuilt). */
+function reapplyTabFilter() {
+  const pane = document.querySelector('.tab-pane.active');
+  if (pane && pane.dataset.q) applyTabFilter(pane);
 }
 
 /* ============== CARD CLICK HANDLERS ============== */
@@ -7893,6 +8038,8 @@ function init() {
 
   // Modal close
   document.getElementById('modalClose').addEventListener('click', closeDrill);
+  const _csvBtn = document.getElementById('drillCsvBtn');
+  if (_csvBtn) _csvBtn.addEventListener('click', exportDrillCSV);
   document.getElementById('drillModal').addEventListener('click', (e) => {
     if (e.target.id === 'drillModal') closeDrill();
   });
