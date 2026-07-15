@@ -4578,6 +4578,10 @@ img, canvas, video { max-width: 100%; }
         <div class="modal-title" id="modalTitle">Drill-down</div>
         <div class="modal-sub" id="modalSub">รายละเอียดข้อมูลดิบ</div>
       </div>
+      <button class="btn" id="drillCsvBtn" title="ดาวน์โหลดเป็น CSV (เปิดใน Excel)" style="margin-left:auto;margin-right:8px;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>CSV</span>
+      </button>
       <button class="modal-close" id="modalClose" aria-label="ปิด">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -6670,7 +6674,9 @@ function openTabRecordsDrill(title) {
   drillByKey(key, null, title);
 }
 
+let _currentDrill = null;   // remembered so the CSV button can export exactly what's shown
 function openDrill(title, sub, rows, columns, summary) {
+  _currentDrill = { title, rows: rows || [], columns: columns || [] };
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalSub').textContent = sub;
 
@@ -6752,6 +6758,36 @@ function openCustomerDrill(customer) {
 
 function closeDrill() {
   document.getElementById('drillModal').classList.remove('active');
+}
+
+/* ============== CSV EXPORT ==============
+ * Exports exactly the records shown in the current drill. Raw field values
+ * (not the display-formatted strings) so numbers stay numeric in Excel; a
+ * UTF-8 BOM is prepended so Thai text opens correctly in Excel. */
+function csvEscape(v) {
+  if (v == null) v = '';
+  else if (v instanceof Date) v = toLocalISO(v) || String(v);
+  else v = String(v);
+  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+function rowsToCSV(rows, columns) {
+  const head = columns.map(c => csvEscape(c.label)).join(',');
+  const lines = rows.map(r => columns.map(c => csvEscape(r[c.key])).join(','));
+  return [head].concat(lines).join('\r\n');
+}
+function downloadCSV(filename, csv) {
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });   // BOM → Excel reads Thai
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportDrillCSV() {
+  if (!_currentDrill || !_currentDrill.rows.length) { showToast('ไม่มีข้อมูลให้ export', 'error'); return; }
+  const safe = (_currentDrill.title || 'drill').replace(/[^\w฀-๿]+/g, '_').slice(0, 40);
+  const ts = new Date().toLocaleString('sv').slice(0, 10);
+  downloadCSV(`PVS_${safe}_${ts}.csv`, rowsToCSV(_currentDrill.rows, _currentDrill.columns));
+  showToast(`✓ Export CSV · ${_currentDrill.rows.length} แถว`, 'success');
 }
 
 /* ============== ที่มาของตัวเลข · NUMBER PROVENANCE ==============
@@ -7968,6 +8004,8 @@ function init() {
 
   // Modal close
   document.getElementById('modalClose').addEventListener('click', closeDrill);
+  const _csvBtn = document.getElementById('drillCsvBtn');
+  if (_csvBtn) _csvBtn.addEventListener('click', exportDrillCSV);
   document.getElementById('drillModal').addEventListener('click', (e) => {
     if (e.target.id === 'drillModal') closeDrill();
   });
