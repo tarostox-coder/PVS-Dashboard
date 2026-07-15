@@ -2092,6 +2092,15 @@ input[type="file"] { display: none; }
 .kpi-mini.permit-hero .kpi-ic { top: 20px; right: 20px; width: 52px; height: 52px; }
 .kpi-mini.permit-hero .kpi-ic svg { width: 26px; height: 26px; }
 @media (max-width: 600px) { .kpi-mini.permit-hero .kpi-mini-value { font-size: 34px; } }
+/* Per-tab search — filters the rows/cards visible on the current tab */
+.tab-search { position: relative; margin: 0 0 14px; max-width: 420px; }
+.tab-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted); pointer-events: none; }
+.tab-search input { width: 100%; padding: 9px 34px 9px 36px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-family: inherit; font-size: 13px; }
+.tab-search input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-glow); }
+.tab-search .tab-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 15px; line-height: 1; display: none; }
+.tab-search.has-q .tab-search-clear { display: inline-block; }
+.tab-search-count { position: absolute; right: 34px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--text-dim); pointer-events: none; }
+@media (max-width: 600px) { .tab-search { max-width: none; } }
 /* ที่มาของตัวเลข — small info affordance on any KPI that has a provenance entry */
 .prov-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -5125,6 +5134,7 @@ function renderActiveTab() {
     window.DynamicTabs.render(tab);
   }
   try { wireProv(); } catch (e) {}   // attach "ⓘ ที่มา" affordances to any registered KPI on the rendered tab
+  try { installTabSearch(); reapplyTabFilter(); } catch (e) {}   // per-tab search box + keep active query after re-render
 }
 
 /* ============== CHART DEFAULTS ============== */
@@ -6825,6 +6835,58 @@ function wireProv() {
     b.onclick = (e) => { e.stopPropagation(); openProv(id); };
     labelEl.appendChild(b);
   }
+}
+
+/* ============== ค้นหาในแท็บ · PER-TAB SEARCH ==============
+ * A search box on each business tab that filters the ROWS/CARDS currently shown
+ * on that tab (tables, permit heatmap, progress lists, attention/leak items).
+ * Client-side, case-insensitive, over the real rendered records — nothing hidden
+ * from the data itself, just the view. */
+const _TAB_SEARCH_TABS = ['exec', 'home', 'solar', 'cleaning', 'om', 'permit'];
+const _TAB_SEARCH_SEL = 'tbody tr, .heat-cell, .jp-row, .exec-att-item, .action-item, .prov-row';
+function installTabSearch() {
+  _TAB_SEARCH_TABS.forEach((t) => {
+    const pane = document.getElementById('tab-' + t); if (!pane) return;
+    if (pane.querySelector(':scope > .tab-search')) return;   // once per pane
+    const box = document.createElement('div');
+    box.className = 'tab-search';
+    box.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+      '<input type="text" autocomplete="off" placeholder="ค้นหาในแท็บนี้ (ลูกค้า/โครงการ/สถานะ…)" aria-label="ค้นหาในแท็บนี้">' +
+      '<span class="tab-search-count"></span>' +
+      '<button class="tab-search-clear" title="ล้าง" aria-label="ล้าง">×</button>';
+    // place right after the tab-section-title if present, else at the top
+    const title = pane.querySelector(':scope > .tab-section-title');
+    if (title && title.nextSibling) pane.insertBefore(box, title.nextSibling);
+    else pane.insertBefore(box, pane.firstChild);
+    const input = box.querySelector('input');
+    input.addEventListener('input', () => { pane.dataset.q = input.value.trim().toLowerCase(); applyTabFilter(pane); });
+    box.querySelector('.tab-search-clear').addEventListener('click', () => { input.value = ''; pane.dataset.q = ''; applyTabFilter(pane); input.focus(); });
+  });
+}
+function applyTabFilter(pane) {
+  if (!pane) return;
+  const q = (pane.dataset.q || '').trim();
+  const box = pane.querySelector(':scope > .tab-search');
+  const items = pane.querySelectorAll(_TAB_SEARCH_SEL);
+  let shown = 0, total = 0;
+  items.forEach((el) => {
+    if (el.closest('.modal-overlay')) return;          // never touch modal content
+    total++;
+    const hit = !q || el.textContent.toLowerCase().indexOf(q) >= 0;
+    el.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  if (box) {
+    box.classList.toggle('has-q', !!q);
+    const c = box.querySelector('.tab-search-count');
+    if (c) c.textContent = q ? `${shown}/${total}` : '';
+  }
+}
+/* Re-apply the active tab's stored query after a re-render (rows are rebuilt). */
+function reapplyTabFilter() {
+  const pane = document.querySelector('.tab-pane.active');
+  if (pane && pane.dataset.q) applyTabFilter(pane);
 }
 
 /* ============== CARD CLICK HANDLERS ============== */
