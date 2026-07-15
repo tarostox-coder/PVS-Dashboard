@@ -4258,12 +4258,6 @@ img, canvas, video { max-width: 100%; }
         <div class="kpi-mini-value text-success">฿<span id="solarAchVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="solarAchSub">— โครงการ</div>
       </div>
-      <div class="kpi-mini">
-        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M2 11h20"/><path d="M7 7V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3"/></svg></div>
-        <div class="kpi-mini-label">กำลังติดตั้งรวม (Fleet kWp)</div>
-        <div class="kpi-mini-value text-solar"><span id="solarKWpVal">0</span> kWp</div>
-        <div class="kpi-mini-trend neutral" id="solarKWpSub">— ไซต์ (nameplate)</div>
-      </div>
     </div>
 
     <div class="ceo-grid" style="margin-top:14px;">
@@ -6099,13 +6093,6 @@ function renderSolar() {
   document.getElementById('solarAchVal').textContent = fmtCurrency(avgDeal);
   document.getElementById('solarAchSub').textContent = `${fmtInt(rows.length)} โครงการ`;
 
-  // Fleet installed capacity — nameplate kWp per site from Customer_Master (a
-  // separate, sum-able figure vs the per-transaction kW on Revenue_Actual).
-  const kwpSites = (DATA.customer_master || []).filter(c => (c.kWp || 0) > 0);
-  const fleetKWp = kwpSites.reduce((s, c) => s + (c.kWp || 0), 0);
-  document.getElementById('solarKWpVal').textContent = fmtInt(Math.round(fleetKWp));
-  document.getElementById('solarKWpSub').textContent = fleetKWp > 0 ? `${kwpSites.length} ไซต์ (nameplate)` : 'ไม่มีคอลัมน์ kWp ในชีต';
-
   // Goal 6.4 — revenue by region via the complete province→region map (unknown
   // province → "ไม่ระบุภาค", never silently bucketed as ภาคกลาง).
   const regionTotals = {};
@@ -6865,7 +6852,6 @@ const PROV = {
   solarKWVal:   { label: 'kW ที่ติดตั้ง', sheet: 'Revenue_Actual', formula: 'Σ kW (nameplate) ของแถว Solar — kW เฉลี่ยถูกแยกเป็น kWAvg ไม่นำมารวม', kind: 'real', drill: 'solar.kw' },
   solarFcVal:   { label: 'Sales Forecast', sheet: 'Revenue_Forecast', formula: 'Σ revenue ของ forecast ประเภท Solar/Rooftop/EPC', kind: 'real', drill: 'solar.forecast' },
   solarAchVal:  { label: 'มูลค่าเฉลี่ย/โครงการ', sheet: 'Revenue_Actual', formula: 'Σ revenue Solar ÷ จำนวนโครงการ Solar', kind: 'real', drill: 'solar.revenue' },
-  solarKWpVal:  { label: 'Fleet kWp', sheet: 'Customer_Master', formula: 'Σ kWp (nameplate ต่อไซต์) — คนละค่ากับ kW ต่อ transaction บน Revenue_Actual', kind: 'real' },
   // --- Permit (money-focused) ---
   pPipelineVal: { label: 'มูลค่ารวม Pipeline', sheet: 'Permit_Jobs', formula: 'Σ revenue ของ Permit ทุกใบ (ตาม filter ลูกค้า/grade)', kind: 'real', drill: 'permit.all' },
   pStuckVal:    { label: 'เงินจม (Delayed)', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueDate < วันนี้ → dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
@@ -7983,7 +7969,10 @@ function init() {
   // (Revenue_Actual / Cleaning / Permit …) — never the card's own number echoed
   // back. Source rows only; nothing fabricated.
   document.addEventListener('click', (e) => {
-    if (e.target.closest('button, a, select, input, textarea, canvas, [data-exec-tile], .tab-btn, .ms-range-select, .exec-toggle')) return;
+    // Skip anything that ALREADY has its own click behaviour — otherwise a
+    // rollup row (toggle/expand), heatmap cell, table row, or data-drill widget
+    // would ALSO spawn this generic fallback drill on every click.
+    if (e.target.closest('button, a, select, input, textarea, canvas, [data-exec-tile], .tab-btn, .ms-range-select, .exec-toggle, [onclick], [data-drill], [data-att], [data-prov], .tab-search')) return;
     const card = e.target.closest('.kpi-mini, .qstat, .dept-card, .card, .analytics-card');
     if (!card || card.closest('#drillModal')) return;
     const t = (s) => { const el = card.querySelector(s); return el ? el.textContent.trim().replace(/\s+/g, ' ') : ''; };
