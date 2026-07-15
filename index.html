@@ -4257,6 +4257,12 @@ img, canvas, video { max-width: 100%; }
         <div class="kpi-mini-value text-success">฿<span id="solarAchVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="solarAchSub">— โครงการ</div>
       </div>
+      <div class="kpi-mini">
+        <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M2 11h20"/><path d="M7 7V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3"/></svg></div>
+        <div class="kpi-mini-label">กำลังติดตั้งรวม (Fleet kWp)</div>
+        <div class="kpi-mini-value text-solar"><span id="solarKWpVal">0</span> kWp</div>
+        <div class="kpi-mini-trend neutral" id="solarKWpSub">— ไซต์ (nameplate)</div>
+      </div>
     </div>
 
     <div class="ceo-grid" style="margin-top:14px;">
@@ -4398,6 +4404,12 @@ img, canvas, video { max-width: 100%; }
         <div class="kpi-mini-label">Critical Alarms</div>
         <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
         <div class="kpi-mini-trend down" id="omCritSub">เปิดอยู่</div>
+      </div>
+      <div class="kpi-mini clickable" id="kpiOmRenewal" data-drill="om.renewal" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
+        <div class="kpi-mini-label">สัญญาใกล้หมด (90 วัน)</div>
+        <div class="kpi-mini-value text-warning">฿<span id="omRenewalVal">0</span></div>
+        <div class="kpi-mini-trend neutral" id="omRenewalSub">— สัญญา · ค่าบริการ/เดือน</div>
       </div>
     </div>
 
@@ -6077,6 +6089,13 @@ function renderSolar() {
   document.getElementById('solarAchVal').textContent = fmtCurrency(avgDeal);
   document.getElementById('solarAchSub').textContent = `${fmtInt(rows.length)} โครงการ`;
 
+  // Fleet installed capacity — nameplate kWp per site from Customer_Master (a
+  // separate, sum-able figure vs the per-transaction kW on Revenue_Actual).
+  const kwpSites = (DATA.customer_master || []).filter(c => (c.kWp || 0) > 0);
+  const fleetKWp = kwpSites.reduce((s, c) => s + (c.kWp || 0), 0);
+  document.getElementById('solarKWpVal').textContent = fmtInt(Math.round(fleetKWp));
+  document.getElementById('solarKWpSub').textContent = fleetKWp > 0 ? `${kwpSites.length} ไซต์ (nameplate)` : 'ไม่มีคอลัมน์ kWp ในชีต';
+
   // Goal 6.4 — revenue by region via the complete province→region map (unknown
   // province → "ไม่ระบุภาค", never silently bucketed as ภาคกลาง).
   const regionTotals = {};
@@ -6396,6 +6415,12 @@ function renderOM() {
   document.getElementById('omCritVal').textContent = crit.length;
   document.getElementById('omCritSub').textContent = `${critOpen} ยังเปิดอยู่`;
 
+  // Contract renewal — O&M_Contracts ending within 90 days (fee = ค่าบริการ/เดือน at risk)
+  const renew = _omRenewals();
+  const renewFee = renew.reduce((s, c) => s + (c.fee || 0), 0);
+  document.getElementById('omRenewalVal').textContent = fmtFull(renewFee);
+  document.getElementById('omRenewalSub').textContent = `${renew.length} สัญญา · ค่าบริการ/เดือน`;
+
   // Alarm Distribution Chart
   const levels = ['Critical', 'Major', 'Minor', 'Warning'];
   const lcount = levels.map(l => rl.alarms.filter(a => a.level === l).length);
@@ -6633,6 +6658,12 @@ const DRILL_COLS = {
 };
 const _allAlarms = () => { try { return computeRevenueLoss().alarms || []; } catch (e) { return DATA.alarm_status || []; } };
 const _grpOf = (name) => { const m = (DATA.customer_master || []).find(x => x.name === name); return (m && m.group) || 'อื่นๆ'; };
+// O&M contracts ending within 90 days (and not terminated) — a real renewal pipeline.
+const _omRenewals = () => (DATA.om_contracts || []).filter(c => {
+  if (!c.endDate || (typeof execTerminated === 'function' && execTerminated(c.status))) return false;
+  const days = Math.floor((new Date(c.endDate) - today) / 86400000);
+  return days >= 0 && days <= 90;
+}).sort((a, b) => new Date(a.endDate) - new Date(b.endDate));
 const DRILL_SOURCES = {
   'revenue.all':    { title: 'รายได้ทั้งหมด',            sheet: 'Revenue_Actual',                     rows: () => applyFilters(DATA.revenue_actual),                                              cols: DRILL_COLS.revenue },
   'solar.revenue':  { title: 'รายได้ Solar',            sheet: 'Revenue_Actual (งานติดตั้ง/งานบ้าน)', rows: () => getSolarRows(applyFilters(DATA.revenue_actual)),                                cols: DRILL_COLS.revenue },
@@ -6647,6 +6678,7 @@ const DRILL_SOURCES = {
   'om.loss':        { title: 'Revenue Loss · Alarm',    sheet: 'Alarm_Status (คำนวณ Loss)',          rows: () => _allAlarms().filter(a => (a.revenueLoss || 0) > 0),                             cols: DRILL_COLS.alarm },
   'om.critical':    { title: 'Critical Alarms',         sheet: 'Alarm_Status',                       rows: () => _allAlarms().filter(a => a.level === 'Critical'),                               cols: DRILL_COLS.alarm },
   'alarms.all':     { title: 'Alarm ทั้งหมด',           sheet: 'Alarm_Status',                       rows: () => _allAlarms(),                                                                   cols: DRILL_COLS.alarm },
+  'om.renewal':     { title: 'สัญญาใกล้หมด (90 วัน)',    sheet: 'O&M_Contracts',                      rows: () => _omRenewals(),                                                                  cols: [{ key: 'customer', label: 'ลูกค้า' }, { key: 'site', label: 'Site' }, { key: 'endDate', label: 'วันหมดสัญญา' }, { key: 'status', label: 'สถานะ' }, { key: 'fee', label: 'ค่าบริการ/เดือน', right: true, fmt: _drillMoney }] },
   // Chart drills (Audit 1.0 · 1e) — per-month / per-group / per-team real records, matching each chart's own aggregation.
   'revenue.month':  { title: a => 'รายได้จริง · ' + a,  sheet: 'Revenue_Actual',                     rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a)), cols: DRILL_COLS.revenue },
   'collected.month':{ title: a => 'เก็บเงินแล้ว · ' + a, sheet: 'Revenue_Actual (Paid)',              rows: a => (DATA.revenue_actual || []).filter(r => r.billingDate && String(r.billingDate).startsWith(a) && r.paymentStatus === 'Paid'), cols: DRILL_COLS.revenue },
@@ -6812,6 +6844,7 @@ const PROV = {
   omLossVal:    { label: 'Revenue Loss', sheet: 'Alarm_Status', formula: 'Σ (kW × Efficiency ตามชั่วโมง × ชม.ที่เสีย × ฿4.50/kWh) — ชม.ที่เสียที่ว่างใช้ค่าประมาณตามระดับ', kind: 'est', drill: 'om.loss' },
   omInsVal:     { label: 'Inspection % (PM)', sheet: 'Inspection_MasterPlan', formula: 'นับ PM เสร็จ ÷ ทั้งหมด ×100', kind: 'real', drill: 'om.inspection' },
   omCritVal:    { label: 'Critical Alarms', sheet: 'Alarm_Status', formula: 'นับแถว level = Critical', kind: 'real', drill: 'om.critical' },
+  omRenewalVal: { label: 'สัญญาใกล้หมด (ค่าบริการ)', sheet: 'O&M_Contracts', formula: 'Σ fee ของสัญญาที่ endDate อยู่ใน 90 วันข้างหน้า (ยังไม่ยกเลิก)', kind: 'real', drill: 'om.renewal' },
   // --- Cleaning ---
   clDoneRateVal:{ label: 'อัตราเสร็จ Cleaning', sheet: 'Cleaning_MasterPlan', formula: 'นับงานเสร็จสิ้น ÷ ทั้งหมด ×100', kind: 'real', drill: 'cleaning.month' },
   clMonthVal:   { label: 'งาน Cleaning เดือนนี้', sheet: 'Cleaning_MasterPlan', formula: 'นับงานตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'cleaning.month' },
@@ -6822,6 +6855,7 @@ const PROV = {
   solarKWVal:   { label: 'kW ที่ติดตั้ง', sheet: 'Revenue_Actual', formula: 'Σ kW (nameplate) ของแถว Solar — kW เฉลี่ยถูกแยกเป็น kWAvg ไม่นำมารวม', kind: 'real', drill: 'solar.kw' },
   solarFcVal:   { label: 'Sales Forecast', sheet: 'Revenue_Forecast', formula: 'Σ revenue ของ forecast ประเภท Solar/Rooftop/EPC', kind: 'real', drill: 'solar.forecast' },
   solarAchVal:  { label: 'มูลค่าเฉลี่ย/โครงการ', sheet: 'Revenue_Actual', formula: 'Σ revenue Solar ÷ จำนวนโครงการ Solar', kind: 'real', drill: 'solar.revenue' },
+  solarKWpVal:  { label: 'Fleet kWp', sheet: 'Customer_Master', formula: 'Σ kWp (nameplate ต่อไซต์) — คนละค่ากับ kW ต่อ transaction บน Revenue_Actual', kind: 'real' },
   // --- Permit (money-focused) ---
   pPipelineVal: { label: 'มูลค่ารวม Pipeline', sheet: 'Permit_Jobs', formula: 'Σ revenue ของ Permit ทุกใบ (ตาม filter ลูกค้า/grade)', kind: 'real', drill: 'permit.all' },
   pStuckVal:    { label: 'เงินจม (Delayed)', sheet: 'Permit_Jobs', formula: 'Σ revenue ของใบที่เลยกำหนด (dueDate < วันนี้ → dueOffset < 0)', kind: 'real', drill: 'permit.stuck' },
