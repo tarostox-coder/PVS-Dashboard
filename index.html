@@ -2089,7 +2089,7 @@ input[type="file"] { display: none; }
 @media (max-width: 700px) { .permit-hero-grid { grid-template-columns: 1fr; } }
 .kpi-mini.permit-hero { padding: 22px 24px; border-width: 2px; box-shadow: var(--card-shadow, 0 8px 24px rgba(10,70,74,0.10)); }
 .kpi-mini.permit-hero .kpi-mini-label { font-size: 14px; }
-.kpi-mini.permit-hero .kpi-mini-value { font-size: 46px; line-height: 1.05; }
+.kpi-mini.permit-hero .kpi-mini-value { font-size: clamp(30px, 7vw, 46px); line-height: 1.05; overflow-wrap: anywhere; }
 .kpi-mini.permit-hero .kpi-ic { top: 20px; right: 20px; width: 52px; height: 52px; }
 .kpi-mini.permit-hero .kpi-ic svg { width: 26px; height: 26px; }
 @media (max-width: 600px) { .kpi-mini.permit-hero .kpi-mini-value { font-size: 34px; } }
@@ -3273,13 +3273,14 @@ input[type="file"] { display: none; }
 }
 .hero-amount {
   font-family: 'Outfit', sans-serif;
-  font-size: 44px; font-weight: 700;
+  font-size: clamp(30px, 8.5vw, 44px); font-weight: 700;   /* fluid: fits phones → desktop without overflow */
   color: var(--text);
   letter-spacing: -0.02em;
-  line-height: 1.0;
+  line-height: 1.02;
   margin-bottom: 6px;
+  overflow-wrap: anywhere;
 }
-.hero-amount .currency { font-size: 28px; color: var(--text-dim); font-weight: 500; margin-right: 4px; }
+.hero-amount .currency { font-size: 0.62em; color: var(--text-dim); font-weight: 500; margin-right: 4px; }
 .hero-sub {
   font-size: 13px; color: var(--text-dim);
   margin-bottom: 14px;
@@ -3404,7 +3405,7 @@ input[type="file"] { display: none; }
 .hero-card:hover { border: none; box-shadow: 0 16px 40px rgba(8,135,168,0.30); }
 .hero-card .hero-label { color: rgba(255,255,255,0.85); }
 .hero-card .hero-label-dot { background: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.7); }
-.hero-card .hero-amount { color: #fff; font-size: 48px; }
+.hero-card .hero-amount { color: #fff; font-size: clamp(32px, 9.5vw, 48px); }
 .hero-card .hero-amount .currency { color: rgba(255,255,255,0.82); }
 .hero-card .hero-sub { color: rgba(255,255,255,0.92); }
 .hero-card .hero-trend-pill.up,
