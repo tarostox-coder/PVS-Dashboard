@@ -4663,7 +4663,7 @@ const DATA = {
 
 // Default to "ทุกเดือน" so the executive view always shows the FULL revenue
 // total (incl. rows without a billing date); month is an opt-in drill-down.
-const FILTERS = { month: 'all', customer: 'all', grade: 'all' };
+const FILTERS = { month: 'all', customer: 'all', grade: 'all', q: '' };
 
 const CONFIG = {
   TARGET_MONTHLY: 10_000_000,
@@ -5058,6 +5058,14 @@ function applyFilters(rows, dateField = 'date', custField = 'customer') {
     if (FILTERS.grade !== 'all') {
       const cust = DATA.customer_master.find(c => c.name === r[custField]);
       if (!cust || cust.grade !== FILTERS.grade) return false;
+    }
+    // Per-tab free-text search — keep a row only if any of its TEXT fields
+    // contains the query. Applied here so every KPI sum, chart, and drill on the
+    // active tab reflects exactly the searched subset (real numbers, real-time).
+    if (FILTERS.q) {
+      let hit = false;
+      for (const k in r) { const v = r[k]; if (typeof v === 'string' && v.toLowerCase().indexOf(FILTERS.q) >= 0) { hit = true; break; } }
+      if (!hit) return false;
     }
     return true;
   });
@@ -6932,9 +6940,19 @@ function installTabSearch() {
     if (title && title.nextSibling) pane.insertBefore(box, title.nextSibling);
     else pane.insertBefore(box, pane.firstChild);
     const input = box.querySelector('input');
-    input.addEventListener('input', () => { pane.dataset.q = input.value.trim().toLowerCase(); applyTabFilter(pane); });
-    box.querySelector('.tab-search-clear').addEventListener('click', () => { input.value = ''; pane.dataset.q = ''; applyTabFilter(pane); input.focus(); });
+    input.value = FILTERS.q || '';
+    input.addEventListener('input', () => _onTabSearch(pane, input.value));
+    box.querySelector('.tab-search-clear').addEventListener('click', () => { input.value = ''; _onTabSearch(pane, ''); input.focus(); });
   });
+}
+let _searchTimer = null;
+function _onTabSearch(pane, raw) {
+  const q = (raw || '').trim().toLowerCase();
+  pane.dataset.q = q;
+  applyTabFilter(pane);            // instant: hide non-matching visible rows for snappy feedback
+  FILTERS.q = q;                   // real filter: recompute KPIs / charts / drills for the subset
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => { try { renderActiveTab(); } catch (e) {} }, 200);
 }
 function applyTabFilter(pane) {
   if (!pane) return;
@@ -6955,10 +6973,14 @@ function applyTabFilter(pane) {
     if (c) c.textContent = q ? `${shown}/${total}` : '';
   }
 }
-/* Re-apply the active tab's stored query after a re-render (rows are rebuilt). */
+/* After a re-render, keep the active tab's search box + row-filter in sync with
+ * the shared query (so switching tabs and re-renders preserve the search). */
 function reapplyTabFilter() {
-  const pane = document.querySelector('.tab-pane.active');
-  if (pane && pane.dataset.q) applyTabFilter(pane);
+  const pane = document.querySelector('.tab-pane.active'); if (!pane) return;
+  const box = pane.querySelector(':scope > .tab-search');
+  if (box) { const input = box.querySelector('input'); if (input && input.value.trim().toLowerCase() !== (FILTERS.q || '')) input.value = FILTERS.q || ''; }
+  pane.dataset.q = FILTERS.q || '';
+  applyTabFilter(pane);
 }
 
 /* ============== CARD CLICK HANDLERS ============== */
