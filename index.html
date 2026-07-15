@@ -4663,7 +4663,7 @@ const DATA = {
 
 // Default to "ทุกเดือน" so the executive view always shows the FULL revenue
 // total (incl. rows without a billing date); month is an opt-in drill-down.
-const FILTERS = { month: 'all', customer: 'all', grade: 'all' };
+const FILTERS = { month: 'all', customer: 'all', grade: 'all', q: '' };
 
 const CONFIG = {
   TARGET_MONTHLY: 10_000_000,
@@ -4671,11 +4671,10 @@ const CONFIG = {
   PROBABILITY_THRESHOLD: 70,        // forecast >= 70% นับเข้า gauge
   GRADE_A_THRESHOLD: 500_000,
   GRADE_B_THRESHOLD: 150_000,
-  // ⚠️ UNVERIFIED ASSUMPTION (Audit 1.2): rate used to *estimate* cleaning revenue
-  // as kW × this, only because the Cleaning sheet has no revenue column. Its
-  // business source is unconfirmed — do NOT treat the derived figure as real
-  // sheet data (UI already labels it "ประมาณ/est."). Update here once confirmed.
-  CLEANING_RATE_PER_KW: 800,        // ฿/kW — ประมาณค่าทำความสะอาด (รอธุรกิจยืนยัน)
+  // (Removed CLEANING_RATE_PER_KW / the kW×800 cleaning-revenue estimate — it had
+  //  no verifiable business source. Cleaning is now shown only as real metrics:
+  //  % completion, job counts, kW. Re-add a rate here only if the business
+  //  confirms one, or add a revenue column to Cleaning_MasterPlan.)
   // Time-Specific Efficiency tiers
   EFFICIENCY_PEAK: 0.85,            // 10:00-14:00 แดดจัด
   EFFICIENCY_SHOULDER: 0.35,        // 08:00-10:00 / 14:00-17:00
@@ -5060,6 +5059,14 @@ function applyFilters(rows, dateField = 'date', custField = 'customer') {
       const cust = DATA.customer_master.find(c => c.name === r[custField]);
       if (!cust || cust.grade !== FILTERS.grade) return false;
     }
+    // Per-tab free-text search — keep a row only if any of its TEXT fields
+    // contains the query. Applied here so every KPI sum, chart, and drill on the
+    // active tab reflects exactly the searched subset (real numbers, real-time).
+    if (FILTERS.q) {
+      let hit = false;
+      for (const k in r) { const v = r[k]; if (typeof v === 'string' && v.toLowerCase().indexOf(FILTERS.q) >= 0) { hit = true; break; } }
+      if (!hit) return false;
+    }
     return true;
   });
 }
@@ -5275,9 +5282,11 @@ function execBURevenue(grain) {
   const ra = DATA.revenue_actual || [];
   const solar = ra.filter(r => execIsSolar(r) && inWin(r.billingDate)).reduce((s, r) => s + (r.revenue || 0), 0);
   const om = ra.filter(r => execIsOM(r) && inWin(r.billingDate)).reduce((s, r) => s + (r.revenue || 0), 0);
-  const cleaning = (DATA.cleaning || []).filter(c => inWin(c.planDate)).reduce((s, c) => s + (c.kW || 0) * CONFIG.CLEANING_RATE_PER_KW, 0);
+  // Cleaning intentionally omitted — Cleaning_MasterPlan has no revenue column and
+  // we no longer fabricate one (was kW×800). Cleaning is shown as % completion + job
+  // counts + kW on its own tab (all real). Only real-revenue BUs appear here.
   const permit = (DATA.permit_jobs || []).filter(p => inWin(p.startDate)).reduce((s, p) => s + (p.revenue || 0), 0);
-  return { solar, cleaning, om, permit };
+  return { solar, om, permit };
 }
 
 function renderExec() {
@@ -5400,7 +5409,7 @@ function renderExec() {
   document.getElementById('execCharts').innerHTML = `
     <div class="card"><div class="card-header"><div>
       <div class="card-title">รายได้ตาม Business Unit</div>
-      <div class="card-subtitle">Solar · O&amp;M · Permit · Cleaning* (*ประมาณจาก kW×800 — ชีตไม่มีคอลัมน์รายได้)</div></div>
+      <div class="card-subtitle">Solar · O&amp;M · Permit — รายได้จริงจากชีต (Cleaning ไม่มีคอลัมน์รายได้ · ดู % งานเสร็จในแท็บ Cleaning)</div></div>
       <div class="exec-toggle" id="execGrainToggle">
         <button data-grain="day" class="${grain === 'day' ? 'active' : ''}">วันนี้</button>
         <button data-grain="week" class="${grain === 'week' ? 'active' : ''}">7 วัน</button>
@@ -5417,16 +5426,16 @@ function renderExec() {
   const bu = execBURevenue(grain);
   CHARTS.execBU = registerChart('execBU', new Chart(document.getElementById('execBU').getContext('2d'), {
     type: 'bar',
-    data: { labels: ['Solar', 'Cleaning*', 'O&M', 'Permit'], datasets: [{
-      data: [bu.solar, bu.cleaning, bu.om, bu.permit],
-      backgroundColor: [getCSSVar('--bu-solar'), getCSSVar('--bu-cleaning'), getCSSVar('--bu-om'), getCSSVar('--bu-permit')],
+    data: { labels: ['Solar', 'O&M', 'Permit'], datasets: [{
+      data: [bu.solar, bu.om, bu.permit],
+      backgroundColor: [getCSSVar('--bu-solar'), getCSSVar('--bu-om'), getCSSVar('--bu-permit')],
       borderRadius: 8, maxBarThickness: 60,
     }]},
     options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) + (c.dataIndex === 1 ? ' (ประมาณจาก kW)' : '') } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '฿' + fmtFull(c.parsed.y) } } },
       scales: { x: { grid: { display: false }, ticks: { color: getCSSVar('--text-dim') } },
                 y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') }, beginAtZero: true } },
-      onClick: (evt, els) => { if (els.length) switchTab(['solar', 'cleaning', 'om', 'permit'][els[0].index]); }
+      onClick: (evt, els) => { if (els.length) switchTab(['solar', 'om', 'permit'][els[0].index]); }
     }
   }));
 
@@ -6376,7 +6385,7 @@ function openCleaningRowDrill(idx) {
     ],
     [
       { label: 'ขนาดระบบ', value: (cl.kW||0).toFixed(2) + ' kW' },
-      { label: 'ค่าทำสะอาด (est.)', value: '฿' + fmtCurrency((cl.kW||0) * CONFIG.CLEANING_RATE_PER_KW) },
+      { label: 'สถานะงาน', value: cl.status || '—' },
     ]
   );
 }
@@ -6931,9 +6940,19 @@ function installTabSearch() {
     if (title && title.nextSibling) pane.insertBefore(box, title.nextSibling);
     else pane.insertBefore(box, pane.firstChild);
     const input = box.querySelector('input');
-    input.addEventListener('input', () => { pane.dataset.q = input.value.trim().toLowerCase(); applyTabFilter(pane); });
-    box.querySelector('.tab-search-clear').addEventListener('click', () => { input.value = ''; pane.dataset.q = ''; applyTabFilter(pane); input.focus(); });
+    input.value = FILTERS.q || '';
+    input.addEventListener('input', () => _onTabSearch(pane, input.value));
+    box.querySelector('.tab-search-clear').addEventListener('click', () => { input.value = ''; _onTabSearch(pane, ''); input.focus(); });
   });
+}
+let _searchTimer = null;
+function _onTabSearch(pane, raw) {
+  const q = (raw || '').trim().toLowerCase();
+  pane.dataset.q = q;
+  applyTabFilter(pane);            // instant: hide non-matching visible rows for snappy feedback
+  FILTERS.q = q;                   // real filter: recompute KPIs / charts / drills for the subset
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => { try { renderActiveTab(); } catch (e) {} }, 200);
 }
 function applyTabFilter(pane) {
   if (!pane) return;
@@ -6954,10 +6973,14 @@ function applyTabFilter(pane) {
     if (c) c.textContent = q ? `${shown}/${total}` : '';
   }
 }
-/* Re-apply the active tab's stored query after a re-render (rows are rebuilt). */
+/* After a re-render, keep the active tab's search box + row-filter in sync with
+ * the shared query (so switching tabs and re-renders preserve the search). */
 function reapplyTabFilter() {
-  const pane = document.querySelector('.tab-pane.active');
-  if (pane && pane.dataset.q) applyTabFilter(pane);
+  const pane = document.querySelector('.tab-pane.active'); if (!pane) return;
+  const box = pane.querySelector(':scope > .tab-search');
+  if (box) { const input = box.querySelector('input'); if (input && input.value.trim().toLowerCase() !== (FILTERS.q || '')) input.value = FILTERS.q || ''; }
+  pane.dataset.q = FILTERS.q || '';
+  applyTabFilter(pane);
 }
 
 /* ============== CARD CLICK HANDLERS ============== */
