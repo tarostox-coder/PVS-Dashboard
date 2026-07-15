@@ -11,7 +11,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<!-- html2canvas-pro: maintained fork that supports modern CSS (color-mix, oklch, grid) — the stock 1.4.1 could not capture this theme (color-mix throw + blank body). Drop-in: still exposes window.html2canvas. -->
+<script src="https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js"></script>
 
 <!-- ============================================================
      UNIVERSAL EXCEL DATA ENGINE (V8) — embedded, modular         
@@ -6919,7 +6920,7 @@ function installTabSearch() {
     const pane = document.getElementById('tab-' + t); if (!pane) return;
     if (pane.querySelector(':scope > .tab-search')) return;   // once per pane
     const box = document.createElement('div');
-    box.className = 'tab-search';
+    box.className = 'tab-search no-snapshot';   // exclude the search field from PNG snapshots
     box.innerHTML =
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
       '<input type="text" autocomplete="off" placeholder="ค้นหาในแท็บนี้ (ลูกค้า/โครงการ/สถานะ…)" aria-label="ค้นหาในแท็บนี้">' +
@@ -7840,29 +7841,18 @@ async function snapshotDashboard() {
       // Skip elements with class .no-snapshot if marked
       ignoreElements: (el) => el.classList && el.classList.contains('no-snapshot'),
       onclone: (clonedDoc) => {
-        // Walk original document, copy resolved colors to clone (fixes color-mix() which html2canvas can't parse)
-        const origAll = document.querySelectorAll('*');
-        const cloneAll = clonedDoc.querySelectorAll('*');
-        const n = Math.min(origAll.length, cloneAll.length);
-        for (let i = 0; i < n; i++) {
-          const cs = window.getComputedStyle(origAll[i]);
-          const ce = cloneAll[i];
-          if (!ce) continue;
-          // Resolved colors → inline (overrides any color-mix in stylesheets)
-          ce.style.backgroundColor = cs.backgroundColor;
-          ce.style.borderTopColor = cs.borderTopColor;
-          ce.style.borderRightColor = cs.borderRightColor;
-          ce.style.borderBottomColor = cs.borderBottomColor;
-          ce.style.borderLeftColor = cs.borderLeftColor;
-          ce.style.color = cs.color;
-          // backdrop-filter unsupported by html2canvas
-          ce.style.backdropFilter = 'none';
-          ce.style.webkitBackdropFilter = 'none';
-          // box-shadow with color-mix
-          if (cs.boxShadow && cs.boxShadow !== 'none') ce.style.boxShadow = cs.boxShadow;
-          // outline color
-          if (cs.outlineColor) ce.style.outlineColor = cs.outlineColor;
-        }
+        // html2canvas-pro handles color-mix()/modern CSS, so no per-element color
+        // copy is needed. Two things it can't infer, though:
+        //  1) CSS animations RESTART in the clone — the .tab-pane fadeIn would be
+        //     captured at its opacity:0 start frame, blanking the whole body.
+        //  2) backdrop-filter isn't rendered.
+        // Force every element to its final, static state.
+        clonedDoc.querySelectorAll('*').forEach((e) => {
+          e.style.animation = 'none';
+          e.style.transition = 'none';
+          e.style.backdropFilter = 'none';
+          e.style.webkitBackdropFilter = 'none';
+        });
       },
     });
 
