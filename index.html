@@ -161,6 +161,12 @@
     },
     _mk(y, mo, d, hh, mm, ss) {
       mo = mo || 1; d = d || 1;
+      // Buddhist Era → Gregorian. Thai sheets often store text dates in พ.ศ.
+      // (e.g. 15/05/2569). A genuine CE business date is never ≥ 2200, while a
+      // Thai พ.ศ. year is ~2500–2600, so this threshold separates them cleanly.
+      // Normalizing here makes EVERY downstream month key / label / filter CE-
+      // consistent (fixes duplicate months + the "พ.ค. 12" (year 3112) label).
+      if (y >= 2200) y -= 543;
       // Edge-case guard: an impossible month/day (e.g. an ambiguous MM/DD value
       // read as DD/MM) must return null instead of silently overflowing into the
       // wrong month/year. All genuinely valid dates parse exactly as before.
@@ -2102,6 +2108,8 @@ input[type="file"] { display: none; }
 .tab-search.has-q .tab-search-clear { display: inline-block; }
 .tab-search-count { position: absolute; right: 34px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--text-dim); pointer-events: none; }
 @media (max-width: 600px) { .tab-search { max-width: none; } }
+.rollup-modal-btn { font: inherit; font-size: 11.5px; color: var(--cyan-bright); background: var(--cyan-glow); border: 1px solid var(--border); border-radius: 7px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+.rollup-modal-btn:hover { border-color: var(--cyan); color: var(--cyan); }
 /* ที่มาของตัวเลข — small info affordance on any KPI that has a provenance entry */
 .prov-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -4217,15 +4225,6 @@ img, canvas, video { max-width: 100%; }
 
     <div id="rollupHost"></div>
 
-    <div class="section-bar">
-      <div class="section-num">6</div>
-      <div class="section-title">จุดที่ต้องดูแลด่วน</div>
-      <div class="section-sub">Top issues ที่ทำให้เงินรั่ว · เรียงตามมูลค่า</div>
-      <div class="section-spacer"></div>
-    </div>
-
-    <div class="action-list" id="leakageList"></div>
-
   </div>
 
   <!-- ============================================================ -->
@@ -5466,14 +5465,10 @@ function renderExec() {
 
   /* ---- Revenue trend (Actual vs Forecast) + Top-5 needs-attention ---- */
   document.getElementById('execBottom').innerHTML = `
-    <div class="card"><div class="card-header"><div>
+    <div class="card" style="grid-column:1 / -1;"><div class="card-header"><div>
       <div class="card-title">แนวโน้มรายได้ · Actual vs Forecast</div>
       <div class="card-subtitle">รายเดือน (Weighted Forecast)</div></div></div>
-      <div class="chart-wrap"><canvas id="execTrend"></canvas></div></div>
-    <div class="card"><div class="card-header"><div>
-      <div class="card-title">Top-5 ต้องดูแลด่วน</div>
-      <div class="card-subtitle">Alarm ค้าง · Permit ดีเลย์ · สัญญาใกล้หมด</div></div></div>
-      <div class="exec-attention" id="execAttention"></div></div>`;
+      <div class="chart-wrap"><canvas id="execTrend"></canvas></div></div>`;
 
   const months = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
   const mlabels = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.'];
@@ -5491,8 +5486,6 @@ function renderExec() {
                 y: { grid: { color: getCSSVar('--grid-line') }, ticks: { callback: v => '฿' + fmtAxis(v), color: getCSSVar('--text-dim') } } },
       onClick: (evt, els) => { if (els.length) { const e = els[0]; drillByKey(e.datasetIndex === 1 ? 'forecast.month' : 'revenue.month', months[e.index]); } } }
   }));
-
-  renderExecAttention();
 }
 
 /** Ring gauge (0-100) with a centered %; color-graded value text. */
@@ -5759,57 +5752,6 @@ function renderHome() {
     plugins: [gaugeNeedle]
   }));
 
-  const leakBox = document.getElementById('leakageList');
-  const leakItems = [];
-
-  const byCust = {};
-  overdueRows.forEach(r => {
-    if (!byCust[r.customer]) byCust[r.customer] = { amt: 0, cnt: 0, maxDays: 0 };
-    byCust[r.customer].amt += r.revenue;
-    byCust[r.customer].cnt++;
-    byCust[r.customer].maxDays = Math.max(byCust[r.customer].maxDays, r.daysOverdue);
-  });
-  Object.entries(byCust).sort((a,b) => b[1].amt - a[1].amt).slice(0, 3).forEach(([cust, d]) => {
-    leakItems.push({
-      icon: '💰', title: `${cust} · ค้างชำระ`,
-      sub: `${d.cnt} ใบ · สูงสุด ${d.maxDays} วัน`,
-      amount: d.amt, color: 'var(--critical)',
-      onclick: `openCustomerDrill('${escJsArg(cust)}')`
-    });
-  });
-
-  delayedPermits.sort((a,b) => b.revenue - a.revenue).slice(0, 2).forEach(p => {
-    const idx = DATA.permit_jobs.indexOf(p);
-    leakItems.push({
-      icon: '📋', title: `${p.customer} · ${p.docType}`,
-      sub: `Permit เลยกำหนด ${-p.dueOffset} วัน`,
-      amount: p.revenue, color: 'var(--purple)',
-      onclick: `openPermitDrill(${idx})`
-    });
-  });
-
-  if (rl.totalLoss > 0) {
-    leakItems.push({
-      icon: '⚡', title: 'Revenue Loss · เครื่องหยุดทำงาน',
-      sub: `${rl.totalHours.toFixed(1)} hrs downtime · ${rl.count} alarms`,
-      amount: rl.totalLoss, color: 'var(--warning)',
-      onclick: 'openRevenueLossFormulaDrill()'
-    });
-  }
-
-  leakBox.innerHTML = leakItems.length
-    ? leakItems.map(it => `
-        <div class="action-item" style="--action-color:${it.color};" onclick="${it.onclick}">
-          <div class="action-icon">${it.icon}</div>
-          <div class="action-info">
-            <div class="action-title">${escHtml(it.title)}</div>
-            <div class="action-sub">${escHtml(it.sub)}</div>
-          </div>
-          <div class="action-amount">฿${fmtCurrency(it.amount)}</div>
-          <div class="action-arrow">›</div>
-        </div>`).join('')
-    : '<div class="empty-state">ไม่มีจุดที่ต้องดูแล ✓</div>';
-
   // Goal 5.5 — customer→project rollup, computed on the SAME filtered rows as
   // the hero KPIs above so its total always reconciles with them.
   renderRollup('rollupHost', 'revenue_actual', rows);
@@ -5847,16 +5789,31 @@ function renderRollup(hostId, dsKey, sourceRows) {
     return;
   }
 
+  const isRev = dsKey === 'revenue_actual';
   const groups = roll.customers.map((c, ci) => {
     const projRows = c.projects.map((p, pi) => {
       const label = p.resolved ? escHtml(p.project)
         : `<span style="color:var(--warning)">${escHtml(p.project)} ⚠</span>`;
-      return `<tr class="rollup-proj-row rp-${ci}" style="display:none;cursor:pointer;" onclick="openRollupDrill('${dsKey}',${ci},${pi})">
-        <td style="padding-left:30px;">${label}</td>
+      // Inline period rows (accordion) — click the project to expand its งวด here;
+      // the ตาราง › button still opens the full modal with cost/profit/status.
+      const perRows = (p.periods || []).map(per => {
+        const srow = (sourceRows || [])[per.rowIndex] || {};
+        const dateLabel = isRev ? (srow.billingDate || per.raw || '—') : (per.raw || per.period || '—');
+        const rev = isRev ? (srow.revenue != null ? srow.revenue : (per.values && per.values[primary]))
+                          : (per.values && per.values[primary]);
+        return `<tr class="rollup-period-row rpp-${ci}-${pi}" style="display:none;">
+          <td style="padding-left:54px;color:var(--text-dim);font-size:12px;">${escHtml(dateLabel)}</td>
+          <td></td>
+          <td class="text-right text-mono" style="font-size:12px;color:var(--text-dim);">฿${fmtCurrency(rev || 0)}</td>
+          <td></td>
+        </tr>`;
+      }).join('');
+      return `<tr class="rollup-proj-row rp-${ci}" style="display:none;cursor:pointer;" onclick="toggleRollupProj(${ci},${pi})">
+        <td style="padding-left:30px;"><span class="rollup-caret" id="rollupProjCaret-${ci}-${pi}" style="font-size:10px;">▸</span> ${label}</td>
         <td class="text-center text-mono">${p.periodCount} ${escHtml(roll.periodLabel)}</td>
         <td class="text-right text-mono">฿${fmtCurrency(p.totals[primary])}</td>
-        <td class="text-center" style="color:var(--text-muted)">ดูงวด ›</td>
-      </tr>`;
+        <td class="text-center"><button type="button" class="rollup-modal-btn" onclick="event.stopPropagation();openRollupDrill('${dsKey}',${ci},${pi})">ตาราง ›</button></td>
+      </tr>${perRows}`;
     }).join('');
     return `<tbody>
       <tr class="rollup-cust-row" onclick="toggleRollupCust(${ci})" style="cursor:pointer;">
@@ -5888,6 +5845,18 @@ function toggleRollupCust(ci) {
   let opened = false;
   rows.forEach(r => { const show = r.style.display === 'none'; r.style.display = show ? '' : 'none'; opened = show; });
   if (caret) caret.textContent = opened ? '▾' : '▸';
+  if (!opened) {   // collapsing the customer also hides any expanded period rows + resets project carets
+    document.querySelectorAll('[class*="rollup-period-row rpp-' + ci + '-"]').forEach(r => { r.style.display = 'none'; });
+    document.querySelectorAll('.rollup-period-row').forEach(r => { if (r.className.indexOf('rpp-' + ci + '-') >= 0) r.style.display = 'none'; });
+    document.querySelectorAll('[id^="rollupProjCaret-' + ci + '-"]').forEach(c => { c.textContent = '▸'; });
+  }
+}
+function toggleRollupProj(ci, pi) {
+  const rows = document.querySelectorAll('.rpp-' + ci + '-' + pi);
+  const caret = document.getElementById('rollupProjCaret-' + ci + '-' + pi);
+  const show = rows.length ? rows[0].style.display === 'none' : false;
+  rows.forEach(r => { r.style.display = show ? 'table-row' : 'none'; });
+  if (caret) caret.textContent = show ? '▾' : '▸';
 }
 function openRollupDrill(dsKey, ci, pi) {
   const cache = window.__rollupCache[dsKey]; if (!cache) return;
