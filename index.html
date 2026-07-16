@@ -871,7 +871,11 @@
           paymentStatus: T.text(r.paymentStatus) || 'Pending',
           kW: r.kW || 0, kWAvg: r.kWAvg || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated · Audit 1.1: kWAvg kept separate, never summed
         };
-      }).filter(r => r.customer && (r.billingDate || r.revenue));
+      // Raw-file fidelity (user directive 2026-07): a row that carries a real
+      // revenue amount is kept even when the customer name is still blank — the
+      // money is real and the name can be filled in later. Only a row with no
+      // identity AND no money AND no date is dropped as truly empty.
+      }).filter(r => r.customer || r.revenue || r.billingDate);
     },
     revenue_forecast(rows, ctx) {
       return rows.map(r => ({
@@ -1203,7 +1207,7 @@
     let rowsCounted = 0, dupExcluded = 0, blankCust = 0, blankProj = 0;
 
     rows.forEach((row, idx) => {
-      if (row.isDuplicate) { dupExcluded++; return; }         // stay consistent with KPI sums
+      if (row.isDuplicate) dupExcluded++;   // flagged for DQ review but STILL counted — rollup total stays equal to the raw-file KPI sum
       rowsCounted++;
       const custName = (row[spec.customer] == null ? '' : String(row[spec.customer]).trim());
       const custResolved = custName !== '';
@@ -4066,8 +4070,8 @@ img, canvas, video { max-width: 100%; }
 
     <div class="section-bar">
       <div class="section-num">1</div>
-      <div class="section-title">รายได้เดือนนี้</div>
-      <div class="section-sub">เทียบกับเป้า 10 ล้าน · คลิกเพื่อ Drill-down</div>
+      <div class="section-title">รายได้</div>
+      <div class="section-sub">เทียบกับเป้า 10 ล้าน/เดือน · คลิกเพื่อ Drill-down</div>
       <div class="section-spacer"></div>
     </div>
 
@@ -4237,7 +4241,7 @@ img, canvas, video { max-width: 100%; }
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiSolarRev" data-drill="solar.revenue" style="cursor:pointer;">
         <div class="kpi-ic solar"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-        <div class="kpi-mini-label">Revenue (Solar เดือนนี้)</div>
+        <div class="kpi-mini-label" id="lblSolarRev">Revenue Solar</div>
         <div class="kpi-mini-value" style="color:var(--bu-solar);">฿<span id="solarRevVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="solarRevSub">— โครงการ</div>
       </div>
@@ -4307,13 +4311,13 @@ img, canvas, video { max-width: 100%; }
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiClRev" data-drill="cleaning.month" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-        <div class="kpi-mini-label">อัตราเสร็จสิ้น (เดือนนี้)</div>
+        <div class="kpi-mini-label" id="lblClRate">อัตราเสร็จสิ้น</div>
         <div class="kpi-mini-value" style="color:var(--bu-cleaning);"><span id="clDoneRateVal">0</span><span style="font-size:0.55em; font-weight:600;">%</span></div>
         <div class="kpi-mini-trend neutral" id="clRevSub">เสร็จ 0/0</div>
       </div>
       <div class="kpi-mini clickable" id="kpiClJobs" data-drill="cleaning.month" style="cursor:pointer;">
         <div class="kpi-ic cleaning"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg></div>
-        <div class="kpi-mini-label">งานเดือนนี้</div>
+        <div class="kpi-mini-label" id="lblClJobs">งาน</div>
         <div class="kpi-mini-value text-cyan" id="clMonthVal">0</div>
         <div class="kpi-mini-trend up" id="clDoneSub">เสร็จสิ้น 0/0</div>
       </div>
@@ -4379,7 +4383,7 @@ img, canvas, video { max-width: 100%; }
     <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiOmSvc" data-drill="om.service" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
-        <div class="kpi-mini-label">Service Revenue (เดือนนี้)</div>
+        <div class="kpi-mini-label" id="lblOmSvc">Service Revenue</div>
         <div class="kpi-mini-value" style="color:var(--bu-om);">฿<span id="omSvcVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="omSvcSub">— Service jobs</div>
       </div>
@@ -5032,13 +5036,19 @@ function chartRestore(canvasId) {
 }
 function getCSSVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
+// Period word for KPI labels whose value follows the month filter: the default
+// view is "all months", so a hardcoded "เดือนนี้" (this month) mislabels an
+// all-time total. This keeps every such label honest about the scope on screen.
+function periodWord() { return FILTERS.month === 'all' ? 'ทุกเดือน' : 'เดือนนี้'; }
 function applyFilters(rows, dateField = 'date', custField = 'customer') {
   return rows.filter(r => {
-    // Goal 5.3 — single shared exclusion point for literal duplicate rows.
-    // Rows are flagged (never deleted) by DataEngine.detectDuplicates; excluding
-    // them here keeps every KPI sum AND its drill-down consistent, while the
-    // flagged rows still show in the Data Quality Center + raw explorer tables.
-    if (r.isDuplicate) return false;
+    // Raw-file fidelity (user directive 2026-07): the dashboard mirrors the
+    // uploaded file exactly — it must not alter or drop data. Rows whose key
+    // fields repeat can be genuine records (e.g. the same customer billed the
+    // same amount more than once), so they are NEVER excluded from a total.
+    // DataEngine.detectDuplicates still FLAGS them (row.isDuplicate) so the Data
+    // Quality Center can surface them for human review — the flag is
+    // informational only and never removes revenue from any KPI or drill-down.
     // Pass dateField = null to OPT OUT of the month filter (e.g. Permit is a
     // pipeline of cross-month open jobs, so it filters by customer/grade only).
     // Goal 6.4 — a row with NO date can't be attributed to a specific month, so
@@ -5322,7 +5332,7 @@ function renderExec() {
   // (last 6 dated months): revenue, collection %, overdue ฿, alarm count.
   const _ms = {};
   (DATA.revenue_actual || []).forEach(r => {
-    if (r.isDuplicate) return;
+    // raw-file fidelity: flagged-duplicate rows are still counted (see applyFilters)
     const m = String(r.billingDate || '').slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(m)) return;
     (_ms[m] || (_ms[m] = { rev: 0, paid: 0, over: 0 }));
@@ -6043,17 +6053,27 @@ function renderSolar() {
   const totalRev = rows.reduce((s,r) => s + r.revenue, 0);
   const totalKW = rows.reduce((s,r) => s + (r.kW||0), 0);
   const count = rows.length;
+  document.getElementById('lblSolarRev').textContent = 'Revenue Solar · ' + periodWord();
   document.getElementById('solarRevVal').textContent = fmtFull(totalRev);
   document.getElementById('solarKWVal').textContent = totalKW.toFixed(2);
   document.getElementById('solarRevSub').textContent = `${count} โครงการ`;
   document.getElementById('solarKWAvg').textContent = `เฉลี่ย ${count ? (totalKW/count).toFixed(2) : 0} kW/โครงการ`;
 
-  // Forecast
-  const fc = DATA.revenue_forecast.filter(f => f.ptype && (f.ptype.includes('Solar') || f.ptype === 'Rooftop Solar' || f.ptype === 'EPC Project'));
+  // Forecast — prefer rows the sheet classifies as Solar-type, but the template
+  // often leaves ประเภทโครงการ (ptype) blank. In that case, showing ฿0 would
+  // HIDE the real pipeline in the sheet, so fall back to the full forecast
+  // pipeline instead of dropping it. Probability is likewise often blank — we
+  // never invent a %, so the weighted figure is only shown when the sheet
+  // actually carries probabilities; otherwise we say so plainly.
+  let fc = DATA.revenue_forecast.filter(f => f.ptype && (f.ptype.includes('Solar') || f.ptype === 'Rooftop Solar' || f.ptype === 'EPC Project'));
+  if (!fc.length) fc = DATA.revenue_forecast.slice();
   const fcSum = fc.reduce((s,f) => s + f.revenue, 0);
-  const fcWeighted = fc.reduce((s,f) => s + f.revenue * f.probability / 100, 0);
+  const fcHasProb = fc.some(f => (f.probability || 0) > 0);
+  const fcWeighted = fc.reduce((s,f) => s + f.revenue * (f.probability || 0) / 100, 0);
   document.getElementById('solarFcVal').textContent = fmtFull(fcSum);
-  document.getElementById('solarFcSub').textContent = `Weighted ฿${fmtCurrency(fcWeighted)}`;
+  document.getElementById('solarFcSub').textContent = fcHasProb
+    ? `Weighted ฿${fmtCurrency(fcWeighted)}`
+    : `${fmtInt(fc.length)} ดีล · ไฟล์ยังไม่ระบุ %`;
 
   // Goal 6.4 — the old "Achievement %" compared solar revenue to a GUESSED
   // 6M solar target ("assume 60% of total"). Solar has no separate target in
@@ -6271,6 +6291,9 @@ function renderCleaning() {
   // the real operational metric (completion rate), not a fabricated kW×800.
   const doneRate = monthCl.length ? (done / monthCl.length * 100) : 0;
 
+  const clPer = periodWord();
+  document.getElementById('lblClRate').textContent = 'อัตราเสร็จสิ้น · ' + clPer;
+  document.getElementById('lblClJobs').textContent = 'งาน · ' + clPer;
   document.getElementById('clDoneRateVal').textContent = doneRate.toFixed(0);
   document.getElementById('clRevSub').textContent = `เสร็จ ${done}/${monthCl.length}`;
   document.getElementById('clMonthVal').textContent = monthCl.length;
@@ -6358,6 +6381,7 @@ function renderOM() {
   // = O&M, which includes Monitoring). Same definition every other view uses.
   const svc = getOMRows(applyFilters(DATA.revenue_actual));
   const svcTotal = svc.reduce((s,r) => s + r.revenue, 0);
+  document.getElementById('lblOmSvc').textContent = 'Service Revenue · ' + periodWord();
   document.getElementById('omSvcVal').textContent = fmtFull(svcTotal);
   document.getElementById('omSvcSub').textContent = `${svc.length} Service Jobs`;
 
@@ -6798,7 +6822,7 @@ function exportDrillCSV() {
 const PROV = {
   // key = KPI value element id → { label, sheet, formula, kind:'real'|'est', drill? }
   // --- Home / Summary ---
-  heroRevVal:   { label: 'Revenue', sheet: 'Revenue_Actual', formula: 'Σ revenue ทุกแถว (ตัดแถวซ้ำ isDuplicate) ตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'revenue.all' },
+  heroRevVal:   { label: 'Revenue', sheet: 'Revenue_Actual', formula: 'Σ revenue ทุกแถวตามไฟล์ดิบ (รวมแถวที่ค่าซ้ำ และแถวที่ยังไม่มีชื่อลูกค้าแต่มียอดเงิน) ตาม filter เดือน/ลูกค้า · แถวที่ค่าซ้ำถูกทำเครื่องหมายไว้ใน Data Quality Center เพื่อตรวจสอบ', kind: 'real', drill: 'revenue.all' },
   qsCollectedVal:{ label: 'เก็บเงินแล้ว', sheet: 'Revenue_Actual', formula: 'Σ revenue เฉพาะแถว paymentStatus = Paid', kind: 'real', drill: 'revenue.all' },
   qsRiskVal:    { label: 'Revenue at Risk', sheet: 'Alarm_Status + Revenue_Actual', formula: 'ยอดค้างชำระ (paymentStatus/daysOverdue) + Revenue Loss (ประมาณจาก alarm)', kind: 'est', drill: 'alarms.all' },
   dv2SolarRev:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows)', kind: 'real', drill: 'solar.revenue' },
@@ -6821,7 +6845,7 @@ const PROV = {
   // --- Home Solar ---
   solarRevVal:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows) ตาม filter ปัจจุบัน', kind: 'real', drill: 'solar.revenue' },
   solarKWVal:   { label: 'kW ที่ติดตั้ง', sheet: 'Revenue_Actual', formula: 'Σ kW (nameplate) ของแถว Solar — kW เฉลี่ยถูกแยกเป็น kWAvg ไม่นำมารวม', kind: 'real', drill: 'solar.kw' },
-  solarFcVal:   { label: 'Sales Forecast', sheet: 'Revenue_Forecast', formula: 'Σ revenue ของ forecast ประเภท Solar/Rooftop/EPC', kind: 'real', drill: 'solar.forecast' },
+  solarFcVal:   { label: 'Sales Forecast', sheet: 'Revenue_Forecast', formula: 'Σ รายได้คาดการณ์ ของ forecast ประเภท Solar/Rooftop/EPC · ถ้าไฟล์ไม่ได้ระบุประเภท (ptype ว่าง) จะรวมทั้ง pipeline แทนการโชว์ ฿0 · Weighted แสดงเฉพาะเมื่อไฟล์มีค่า % (ไม่มีการสมมติ %)', kind: 'real', drill: 'solar.forecast' },
   solarAchVal:  { label: 'มูลค่าเฉลี่ย/โครงการ', sheet: 'Revenue_Actual', formula: 'Σ revenue Solar ÷ จำนวนโครงการ Solar', kind: 'real', drill: 'solar.revenue' },
   // --- Permit (money-focused) ---
   pPipelineVal: { label: 'มูลค่ารวม Pipeline', sheet: 'Permit_Jobs', formula: 'Σ revenue ของ Permit ทุกใบ (ตาม filter ลูกค้า/grade)', kind: 'real', drill: 'permit.all' },
