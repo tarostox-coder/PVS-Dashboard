@@ -845,12 +845,13 @@
    * =========================================================================*/
   function firstToken(s) { const t = T.text(s); return t ? t.split(/\s+/)[0] : ''; }
   function monthString(v, ctx) {
-    if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}`;
+    const ce = (y) => (y >= 2200 ? y - 543 : y);   // พ.ศ. → ค.ศ.
+    if (v instanceof Date) return `${ce(v.getFullYear())}-${String(v.getMonth() + 1).padStart(2, '0')}`;
     const s = T.text(v);
     let m = s.match(/^(\d{4})-(\d{1,2})/);
-    if (m) return `${m[1]}-${String(+m[2]).padStart(2, '0')}`;
+    if (m) return `${ce(+m[1])}-${String(+m[2]).padStart(2, '0')}`;
     const d = T.toDate(s);
-    if (d) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (d) return `${ce(d.getFullYear())}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     return s.slice(0, 7);
   }
 
@@ -7254,11 +7255,16 @@ function bindFilters() {
 
 /* ============== EXCEL UPLOAD ============== */
 /* Helpers for date timezone safety + chart memory management */
+// พ.ศ. → ค.ศ. — a real CE business year is never ≥ 2200; a Thai พ.ศ. year is
+// ~2500-2600. Applied to BOTH Date objects (from cellDates) and pre-formatted
+// strings, so a Buddhist date never leaks past the converters as "2569-…".
+function _ceYear(y) { return y >= 2200 ? y - 543 : y; }
+function _ceISOStr(s) { const m = String(s).match(/^(\d{4})(\D.*)?$/); return (m && +m[1] >= 2200) ? String(+m[1] - 543) + (m[2] || '') : String(s); }
 function toLocalISO(d) {
   if (!d) return '';
-  if (typeof d === 'string') return d.slice(0, 10);
+  if (typeof d === 'string') return _ceISOStr(d).slice(0, 10);
   if (!(d instanceof Date) || isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
+  const y = _ceYear(d.getFullYear());
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
@@ -7266,9 +7272,9 @@ function toLocalISO(d) {
 
 function toLocalDateTime(d) {
   if (!d) return '';
-  if (typeof d === 'string') return d;
+  if (typeof d === 'string') return _ceISOStr(d);
   if (!(d instanceof Date) || isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
+  const y = _ceYear(d.getFullYear());
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
