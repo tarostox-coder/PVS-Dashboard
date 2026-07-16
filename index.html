@@ -1752,15 +1752,16 @@ html, body {
 
 .topbar-spacer { flex: 1; }
 .month-indicator {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px; border-radius: 10px;
-  background: var(--cyan-glow); border: 1px solid var(--border-bright);
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 18px; border-radius: 12px;
+  background: var(--cyan-glow); border: 2px solid var(--cyan);
   color: var(--cyan); white-space: nowrap;
+  box-shadow: 0 3px 12px rgba(19,194,194,0.18);
 }
-.month-indicator svg { width: 16px; height: 16px; flex-shrink: 0; }
-.month-indicator-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.month-indicator-value { font-size: 14px; font-weight: 700; color: var(--text); }
-@media (max-width: 720px) { .month-indicator-label { display: none; } }
+.month-indicator svg { width: 19px; height: 19px; flex-shrink: 0; }
+.month-indicator-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.month-indicator-value { font-size: clamp(17px, 2.4vw, 21px); font-weight: 800; color: var(--cyan); letter-spacing: 0.01em; }
+@media (max-width: 720px) { .month-indicator-label { display: none; } .month-indicator { padding: 8px 14px; } }
 
 .topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -2096,12 +2097,12 @@ input[type="file"] { display: none; }
  * and dynamic KPI cards are unaffected. Tint colors come from BU CSS vars. */
 .kpi-mini { position: relative; }
 /* Permit hero row — the two headline tiles (มูลค่ารวม + เอกสารทั้งหมด) are the biggest */
-.permit-hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 700px) { .permit-hero-grid { grid-template-columns: 1fr; } }
-.kpi-mini.permit-hero { padding: 22px 24px; border-width: 2px; box-shadow: var(--card-shadow, 0 8px 24px rgba(10,70,74,0.10)); }
-.kpi-mini.permit-hero .kpi-mini-label { font-size: 14px; }
-.kpi-mini.permit-hero .kpi-mini-value { font-size: clamp(30px, 7vw, 46px); line-height: 1.05; overflow-wrap: anywhere; }
-.kpi-mini.permit-hero .kpi-ic { top: 20px; right: 20px; width: 52px; height: 52px; }
+.permit-hero-grid, .hero-kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 700px) { .permit-hero-grid, .hero-kpi-grid { grid-template-columns: 1fr; } }
+.kpi-mini.permit-hero, .kpi-mini.hero-kpi { padding: 22px 24px; border-width: 2px; box-shadow: var(--card-shadow, 0 8px 24px rgba(10,70,74,0.10)); }
+.kpi-mini.permit-hero .kpi-mini-label, .kpi-mini.hero-kpi .kpi-mini-label { font-size: 14px; }
+.kpi-mini.permit-hero .kpi-mini-value, .kpi-mini.hero-kpi .kpi-mini-value { font-size: clamp(24px, 4.6vw, 40px); line-height: 1.05; white-space: nowrap; }
+.kpi-mini.permit-hero .kpi-ic, .kpi-mini.hero-kpi .kpi-ic { top: 20px; right: 20px; width: 52px; height: 52px; }
 .kpi-mini.permit-hero .kpi-ic svg { width: 26px; height: 26px; }
 @media (max-width: 600px) { .kpi-mini.permit-hero .kpi-mini-value { font-size: 34px; } }
 /* Per-tab search — filters the rows/cards visible on the current tab */
@@ -4379,14 +4380,24 @@ img, canvas, video { max-width: 100%; }
   <div class="tab-pane" id="tab-om">
     <div class="tab-section-title" style="border-left:3px solid var(--bu-om); padding-left:10px;">O&amp;M · Operations &amp; Maintenance</div>
 
-    <!-- Overview: the four O&M concerns at a glance (each from a different sheet) -->
-    <div class="kpi-mini-grid">
-      <div class="kpi-mini clickable" id="kpiOmSvc" data-drill="om.service" style="cursor:pointer;">
+    <!-- Hero row — Service Revenue + Critical Alarms เป็นตัวใหญ่เด่นคู่กัน -->
+    <div class="hero-kpi-grid">
+      <div class="kpi-mini hero-kpi clickable" id="kpiOmSvc" data-drill="om.service" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
         <div class="kpi-mini-label" id="lblOmSvc">Service Revenue</div>
         <div class="kpi-mini-value" style="color:var(--bu-om);">฿<span id="omSvcVal">0</span></div>
         <div class="kpi-mini-trend neutral" id="omSvcSub">— Service jobs</div>
       </div>
+      <div class="kpi-mini hero-kpi clickable" id="kpiOmCrit" data-drill="om.critical" style="cursor:pointer;">
+        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+        <div class="kpi-mini-label">Critical Alarms</div>
+        <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
+        <div class="kpi-mini-trend down" id="omCritSub">เปิดอยู่</div>
+      </div>
+    </div>
+
+    <!-- Overview: the remaining O&M concerns (each from a different sheet) -->
+    <div class="kpi-mini-grid">
       <div class="kpi-mini clickable" id="kpiOmIns" data-drill="om.inspection" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 14l2 2 4-4"/></svg></div>
         <div class="kpi-mini-label">Inspection Progress</div>
@@ -4398,12 +4409,6 @@ img, canvas, video { max-width: 100%; }
         <div class="kpi-mini-label">Revenue Loss (Time-Specific)</div>
         <div class="kpi-mini-value text-critical">฿<span id="omLossVal">0</span></div>
         <div class="kpi-mini-trend down" id="omLossSub">— hrs downtime</div>
-      </div>
-      <div class="kpi-mini clickable" id="kpiOmCrit" data-drill="om.critical" style="cursor:pointer;">
-        <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-        <div class="kpi-mini-label">Critical Alarms</div>
-        <div class="kpi-mini-value text-critical" id="omCritVal">0</div>
-        <div class="kpi-mini-trend down" id="omCritSub">เปิดอยู่</div>
       </div>
       <div class="kpi-mini clickable" id="kpiOmRenewal" data-drill="om.renewal" style="cursor:pointer;">
         <div class="kpi-ic om"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
