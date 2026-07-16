@@ -161,6 +161,12 @@
     },
     _mk(y, mo, d, hh, mm, ss) {
       mo = mo || 1; d = d || 1;
+      // Buddhist Era → Gregorian. Thai sheets often store text dates in พ.ศ.
+      // (e.g. 15/05/2569). A genuine CE business date is never ≥ 2200, while a
+      // Thai พ.ศ. year is ~2500–2600, so this threshold separates them cleanly.
+      // Normalizing here makes EVERY downstream month key / label / filter CE-
+      // consistent (fixes duplicate months + the "พ.ค. 12" (year 3112) label).
+      if (y >= 2200) y -= 543;
       // Edge-case guard: an impossible month/day (e.g. an ambiguous MM/DD value
       // read as DD/MM) must return null instead of silently overflowing into the
       // wrong month/year. All genuinely valid dates parse exactly as before.
