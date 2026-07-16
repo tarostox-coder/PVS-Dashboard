@@ -5949,10 +5949,15 @@ function renderMonthlySummaryPanel() {
   try { md = getMonthlyData(); } catch (e) { md = { source: 'derived', rows: [] }; }
   const rows = (md.rows || []).filter(r => /^\d{4}-\d{2}$/.test(r.month));
 
+  // The "รายได้จริง" here is computed LIVE from Revenue_Actual (current, every
+  // month, every row), NOT read from the Monthly_Summary sheet's cached SUMIFS
+  // column — so it can legitimately differ from that tab when the sheet is stale
+  // / stops early / can't sum a text-stored amount. Say so plainly to avoid the
+  // "why don't these match?" confusion.
   if (sub) sub.textContent = rows.length
     ? (md.source === 'hybrid'
-        ? `รายได้จริงคำนวณสด · เป้าจาก Monthly_Summary · ${rows.length} เดือน`
-        : `รายได้จริงคำนวณสดจาก Revenue Actual · เป้า ฿${fmtCurrency(CONFIG.TARGET_MONTHLY)} · ${rows.length} เดือน`)
+        ? `รายได้จริงคำนวณสดจาก Revenue_Actual (ล่าสุด · ครบทุกเดือน) · เป้าจากชีต Monthly_Summary · ${rows.length} เดือน`
+        : `รายได้จริงคำนวณสดจาก Revenue_Actual · เป้า ฿${fmtCurrency(CONFIG.TARGET_MONTHLY)} · ${rows.length} เดือน`)
     : 'ยังไม่มีข้อมูลรายเดือน';
 
   if (!rows.length) {
