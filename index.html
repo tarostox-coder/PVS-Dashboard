@@ -871,7 +871,11 @@
           paymentStatus: T.text(r.paymentStatus) || 'Pending',
           kW: r.kW || 0, kWAvg: r.kWAvg || 0, province: T.text(r.province), site: T.text(r.site),   // Goal 4.3: province resolved post-derive, never fabricated · Audit 1.1: kWAvg kept separate, never summed
         };
-      }).filter(r => r.customer && (r.billingDate || r.revenue));
+      // Raw-file fidelity (user directive 2026-07): a row that carries a real
+      // revenue amount is kept even when the customer name is still blank — the
+      // money is real and the name can be filled in later. Only a row with no
+      // identity AND no money AND no date is dropped as truly empty.
+      }).filter(r => r.customer || r.revenue || r.billingDate);
     },
     revenue_forecast(rows, ctx) {
       return rows.map(r => ({
@@ -1203,7 +1207,7 @@
     let rowsCounted = 0, dupExcluded = 0, blankCust = 0, blankProj = 0;
 
     rows.forEach((row, idx) => {
-      if (row.isDuplicate) { dupExcluded++; return; }         // stay consistent with KPI sums
+      if (row.isDuplicate) dupExcluded++;   // flagged for DQ review but STILL counted — rollup total stays equal to the raw-file KPI sum
       rowsCounted++;
       const custName = (row[spec.customer] == null ? '' : String(row[spec.customer]).trim());
       const custResolved = custName !== '';
@@ -5034,11 +5038,13 @@ function getCSSVar(name) { return getComputedStyle(document.documentElement).get
 
 function applyFilters(rows, dateField = 'date', custField = 'customer') {
   return rows.filter(r => {
-    // Goal 5.3 — single shared exclusion point for literal duplicate rows.
-    // Rows are flagged (never deleted) by DataEngine.detectDuplicates; excluding
-    // them here keeps every KPI sum AND its drill-down consistent, while the
-    // flagged rows still show in the Data Quality Center + raw explorer tables.
-    if (r.isDuplicate) return false;
+    // Raw-file fidelity (user directive 2026-07): the dashboard mirrors the
+    // uploaded file exactly — it must not alter or drop data. Rows whose key
+    // fields repeat can be genuine records (e.g. the same customer billed the
+    // same amount more than once), so they are NEVER excluded from a total.
+    // DataEngine.detectDuplicates still FLAGS them (row.isDuplicate) so the Data
+    // Quality Center can surface them for human review — the flag is
+    // informational only and never removes revenue from any KPI or drill-down.
     // Pass dateField = null to OPT OUT of the month filter (e.g. Permit is a
     // pipeline of cross-month open jobs, so it filters by customer/grade only).
     // Goal 6.4 — a row with NO date can't be attributed to a specific month, so
@@ -5322,7 +5328,7 @@ function renderExec() {
   // (last 6 dated months): revenue, collection %, overdue ฿, alarm count.
   const _ms = {};
   (DATA.revenue_actual || []).forEach(r => {
-    if (r.isDuplicate) return;
+    // raw-file fidelity: flagged-duplicate rows are still counted (see applyFilters)
     const m = String(r.billingDate || '').slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(m)) return;
     (_ms[m] || (_ms[m] = { rev: 0, paid: 0, over: 0 }));
@@ -6798,7 +6804,7 @@ function exportDrillCSV() {
 const PROV = {
   // key = KPI value element id → { label, sheet, formula, kind:'real'|'est', drill? }
   // --- Home / Summary ---
-  heroRevVal:   { label: 'Revenue', sheet: 'Revenue_Actual', formula: 'Σ revenue ทุกแถว (ตัดแถวซ้ำ isDuplicate) ตาม filter เดือน/ลูกค้า', kind: 'real', drill: 'revenue.all' },
+  heroRevVal:   { label: 'Revenue', sheet: 'Revenue_Actual', formula: 'Σ revenue ทุกแถวตามไฟล์ดิบ (รวมแถวที่ค่าซ้ำ และแถวที่ยังไม่มีชื่อลูกค้าแต่มียอดเงิน) ตาม filter เดือน/ลูกค้า · แถวที่ค่าซ้ำถูกทำเครื่องหมายไว้ใน Data Quality Center เพื่อตรวจสอบ', kind: 'real', drill: 'revenue.all' },
   qsCollectedVal:{ label: 'เก็บเงินแล้ว', sheet: 'Revenue_Actual', formula: 'Σ revenue เฉพาะแถว paymentStatus = Paid', kind: 'real', drill: 'revenue.all' },
   qsRiskVal:    { label: 'Revenue at Risk', sheet: 'Alarm_Status + Revenue_Actual', formula: 'ยอดค้างชำระ (paymentStatus/daysOverdue) + Revenue Loss (ประมาณจาก alarm)', kind: 'est', drill: 'alarms.all' },
   dv2SolarRev:  { label: 'รายได้ Solar', sheet: 'Revenue_Actual', formula: 'Σ revenue ของแถวหมวด Solar (getSolarRows)', kind: 'real', drill: 'solar.revenue' },
