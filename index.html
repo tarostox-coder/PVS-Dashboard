@@ -2006,27 +2006,20 @@ input[type="file"] { display: none; }
 .gauge-wrap {
   position: relative;
   width: 100%;
-  height: 280px;
+  height: 210px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.gauge-center {
-  position: absolute;
-  top: 76%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+/* Reading sits BELOW the arc (not overlaid) so the needle is never covered.
+   Pulled up slightly into the empty lower area of the semicircle. */
+.gauge-readout {
   text-align: center;
-  pointer-events: none;
-  /* Opaque badge: the needle sweeps through this area on mid-range months
-     (e.g. 35%) — a solid card background keeps the reading legible by letting
-     the needle pass BEHIND the numbers instead of through them. */
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 8px 16px 9px;
-  box-shadow: 0 4px 16px rgba(10, 40, 44, 0.10);
+  margin-top: 0;
+  position: relative;
+  z-index: 2;
 }
+.hero-gauge-card .gauge-wrap { flex: none; }
 .gauge-percent {
   font-family: 'Outfit', sans-serif;
   font-size: 38px;
@@ -3928,6 +3921,10 @@ img, canvas, video { max-width: 100%; }
       <div class="brand-sub">#MegaEnergyEmpire</div>
     </div>
   </div>
+  <button class="sidebar-collapse" id="sidebarCollapse" title="ย่อ/ขยายเมนู" aria-label="ย่อ/ขยายเมนู">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    <span class="collapse-hide sidebar-collapse-label">ย่อเมนู</span>
+  </button>
   <div class="sidebar-section-label">Menu</div>
   <nav class="tabs-nav" id="tabsNav">
     <button class="tab-btn active" data-tab="exec">
@@ -4012,10 +4009,6 @@ img, canvas, video { max-width: 100%; }
     </button>
     <span class="sidebar-foot-label collapse-hide">สลับธีม (Light / Dark)</span>
   </div>
-  <button class="sidebar-collapse" id="sidebarCollapse" title="ย่อ/ขยายเมนู" aria-label="ย่อ/ขยายเมนู">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-    <span class="collapse-hide sidebar-collapse-label">ย่อเมนู</span>
-  </button>
 </aside>
 
 <div class="app-main">
@@ -4112,13 +4105,13 @@ img, canvas, video { max-width: 100%; }
         <div class="hero-gauge-card clickable" id="cardGauge">
           <div class="hero-gauge-title">Path to ฿10M</div>
           <div class="hero-gauge-sub">Actual + Forecast (≥70%)</div>
-          <div class="gauge-wrap" style="flex:1; min-height:170px;">
+          <div class="gauge-wrap" style="height:172px;">
             <canvas id="chartGauge"></canvas>
-            <div class="gauge-center">
-              <div class="gauge-percent" id="gaugePercent">0%</div>
-              <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10,000,000</div>
-              <div class="gauge-target" id="gaugeStatus">—</div>
-            </div>
+          </div>
+          <div class="gauge-readout">
+            <div class="gauge-percent" id="gaugePercent">0%</div>
+            <div class="gauge-actual" id="gaugeAmount">฿0 / ฿10,000,000</div>
+            <div class="gauge-target" id="gaugeStatus">—</div>
           </div>
         </div>
       </div>
@@ -5791,18 +5784,20 @@ function renderHome() {
     afterDatasetsDraw(chart) {
       const arc = chart.getDatasetMeta(0).data[0]; if (!arc) return;
       const ctx = chart.ctx, cx = arc.x, cy = arc.y;
-      const len = ((arc.outerRadius + arc.innerRadius) / 2) * 1.04;
-      const tail = len * 0.17, half = 4.5;
+      // Bigger, bolder needle — reaches almost to the arc face, thicker body,
+      // colored to match the active zone so the reading is unmistakable.
+      const len = arc.outerRadius * 0.94;
+      const tail = len * 0.20, half = 7;
       const ang = Math.PI + (needleVal / 100) * Math.PI;   // 0%→left, 50%→up, 100%→right
       ctx.save();
       ctx.translate(cx, cy); ctx.rotate(ang);
       ctx.beginPath();
       ctx.moveTo(-tail, 0); ctx.lineTo(0, -half); ctx.lineTo(len, 0); ctx.lineTo(0, half); ctx.closePath();
-      ctx.fillStyle = needleColor; ctx.fill();
+      ctx.fillStyle = zoneColor; ctx.fill();
       ctx.restore();
       ctx.save(); ctx.translate(cx, cy);
-      ctx.beginPath(); ctx.arc(0, 0, 10, 0, 2 * Math.PI); ctx.fillStyle = needleColor; ctx.fill();
-      ctx.beginPath(); ctx.arc(0, 0, 4.5, 0, 2 * Math.PI); ctx.fillStyle = cardBg; ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, 14, 0, 2 * Math.PI); ctx.fillStyle = needleColor; ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, 6.5, 0, 2 * Math.PI); ctx.fillStyle = cardBg; ctx.fill();
       ctx.fillStyle = getCSSVar('--text-muted') || '#94A3B8';
       ctx.font = '600 10px Inter, sans-serif';
       ctx.textBaseline = 'top'; ctx.textAlign = 'center';
