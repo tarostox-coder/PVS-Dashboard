@@ -1761,6 +1761,16 @@ html, body {
 .month-indicator svg { width: 19px; height: 19px; flex-shrink: 0; }
 .month-indicator-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
 .month-indicator-value { font-size: clamp(17px, 2.4vw, 21px); font-weight: 800; color: var(--cyan); letter-spacing: 0.01em; }
+/* Footer utility bar (TIP + data-source status moved below all tabs) */
+.footer-utility { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+.footer-utility .info-bar { margin: 0; }
+.footer-utility .header-status-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 720px) { .footer-utility .header-status-group { justify-content: flex-start; } }
+
+.month-indicator { position: relative; cursor: pointer; }
+.month-indicator:hover { filter: brightness(1.06); box-shadow: 0 4px 16px rgba(19,194,194,0.28); }
+.month-indicator-caret { width: 15px; height: 15px; flex-shrink: 0; opacity: .8; }
+#monthIndicatorSelect { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; }
 @media (max-width: 720px) { .month-indicator-label { display: none; } .month-indicator { padding: 8px 14px; } }
 
 /* Province map (Exec geo section) */
@@ -2008,6 +2018,14 @@ input[type="file"] { display: none; }
   transform: translate(-50%, -50%);
   text-align: center;
   pointer-events: none;
+  /* Opaque badge: the needle sweeps through this area on mid-range months
+     (e.g. 35%) — a solid card background keeps the reading legible by letting
+     the needle pass BEHIND the numbers instead of through them. */
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 16px 9px;
+  box-shadow: 0 4px 16px rgba(10, 40, 44, 0.10);
 }
 .gauge-percent {
   font-family: 'Outfit', sans-serif;
@@ -4013,10 +4031,12 @@ img, canvas, video { max-width: 100%; }
     <input id="globalSearchInput" type="text" autocomplete="off" placeholder="ค้นหา ลูกค้า / โครงการ / Record ID / Sheet…" title="ค้นหาทั้งแดชบอร์ด (กด Enter)" />
   </div>
   <div class="topbar-spacer"></div>
-  <div class="month-indicator" id="monthIndicator" title="ช่วงเวลาที่กำลังแสดง (เปลี่ยนได้ที่ตัวกรองด้านซ้าย)">
+  <div class="month-indicator" id="monthIndicator" title="คลิกเพื่อเลือกเดือนที่ต้องการดู">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
     <span class="month-indicator-label">กำลังดู</span>
     <span class="month-indicator-value" id="monthIndicatorText">ทุกเดือน</span>
+    <svg class="month-indicator-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    <select id="monthIndicatorSelect" aria-label="เลือกเดือน"></select>
   </div>
 </div>
 
@@ -4030,27 +4050,6 @@ img, canvas, video { max-width: 100%; }
       <h1 class="page-title" id="pageTitle">Summary</h1>
       <p class="page-subtitle" id="pageSubtitle">Executive Command Center · เป้า <span class="text-cyan" style="font-weight:600;">10 ล้านบาท / เดือน</span></p>
     </div>
-    <div class="header-status-group">
-      <div class="data-status-pill" id="dataStatusPill" title="แหล่งข้อมูล / ความสดของข้อมูล">
-        <span class="data-status-dot" id="dataStatusDot"></span>
-        <span id="dataStatusSource">Demo Data</span>
-        <span class="data-status-sep">·</span>
-        <span id="dataStatusFresh" class="data-status-fresh">—</span>
-      </div>
-      <button class="btn btn-refresh" id="refreshDataBtn" title="รีเฟรชข้อมูลล่าสุด (ไม่รีโหลดหน้า · คง filter และแท็บไว้)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        <span>รีเฟรช</span>
-      </button>
-      <div class="live-indicator">
-        <span class="pulse-dot"></span>
-        <span id="liveTime">SYSTEM ONLINE</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="info-bar">
-    <span class="flex-badge">Tip</span>
-    <span>คลิกที่ <strong>KPI / กราฟ / Heatmap / แถวตาราง / Department Card</strong> เพื่อ Drill-down · ใช้ filter ด้านบนเพื่อกรองแบบ Global · <code>Snapshot</code> เพื่อส่งภาพเข้า Line</span>
   </div>
 
   <!-- ============================================================ -->
@@ -4599,6 +4598,30 @@ img, canvas, video { max-width: 100%; }
     <div id="dqValidationHost"></div>
     <div id="dqAuditHost"></div>
     <div id="dqTimelineHost"></div>
+  </div>
+
+  <!-- Footer utility bar — TIP + data-source status, shared under every tab -->
+  <div class="footer-utility">
+    <div class="info-bar">
+      <span class="flex-badge">Tip</span>
+      <span>คลิกที่ <strong>KPI / กราฟ / Heatmap / แถวตาราง / Department Card</strong> เพื่อ Drill-down · ใช้ filter ด้านบนเพื่อกรองแบบ Global · <code>Snapshot</code> เพื่อส่งภาพเข้า Line</span>
+    </div>
+    <div class="header-status-group">
+      <div class="data-status-pill" id="dataStatusPill" title="แหล่งข้อมูล / ความสดของข้อมูล">
+        <span class="data-status-dot" id="dataStatusDot"></span>
+        <span id="dataStatusSource">Demo Data</span>
+        <span class="data-status-sep">·</span>
+        <span id="dataStatusFresh" class="data-status-fresh">—</span>
+      </div>
+      <button class="btn btn-refresh" id="refreshDataBtn" title="รีเฟรชข้อมูลล่าสุด (ไม่รีโหลดหน้า · คง filter และแท็บไว้)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span>รีเฟรช</span>
+      </button>
+      <div class="live-indicator">
+        <span class="pulse-dot"></span>
+        <span id="liveTime">SYSTEM ONLINE</span>
+      </div>
+    </div>
   </div>
 
   </div>
@@ -7315,11 +7338,25 @@ function _thaiMonthLabel(ym, full) {
   if (full) return (_THAI_MONTHS_FULL[idx] || ('เดือน ' + m[2])) + ' ' + be;
   return (_THAI_MONTHS_ABBR[idx] || ('เดือน ' + m[2])) + ' ' + String(be).slice(-2);
 }
-/* Top-bar chip showing which period is currently displayed. */
+/* Top-bar chip showing which period is currently displayed. Clickable: an
+ * invisible <select> covers the chip, mirroring #filterMonth's options, so
+ * picking a month here drives the SAME filter as the sidebar dropdown. */
 function updateMonthIndicator() {
   const el = document.getElementById('monthIndicatorText');
   if (!el) return;
   el.textContent = (FILTERS.month === 'all') ? 'ทุกเดือน' : _thaiMonthLabel(FILTERS.month, true);
+  const mSel = document.getElementById('monthIndicatorSelect');
+  const src = document.getElementById('filterMonth');
+  if (mSel && src) {
+    if (mSel.options.length !== src.options.length) mSel.innerHTML = src.innerHTML;
+    mSel.value = FILTERS.month;
+    if (!mSel._wired) {
+      mSel._wired = true;
+      mSel.addEventListener('change', e => {
+        if (src.value !== e.target.value) { src.value = e.target.value; src.dispatchEvent(new Event('change')); }
+      });
+    }
+  }
 }
 /* Pull a 'YYYY-MM' key from any date-ish value without throwing */
 function _ymOf(v) {
